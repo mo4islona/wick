@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { formatTime, resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
-import { computed } from 'vue';
+import { computed, onUnmounted, watch } from 'vue';
 
 import { useVisibleRange } from '../composables';
 import { useChartInstance } from '../context';
+
+const props = defineProps<{
+  /** Desired number of labels (≥ 2). Overrides chart-level `axis.x.labelCount`. */
+  labelCount?: number;
+  /** Minimum pixel gap between adjacent labels (hard floor). Overrides chart-level. */
+  minLabelSpacing?: number;
+}>();
 
 interface TrackedTick {
   opacity: number;
@@ -11,15 +18,27 @@ interface TrackedTick {
 }
 
 const chart = useChartInstance();
-const _visibleRange = useVisibleRange(chart);
+const visibleRange = useVisibleRange(chart);
+
+const applyDensity = () => {
+  chart.setTimeAxisLabelDensity({
+    labelCount: props.labelCount ?? null,
+    minLabelSpacing: props.minLabelSpacing ?? null,
+  });
+};
+applyDensity();
+watch(() => [props.labelCount, props.minLabelSpacing], applyDensity);
+onUnmounted(() => {
+  chart.setTimeAxisLabelDensity({ labelCount: null, minLabelSpacing: null });
+});
 
 const tickMap = new Map<number, TrackedTick>();
 
 const theme = computed(() => chart.getTheme());
 
 const tickData = computed(() => {
-  // Access _visibleRange.value to track dependency
-  void _visibleRange.value;
+  // Access visibleRange.value to track dependency
+  void visibleRange.value;
 
   const dataInterval = chart.getDataInterval();
   const { ticks: currentTicks, tickInterval } = chart.timeScale.niceTickValues(dataInterval);

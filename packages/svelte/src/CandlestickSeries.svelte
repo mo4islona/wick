@@ -5,7 +5,7 @@ import { get } from 'svelte/store';
 
 import { getChartContext } from './context';
 
-export let data: OHLCInput[] = [];
+export let data: OHLCInput[];
 export let options: Partial<CandlestickSeriesOptions> | undefined = undefined;
 /** Stable series ID — same value across remounts. */
 export let id: string | undefined = undefined;

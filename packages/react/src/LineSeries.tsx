@@ -7,6 +7,7 @@ import { useChartInstance } from './context';
 export interface LineSeriesProps {
   /** Array of datasets — one per layer. A single line uses `[data]`. */
   data: TimePoint[][];
+  /** Visual options override — colours per layer, stroke width, area fill, stacking, entrance animation, smoothing. */
   options?: Partial<LineSeriesOptions>;
   /** Stable series ID — same value across remounts. */
   id?: string;

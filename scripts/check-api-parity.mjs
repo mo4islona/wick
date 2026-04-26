@@ -53,11 +53,14 @@ const REACT_ONLY = new Set(['Sparkline']);
  * - `className` / `style` → React idiomatic. Vue/Svelte pass these through
  *   as fall-through attributes (`class=` / `style=`) without declaring them
  *   in `defineProps` / `export let`.
+ * - `sub` (Title only) → React accepts `ReactNode`; Vue/Svelte expose it as a
+ *   named slot (`<slot name="sub">`) so consumers can pass arbitrary markup
+ *   without a string-only ceiling.
  *
  * These keys are skipped on the Vue/Svelte side of the diff. Real prop
  * additions or renames still trip the checker.
  */
-const FRAMEWORK_CONVENTION_PROPS = new Set(['children', 'className', 'style']);
+const FRAMEWORK_CONVENTION_PROPS = new Set(['children', 'className', 'style', 'sub']);
 
 /**
  * Allowed type-name aliases — when a prop's React type and Vue/Svelte type
@@ -81,7 +84,14 @@ function siblings(reactPath) {
 /** Compress whitespace + sort union members so equivalent type strings compare equal. */
 function normaliseType(s) {
   if (!s) return '';
-  const collapsed = s.replace(/\s+/g, ' ').trim();
+  // `member.type.getText()` preserves source trivia, including JSDoc/line
+  // comments on inline object members. Strip those so per-field JSDoc on a
+  // React inline type doesn't get flagged as a Vue/Svelte drift.
+  const stripped = s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  // Trailing `;` before `}` is a stylistic difference between single-line
+  // (`{ x: number }`) and multi-line (`{ x: number; }`) source forms — same
+  // shape, no surface drift.
+  const collapsed = stripped.replace(/\s+/g, ' ').replace(/;\s*}/g, ' }').trim();
   // Only attempt to sort top-level unions. Nested unions stay where they are —
   // the type printer is consistent enough that they line up between
   // frameworks.

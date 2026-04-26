@@ -21,7 +21,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Visual options override — colours per layer, stroke width, area fill, stacking, entrance animation, smoothing.",
           "see": [],
           "nested": {
             "name": "LineSeriesOptions",
@@ -55,12 +55,26 @@
               },
               {
                 "name": "area",
-                "type": "{ visible: boolean }",
+                "type": "{ visible: boolean; }",
                 "optional": false,
                 "defaultValue": "{ visible: true }",
                 "deprecated": null,
                 "description": "Area-fill configuration. Default: `{ visible: true }`.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "visible",
+                      "type": "boolean",
+                      "optional": false,
+                      "defaultValue": "true",
+                      "deprecated": null,
+                      "description": "Whether the area gradient under the line is rendered. Default: `true`.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "pulse",
@@ -173,7 +187,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Visual options override — colours per layer, bar-width ratio, stacking, entrance animation, smoothing.",
           "see": [],
           "nested": {
             "name": "BarSeriesOptions",
@@ -200,9 +214,9 @@
                 "name": "barWidthRatio",
                 "type": "number",
                 "optional": false,
-                "defaultValue": null,
+                "defaultValue": "0.7",
                 "deprecated": null,
-                "description": "",
+                "description": "Width of each bar as a fraction of the available bar slot (0–1). `1` = bars touch; `0.6` = roughly 60 % of the slot. Default: 0.7.",
                 "see": []
               },
               {
@@ -289,7 +303,7 @@
           "optional": false,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "OHLC candles to render. Each element carries `time/open/high/low/close` and an optional `volume`.",
           "see": []
         },
         {
@@ -298,7 +312,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Visual options override — colours, body width, entrance animation, smoothing. Merged onto theme defaults.",
           "see": [],
           "nested": {
             "name": "CandlestickSeriesOptions",
@@ -318,7 +332,7 @@
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "",
+                "description": "Colours for bullish candles (close ≥ open).",
                 "see": [],
                 "nested": {
                   "name": "CandlestickDirectionColors",
@@ -329,7 +343,7 @@
                       "optional": false,
                       "defaultValue": null,
                       "deprecated": null,
-                      "description": "",
+                      "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient.",
                       "see": []
                     },
                     {
@@ -338,7 +352,7 @@
                       "optional": false,
                       "defaultValue": null,
                       "deprecated": null,
-                      "description": "",
+                      "description": "Wick stroke colour.",
                       "see": []
                     }
                   ]
@@ -350,7 +364,7 @@
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "",
+                "description": "Colours for bearish candles (close < open).",
                 "see": [],
                 "nested": {
                   "name": "CandlestickDirectionColors",
@@ -361,7 +375,7 @@
                       "optional": false,
                       "defaultValue": null,
                       "deprecated": null,
-                      "description": "",
+                      "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient.",
                       "see": []
                     },
                     {
@@ -370,7 +384,7 @@
                       "optional": false,
                       "defaultValue": null,
                       "deprecated": null,
-                      "description": "",
+                      "description": "Wick stroke colour.",
                       "see": []
                     }
                   ]
@@ -460,7 +474,7 @@
           "optional": false,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Slices to render. A flat array of `{ label, value, color? }` entries.",
           "see": []
         },
         {
@@ -469,7 +483,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Visual options override — palette, donut hole, slice gap, label rendering, hover/entrance animations.",
           "see": [],
           "nested": {
             "name": "PieSeriesOptions",
@@ -625,7 +639,7 @@
               },
               {
                 "name": "shadow",
-                "type": "boolean | { /** Shadow color. Default: `rgba(0, 0, 0, 0.22)`. */ color?: string; /** Blur radius in CSS pixels. Default: 24. */ blur?: number; /** Horizontal offset in CSS pixels. Default: 0. */ offsetX?: number; /** Vertical offset in CSS pixels. Default: 10. */ offsetY?: number; }",
+                "type": "boolean | { color?: string; blur?: number; offsetX?: number; offsetY?: number; }",
                 "optional": true,
                 "defaultValue": null,
                 "deprecated": null,
@@ -634,7 +648,7 @@
               },
               {
                 "name": "innerShadow",
-                "type": "boolean | { /** * Rim color. Default: `rgba(0, 0, 0, 0.1)` (blended over the slice * color). Accepts any CSS color. */ color?: string; /** * Fraction of the slice's radial span covered by the darkened band * (0..1). Default: 0.3 — darkening starts at 70% of the radius. */ depth?: number; }",
+                "type": "boolean | { color?: string; depth?: number; }",
                 "optional": true,
                 "defaultValue": null,
                 "deprecated": null,
@@ -667,7 +681,7 @@
           "optional": false,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Data points plotted by the sparkline. A flat `TimePoint[]` — the sparkline only ever shows one tiny line/bar.",
           "see": []
         },
         {
@@ -676,7 +690,7 @@
           "optional": false,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Visual theme. Drives series colour, background gradient, and the change-direction colours used in the value block.",
           "see": [],
           "nested": {
             "name": "ChartTheme",
@@ -705,7 +719,7 @@
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "",
+                "description": "Font family and base size used across the chart's text.",
                 "see": [],
                 "nested": {
                   "name": "Typography",
@@ -716,7 +730,7 @@
                       "optional": false,
                       "defaultValue": null,
                       "deprecated": null,
-                      "description": "",
+                      "description": "CSS `font-family` stack applied to all text rendered by the chart.",
                       "see": []
                     },
                     {
@@ -738,16 +752,108 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Grid line appearance in the chart area.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Grid line stroke colour.",
+                      "see": []
+                    },
+                    {
+                      "name": "style",
+                      "type": "'solid' | 'dashed' | 'dotted'",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Grid line dash pattern.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "candlestick",
-                "type": "{ up: { body: string | [string, string]; wick: string }; down: { body: string | [string, string]; wick: string }; }",
+                "type": "{ up: { body: string | [string, string]; wick: string; }; down: { body: string | [string, string]; wick: string; }; }",
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "OHLC candlestick colors. `wick` defaults to `body` in {@link createTheme }\nwhen omitted, so most presets only need to set the body colors.\n\n`body` shape encodes the fill: a single color renders flat; a\n`[top, bottom]` tuple renders a 2-stop vertical gradient. Presets that\nwant the subtle lightened/darkened look pass `autoGradient(color)`.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "up",
+                      "type": "{ body: string | [string, string]; wick: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bullish candle (close ≥ open).",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "body",
+                            "type": "string | [string, string]",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient.",
+                            "see": []
+                          },
+                          {
+                            "name": "wick",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Wick stroke colour.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "down",
+                      "type": "{ body: string | [string, string]; wick: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bearish candle (close < open).",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "body",
+                            "type": "string | [string, string]",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient.",
+                            "see": []
+                          },
+                          {
+                            "name": "wick",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Wick stroke colour.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
               },
               {
                 "name": "line",
@@ -756,7 +862,48 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Default line series appearance including area gradient fill.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Stroke colour of the line.",
+                      "see": []
+                    },
+                    {
+                      "name": "width",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Stroke width in CSS pixels.",
+                      "see": []
+                    },
+                    {
+                      "name": "areaTopColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Top stop of the area-fill vertical gradient (closest to the line).",
+                      "see": []
+                    },
+                    {
+                      "name": "areaBottomColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bottom stop of the area-fill vertical gradient (closest to the X axis).",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "seriesColors",
@@ -774,7 +921,30 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Bollinger band / envelope fill colors.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "upper",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Fill for the upper band region (above the middle band).",
+                      "see": []
+                    },
+                    {
+                      "name": "lower",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Fill for the lower band region (below the middle band).",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "crosshair",
@@ -783,16 +953,135 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Crosshair line and axis label styling.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Stroke colour of the crosshair lines.",
+                      "see": []
+                    },
+                    {
+                      "name": "labelBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Background fill of the X/Y axis label pills shown at the crosshair position.",
+                      "see": []
+                    },
+                    {
+                      "name": "labelTextColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Text colour inside the crosshair axis label pills.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "axis",
-                "type": "{ fontSize: number; textColor: string; x?: { fontSize?: number; textColor?: string }; y?: { fontSize?: number; textColor?: string }; }",
+                "type": "{ fontSize: number; textColor: string; x?: { fontSize?: number; textColor?: string; }; y?: { fontSize?: number; textColor?: string; }; }",
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Axis tick styling. `fontSize` and `textColor` are the shared defaults used\nfor both X and Y, as well as non-axis label surfaces (legend, crosshair\nlabels, sparkline ticks). Set `x` / `y` only when a specific axis needs to\ndiverge.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "fontSize",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Default tick-label font size shared by both axes.",
+                      "see": []
+                    },
+                    {
+                      "name": "textColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Default tick-label colour shared by both axes.",
+                      "see": []
+                    },
+                    {
+                      "name": "x",
+                      "type": "{ fontSize?: number; textColor?: string; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Override the shared defaults on the X axis only.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fontSize",
+                            "type": "number",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "X-axis tick-label font size. Falls back to `axis.fontSize`.",
+                            "see": []
+                          },
+                          {
+                            "name": "textColor",
+                            "type": "string",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "X-axis tick-label colour. Falls back to `axis.textColor`.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "y",
+                      "type": "{ fontSize?: number; textColor?: string; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Override the shared defaults on the Y axis only.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fontSize",
+                            "type": "number",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Y-axis tick-label font size. Falls back to `axis.fontSize`.",
+                            "see": []
+                          },
+                          {
+                            "name": "textColor",
+                            "type": "string",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Y-axis tick-label colour. Falls back to `axis.textColor`.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
               },
               {
                 "name": "yLabel",
@@ -801,7 +1090,57 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Floating label shown at the current value level on the Y axis.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "fontSize",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Font size of the value text inside the floating Y label.",
+                      "see": []
+                    },
+                    {
+                      "name": "upBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pill background when the latest delta is positive.",
+                      "see": []
+                    },
+                    {
+                      "name": "downBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pill background when the latest delta is negative.",
+                      "see": []
+                    },
+                    {
+                      "name": "neutralBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pill background when the latest delta is zero / unknown.",
+                      "see": []
+                    },
+                    {
+                      "name": "textColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Text colour inside the floating Y label pill.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "tooltip",
@@ -810,16 +1149,313 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Hover tooltip styling.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "fontSize",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip body font size.",
+                      "see": []
+                    },
+                    {
+                      "name": "background",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip background fill.",
+                      "see": []
+                    },
+                    {
+                      "name": "textColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip text colour.",
+                      "see": []
+                    },
+                    {
+                      "name": "borderColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip outer border colour.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "navigator",
-                "type": "{ /** Default height of the navigator strip in CSS pixels. */ height: number; /** Strip background (behind the miniature series). */ background: string; /** Color used for the strip's top + bottom inner-shadow separators. */ borderColor: string; /** Line / close-price miniature color and geometry. */ line: { color: string; width: number; areaTopColor: string; areaBottomColor: string; }; /** Colors for candlestick-type miniature rendering. */ candlestick: { up: { body: string | [string, string]; wick: string }; down: { body: string | [string, string]; wick: string }; }; /** The draggable visible-range window indicator. */ window: { fill: string; border: string; borderWidth: number; }; /** Left/right resize handles on the window edges. */ handle: { color: string; width: number; }; /** Dim overlay covering the regions outside the window. */ mask: { fill: string; }; }",
+                "type": "{ height: number; background: string; borderColor: string; line: { color: string; width: number; areaTopColor: string; areaBottomColor: string; }; candlestick: { up: { body: string | [string, string]; wick: string; }; down: { body: string | [string, string]; wick: string; }; }; window: { fill: string; border: string; borderWidth: number; }; handle: { color: string; width: number; }; mask: { fill: string; }; }",
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Navigator strip shown below the main chart — a miniature overview with a\ndraggable window indicating the visible range.\n\nThe `candlestick` shape mirrors the root {@link ChartTheme.candlestick}\n(including `[top, bottom]` gradient tuples) so candle-type mini views can\nshare colors with the main plot.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "height",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Default height of the navigator strip in CSS pixels.",
+                      "see": []
+                    },
+                    {
+                      "name": "background",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Strip background (behind the miniature series).",
+                      "see": []
+                    },
+                    {
+                      "name": "borderColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Color used for the strip's top + bottom inner-shadow separators.",
+                      "see": []
+                    },
+                    {
+                      "name": "line",
+                      "type": "{ color: string; width: number; areaTopColor: string; areaBottomColor: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Line / close-price miniature color and geometry.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "color",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke colour of the miniature line.",
+                            "see": []
+                          },
+                          {
+                            "name": "width",
+                            "type": "number",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke width of the miniature line in CSS pixels.",
+                            "see": []
+                          },
+                          {
+                            "name": "areaTopColor",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Top stop of the miniature area-fill gradient.",
+                            "see": []
+                          },
+                          {
+                            "name": "areaBottomColor",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Bottom stop of the miniature area-fill gradient.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "candlestick",
+                      "type": "{ up: { body: string | [string, string]; wick: string; }; down: { body: string | [string, string]; wick: string; }; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Colors for candlestick-type miniature rendering.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "up",
+                            "type": "{ body: string | [string, string]; wick: string; }",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Bullish miniature candle (close ≥ open).",
+                            "see": [],
+                            "nested": {
+                              "name": "",
+                              "props": [
+                                {
+                                  "name": "body",
+                                  "type": "string | [string, string]",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a vertical gradient.",
+                                  "see": []
+                                },
+                                {
+                                  "name": "wick",
+                                  "type": "string",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Wick stroke colour.",
+                                  "see": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "down",
+                            "type": "{ body: string | [string, string]; wick: string; }",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Bearish miniature candle (close < open).",
+                            "see": [],
+                            "nested": {
+                              "name": "",
+                              "props": [
+                                {
+                                  "name": "body",
+                                  "type": "string | [string, string]",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a vertical gradient.",
+                                  "see": []
+                                },
+                                {
+                                  "name": "wick",
+                                  "type": "string",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Wick stroke colour.",
+                                  "see": []
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "window",
+                      "type": "{ fill: string; border: string; borderWidth: number; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "The draggable visible-range window indicator.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fill",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Fill inside the visible-range window. Usually a translucent tint.",
+                            "see": []
+                          },
+                          {
+                            "name": "border",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke colour around the window.",
+                            "see": []
+                          },
+                          {
+                            "name": "borderWidth",
+                            "type": "number",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke width of the window border in CSS pixels.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "handle",
+                      "type": "{ color: string; width: number; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Left/right resize handles on the window edges.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "color",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke colour of the handle marker.",
+                            "see": []
+                          },
+                          {
+                            "name": "width",
+                            "type": "number",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Handle marker width in CSS pixels.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "mask",
+                      "type": "{ fill: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Dim overlay covering the regions outside the window.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fill",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Fill of the dim overlay applied to regions outside the window.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -889,12 +1525,26 @@
         },
         {
           "name": "area",
-          "type": "{ visible: boolean }",
+          "type": "{ visible: boolean; }",
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
           "description": "Show area fill under line",
-          "see": []
+          "see": [],
+          "nested": {
+            "name": "",
+            "props": [
+              {
+                "name": "visible",
+                "type": "boolean",
+                "optional": false,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Whether the area fill is rendered under the sparkline. Defaults to `true`.",
+                "see": []
+              }
+            ]
+          }
         },
         {
           "name": "areaFill",
@@ -1006,7 +1656,7 @@
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "",
+                "description": "Font family and base size used across the chart's text.",
                 "see": [],
                 "nested": {
                   "name": "Typography",
@@ -1017,7 +1667,7 @@
                       "optional": false,
                       "defaultValue": null,
                       "deprecated": null,
-                      "description": "",
+                      "description": "CSS `font-family` stack applied to all text rendered by the chart.",
                       "see": []
                     },
                     {
@@ -1039,16 +1689,108 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Grid line appearance in the chart area.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Grid line stroke colour.",
+                      "see": []
+                    },
+                    {
+                      "name": "style",
+                      "type": "'solid' | 'dashed' | 'dotted'",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Grid line dash pattern.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "candlestick",
-                "type": "{ up: { body: string | [string, string]; wick: string }; down: { body: string | [string, string]; wick: string }; }",
+                "type": "{ up: { body: string | [string, string]; wick: string; }; down: { body: string | [string, string]; wick: string; }; }",
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "OHLC candlestick colors. `wick` defaults to `body` in {@link createTheme }\nwhen omitted, so most presets only need to set the body colors.\n\n`body` shape encodes the fill: a single color renders flat; a\n`[top, bottom]` tuple renders a 2-stop vertical gradient. Presets that\nwant the subtle lightened/darkened look pass `autoGradient(color)`.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "up",
+                      "type": "{ body: string | [string, string]; wick: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bullish candle (close ≥ open).",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "body",
+                            "type": "string | [string, string]",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient.",
+                            "see": []
+                          },
+                          {
+                            "name": "wick",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Wick stroke colour.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "down",
+                      "type": "{ body: string | [string, string]; wick: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bearish candle (close < open).",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "body",
+                            "type": "string | [string, string]",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient.",
+                            "see": []
+                          },
+                          {
+                            "name": "wick",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Wick stroke colour.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
               },
               {
                 "name": "line",
@@ -1057,7 +1799,48 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Default line series appearance including area gradient fill.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Stroke colour of the line.",
+                      "see": []
+                    },
+                    {
+                      "name": "width",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Stroke width in CSS pixels.",
+                      "see": []
+                    },
+                    {
+                      "name": "areaTopColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Top stop of the area-fill vertical gradient (closest to the line).",
+                      "see": []
+                    },
+                    {
+                      "name": "areaBottomColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bottom stop of the area-fill vertical gradient (closest to the X axis).",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "seriesColors",
@@ -1075,7 +1858,30 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Bollinger band / envelope fill colors.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "upper",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Fill for the upper band region (above the middle band).",
+                      "see": []
+                    },
+                    {
+                      "name": "lower",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Fill for the lower band region (below the middle band).",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "crosshair",
@@ -1084,16 +1890,135 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Crosshair line and axis label styling.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Stroke colour of the crosshair lines.",
+                      "see": []
+                    },
+                    {
+                      "name": "labelBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Background fill of the X/Y axis label pills shown at the crosshair position.",
+                      "see": []
+                    },
+                    {
+                      "name": "labelTextColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Text colour inside the crosshair axis label pills.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "axis",
-                "type": "{ fontSize: number; textColor: string; x?: { fontSize?: number; textColor?: string }; y?: { fontSize?: number; textColor?: string }; }",
+                "type": "{ fontSize: number; textColor: string; x?: { fontSize?: number; textColor?: string; }; y?: { fontSize?: number; textColor?: string; }; }",
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Axis tick styling. `fontSize` and `textColor` are the shared defaults used\nfor both X and Y, as well as non-axis label surfaces (legend, crosshair\nlabels, sparkline ticks). Set `x` / `y` only when a specific axis needs to\ndiverge.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "fontSize",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Default tick-label font size shared by both axes.",
+                      "see": []
+                    },
+                    {
+                      "name": "textColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Default tick-label colour shared by both axes.",
+                      "see": []
+                    },
+                    {
+                      "name": "x",
+                      "type": "{ fontSize?: number; textColor?: string; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Override the shared defaults on the X axis only.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fontSize",
+                            "type": "number",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "X-axis tick-label font size. Falls back to `axis.fontSize`.",
+                            "see": []
+                          },
+                          {
+                            "name": "textColor",
+                            "type": "string",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "X-axis tick-label colour. Falls back to `axis.textColor`.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "y",
+                      "type": "{ fontSize?: number; textColor?: string; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Override the shared defaults on the Y axis only.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fontSize",
+                            "type": "number",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Y-axis tick-label font size. Falls back to `axis.fontSize`.",
+                            "see": []
+                          },
+                          {
+                            "name": "textColor",
+                            "type": "string",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Y-axis tick-label colour. Falls back to `axis.textColor`.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
               },
               {
                 "name": "yLabel",
@@ -1102,7 +2027,57 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Floating label shown at the current value level on the Y axis.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "fontSize",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Font size of the value text inside the floating Y label.",
+                      "see": []
+                    },
+                    {
+                      "name": "upBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pill background when the latest delta is positive.",
+                      "see": []
+                    },
+                    {
+                      "name": "downBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pill background when the latest delta is negative.",
+                      "see": []
+                    },
+                    {
+                      "name": "neutralBackground",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pill background when the latest delta is zero / unknown.",
+                      "see": []
+                    },
+                    {
+                      "name": "textColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Text colour inside the floating Y label pill.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "tooltip",
@@ -1111,16 +2086,313 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Hover tooltip styling.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "fontSize",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip body font size.",
+                      "see": []
+                    },
+                    {
+                      "name": "background",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip background fill.",
+                      "see": []
+                    },
+                    {
+                      "name": "textColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip text colour.",
+                      "see": []
+                    },
+                    {
+                      "name": "borderColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Tooltip outer border colour.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "navigator",
-                "type": "{ /** Default height of the navigator strip in CSS pixels. */ height: number; /** Strip background (behind the miniature series). */ background: string; /** Color used for the strip's top + bottom inner-shadow separators. */ borderColor: string; /** Line / close-price miniature color and geometry. */ line: { color: string; width: number; areaTopColor: string; areaBottomColor: string; }; /** Colors for candlestick-type miniature rendering. */ candlestick: { up: { body: string | [string, string]; wick: string }; down: { body: string | [string, string]; wick: string }; }; /** The draggable visible-range window indicator. */ window: { fill: string; border: string; borderWidth: number; }; /** Left/right resize handles on the window edges. */ handle: { color: string; width: number; }; /** Dim overlay covering the regions outside the window. */ mask: { fill: string; }; }",
+                "type": "{ height: number; background: string; borderColor: string; line: { color: string; width: number; areaTopColor: string; areaBottomColor: string; }; candlestick: { up: { body: string | [string, string]; wick: string; }; down: { body: string | [string, string]; wick: string; }; }; window: { fill: string; border: string; borderWidth: number; }; handle: { color: string; width: number; }; mask: { fill: string; }; }",
                 "optional": false,
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Navigator strip shown below the main chart — a miniature overview with a\ndraggable window indicating the visible range.\n\nThe `candlestick` shape mirrors the root {@link ChartTheme.candlestick}\n(including `[top, bottom]` gradient tuples) so candle-type mini views can\nshare colors with the main plot.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "height",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Default height of the navigator strip in CSS pixels.",
+                      "see": []
+                    },
+                    {
+                      "name": "background",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Strip background (behind the miniature series).",
+                      "see": []
+                    },
+                    {
+                      "name": "borderColor",
+                      "type": "string",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Color used for the strip's top + bottom inner-shadow separators.",
+                      "see": []
+                    },
+                    {
+                      "name": "line",
+                      "type": "{ color: string; width: number; areaTopColor: string; areaBottomColor: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Line / close-price miniature color and geometry.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "color",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke colour of the miniature line.",
+                            "see": []
+                          },
+                          {
+                            "name": "width",
+                            "type": "number",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke width of the miniature line in CSS pixels.",
+                            "see": []
+                          },
+                          {
+                            "name": "areaTopColor",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Top stop of the miniature area-fill gradient.",
+                            "see": []
+                          },
+                          {
+                            "name": "areaBottomColor",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Bottom stop of the miniature area-fill gradient.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "candlestick",
+                      "type": "{ up: { body: string | [string, string]; wick: string; }; down: { body: string | [string, string]; wick: string; }; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Colors for candlestick-type miniature rendering.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "up",
+                            "type": "{ body: string | [string, string]; wick: string; }",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Bullish miniature candle (close ≥ open).",
+                            "see": [],
+                            "nested": {
+                              "name": "",
+                              "props": [
+                                {
+                                  "name": "body",
+                                  "type": "string | [string, string]",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a vertical gradient.",
+                                  "see": []
+                                },
+                                {
+                                  "name": "wick",
+                                  "type": "string",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Wick stroke colour.",
+                                  "see": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "down",
+                            "type": "{ body: string | [string, string]; wick: string; }",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Bearish miniature candle (close < open).",
+                            "see": [],
+                            "nested": {
+                              "name": "",
+                              "props": [
+                                {
+                                  "name": "body",
+                                  "type": "string | [string, string]",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Body fill — single colour for flat, `[top, bottom]` tuple for a vertical gradient.",
+                                  "see": []
+                                },
+                                {
+                                  "name": "wick",
+                                  "type": "string",
+                                  "optional": false,
+                                  "defaultValue": null,
+                                  "deprecated": null,
+                                  "description": "Wick stroke colour.",
+                                  "see": []
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "window",
+                      "type": "{ fill: string; border: string; borderWidth: number; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "The draggable visible-range window indicator.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fill",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Fill inside the visible-range window. Usually a translucent tint.",
+                            "see": []
+                          },
+                          {
+                            "name": "border",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke colour around the window.",
+                            "see": []
+                          },
+                          {
+                            "name": "borderWidth",
+                            "type": "number",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke width of the window border in CSS pixels.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "handle",
+                      "type": "{ color: string; width: number; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Left/right resize handles on the window edges.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "color",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Stroke colour of the handle marker.",
+                            "see": []
+                          },
+                          {
+                            "name": "width",
+                            "type": "number",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Handle marker width in CSS pixels.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "mask",
+                      "type": "{ fill: string; }",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Dim overlay covering the regions outside the window.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "fill",
+                            "type": "string",
+                            "optional": false,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Fill of the dim overlay applied to regions outside the window.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -1142,7 +2414,7 @@
                 "optional": true,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "",
+                "description": "Y-axis configuration — width, bounds, and visibility of the value axis.",
                 "see": [],
                 "nested": {
                   "name": "YAxisConfig",
@@ -1192,7 +2464,7 @@
                 "optional": true,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "",
+                "description": "X-axis configuration — height and visibility of the time axis.",
                 "see": [],
                 "nested": {
                   "name": "XAxisConfig",
@@ -1227,8 +2499,49 @@
           "optional": true,
           "defaultValue": "{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }",
           "deprecated": null,
-          "description": "Viewport padding. `top`/`bottom` are in pixels. `left`/`right` accept either pixels (`50`)\nor data intervals (`{ intervals: 3 }`). Set to 0 for edge-to-edge sparklines. Applied on mount only.\nDefaults: `{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }`.",
-          "see": []
+          "description": "Viewport padding around the plot area. Applied on mount only — changing\nthis prop after mount is ignored. Set every side to `0` for an\nedge-to-edge sparkline.",
+          "see": [],
+          "nested": {
+            "name": "",
+            "props": [
+              {
+                "name": "top",
+                "type": "number",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Pixels of empty space above the plot area. Default `20`.",
+                "see": []
+              },
+              {
+                "name": "bottom",
+                "type": "number",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Pixels of empty space below the plot area. Default `20`.",
+                "see": []
+              },
+              {
+                "name": "right",
+                "type": "number | { intervals: number }",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Empty space on the right edge. A `number` is pixels (e.g. `50`); an\nobject pads by data intervals on the time axis (e.g. `{ intervals: 3 }`\nleaves room for three more bars/candles past the latest point). Default\n`{ intervals: 3 }`.",
+                "see": []
+              },
+              {
+                "name": "left",
+                "type": "number | { intervals: number }",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Empty space on the left edge. A `number` is pixels; an object pads by\ndata intervals on the time axis. Default `{ intervals: 0 }`.",
+                "see": []
+              }
+            ]
+          }
         },
         {
           "name": "gradient",
@@ -1250,12 +2563,26 @@
         },
         {
           "name": "grid",
-          "type": "{ visible: boolean }",
+          "type": "{ visible: boolean; }",
           "optional": true,
           "defaultValue": "{ visible: true }",
           "deprecated": null,
           "description": "Background grid configuration. Default: `{ visible: true }`.",
-          "see": []
+          "see": [],
+          "nested": {
+            "name": "",
+            "props": [
+              {
+                "name": "visible",
+                "type": "boolean",
+                "optional": false,
+                "defaultValue": "true",
+                "deprecated": null,
+                "description": "Whether the background grid is rendered. Default: `true`.",
+                "see": []
+              }
+            ]
+          }
         },
         {
           "name": "headerLayout",
@@ -1281,7 +2608,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Inline style for the chart's outer wrapper element.",
           "see": [],
           "nested": {
             "name": "CSSProperties",
@@ -1294,7 +2621,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Extra class for the chart's outer wrapper element.",
           "see": []
         }
       ]
@@ -1489,7 +2816,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Extra class on the outer wrapper div.",
           "see": []
         }
       ]
@@ -1668,7 +2995,7 @@
           "optional": false,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Numeric value to display. Each digit that changes between renders animates with a vertical spin.",
           "see": []
         },
         {
@@ -1686,7 +3013,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "BCP 47 locale tag used by the default formatter. Defaults to `'en-US'`.",
           "see": []
         },
         {
@@ -1695,7 +3022,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Per-digit spin animation duration in milliseconds. Defaults to `350`.",
           "see": []
         },
         {
@@ -1704,7 +3031,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Extra class on the root `<span>`.",
           "see": []
         },
         {
@@ -1713,7 +3040,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "",
+          "description": "Inline style on the root `<span>`. Useful for `fontVariantNumeric: 'tabular-nums'`.",
           "see": [],
           "nested": {
             "name": "CSSProperties",

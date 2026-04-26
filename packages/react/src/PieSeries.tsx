@@ -5,7 +5,9 @@ import type { PieSeriesOptions, PieSliceData } from '@wick-charts/core';
 import { useChartInstance } from './context';
 
 export interface PieSeriesProps {
+  /** Slices to render. A flat array of `{ label, value, color? }` entries. */
   data: PieSliceData[];
+  /** Visual options override — palette, donut hole, slice gap, label rendering, hover/entrance animations. */
   options?: Partial<PieSeriesOptions>;
   /** Stable series ID — same value across remounts. */
   id?: string;

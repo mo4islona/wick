@@ -4,10 +4,20 @@ import type { ChartTheme } from '@wick-charts/react';
 import { ChevronDown, X } from 'lucide-react';
 
 import { type Framework, useFramework } from '../context/framework';
+import { useLatestVersion } from '../hooks/useLatestVersion';
 import { HOOK_NAMES } from '../pages/api/frameworks';
-import { type Route, type RouteEntry, type RouteSection, getSections, hookKeyForRoute } from '../routes';
+import {
+  type Route,
+  type RouteEntry,
+  type RouteSection,
+  getSectionPath,
+  getSections,
+  hookKeyForRoute,
+} from '../routes';
 import { hexToRgba } from '../utils';
 import { FrameworkSelect } from './FrameworkSelect';
+import { WickLogo } from './WickLogo';
+import { WickWordmark } from './WickWordmark';
 
 function labelFor(item: RouteEntry, fw: Framework): string {
   const reactName = hookKeyForRoute(item.route);
@@ -20,27 +30,17 @@ export type { Route } from '../routes';
 
 const SECTIONS: RouteSection[] = getSections(import.meta.env.DEV);
 
-/** Find the section heading that contains a route — used to auto-expand groups. */
-function sectionOf(route: Route): string | null {
-  for (const s of SECTIONS) {
-    if (s.items.some((i) => i.route === route)) return s.heading;
-  }
-
-  return null;
-}
-
 export function Sidebar({
   route,
   onNavigate,
-  collapsed,
-  onToggle,
+  onClose,
   theme,
   mobile = false,
 }: {
   route: Route;
   onNavigate: (r: Route) => void;
-  collapsed: boolean;
-  onToggle: () => void;
+  /** Close handler — only used by the mobile overlay drawer. */
+  onClose?: () => void;
   theme: ChartTheme;
   mobile?: boolean;
 }) {
@@ -49,25 +49,31 @@ export function Sidebar({
   const accent = theme.line.color;
 
   const [fw] = useFramework();
+  // Same source the OverviewPage hero uses — npm registry, not the local
+  // package.json — so the sidebar shows the published version that consumers
+  // would actually `npm install`.
+  const version = useLatestVersion('@wick-charts/react');
 
-  const navIconSize = mobile ? 18 : 16;
   const fontSize = mobile ? theme.typography.fontSize + 1 : theme.typography.fontSize;
 
-  // Track which section groups are expanded. Every headed group starts
-  // expanded so the sidebar reads as a flat outline on first paint;
-  // section headers act as collapse handles for users who want to focus.
+  // Only top-level section headings are collapsible — subsection labels
+  // (API → Components, API → Hooks) render as static groupings inside an
+  // open parent. "Charts" starts expanded; the useEffect below expands the
+  // top-level section that contains the current route on deep-link.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const s of SECTIONS) {
-      if (s.heading) initial[s.heading] = true;
+      if (s.heading) initial[s.heading] = s.heading === 'Charts';
     }
 
     return initial;
   });
 
   useEffect(() => {
-    const heading = sectionOf(route);
-    if (heading) setOpenSections((prev) => (prev[heading] ? prev : { ...prev, [heading]: true }));
+    const path = getSectionPath(route);
+    if (path.length === 0) return;
+    const top = path[0];
+    setOpenSections((prev) => (prev[top] ? prev : { ...prev, [top]: true }));
   }, [route]);
 
   const toggle = (heading: string) => {
@@ -77,9 +83,8 @@ export function Sidebar({
   return (
     <div
       style={{
-        width: mobile ? 'min(280px, 80vw)' : collapsed ? 48 : 200,
+        width: mobile ? 'min(280px, 80vw)' : 220,
         height: '100%',
-        transition: mobile ? 'none' : 'width 0.2s ease',
         background: bg,
         borderRight: `1px solid ${border}`,
         display: 'flex',
@@ -88,24 +93,63 @@ export function Sidebar({
         overflow: 'hidden',
       }}
     >
-      {mobile && (
-        <div
+      {/* Header — logo + name + version, also the home affordance. Padding
+          mirrors the main topbar in App.tsx so the two bars align horizontally
+          across the sidebar/content boundary. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: mobile ? '6px 14px' : '8px 12px',
+          borderBottom: `1px solid ${border}`,
+          color: theme.tooltip.textColor,
+          flexShrink: 0,
+          minHeight: mobile ? 46 : 54,
+          boxSizing: 'border-box',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => onNavigate('overview')}
+          aria-label="Go to overview"
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 14px',
-            borderBottom: `1px solid ${border}`,
-            color: theme.tooltip.textColor,
+            gap: 8,
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            color: 'inherit',
+            fontFamily: 'inherit',
+            textAlign: 'left',
+            minWidth: 0,
           }}
         >
-          <span style={{ fontSize: theme.typography.fontSize + 2, fontWeight: 600, letterSpacing: '-0.01em' }}>
-            Wick Charts
+          <WickLogo height={mobile ? 28 : 30} color={theme.tooltip.textColor} />
+          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, lineHeight: 1.1, gap: 3 }}>
+            <WickWordmark height={mobile ? 12 : 11} color={theme.tooltip.textColor} ariaLabel="Wick Charts" />
+            {version && (
+              <span
+                style={{
+                  marginTop: 2,
+                  fontSize: theme.typography.fontSize - 2,
+                  color: theme.axis.textColor,
+                  opacity: 0.7,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                v{version}
+              </span>
+            )}
           </span>
+        </button>
+        {mobile && onClose && (
           <button
             type="button"
             aria-label="Close navigation"
-            onClick={onToggle}
+            onClick={onClose}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -121,8 +165,8 @@ export function Sidebar({
           >
             <X size={18} />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <nav style={{ flex: 1, padding: '8px 6px', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' }}>
         {SECTIONS.map((section, sIdx) => {
@@ -130,7 +174,7 @@ export function Sidebar({
           if (section.heading === null) {
             return (
               <div key={`s-${sIdx}`} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {section.items.map((item) => (
+                {(section.items ?? []).map((item) => (
                   <NavButton
                     key={item.route}
                     item={item}
@@ -138,9 +182,7 @@ export function Sidebar({
                     active={item.route === route}
                     onNavigate={onNavigate}
                     theme={theme}
-                    collapsed={collapsed && !mobile}
                     mobile={mobile}
-                    iconSize={navIconSize}
                     fontSize={fontSize}
                     accent={accent}
                   />
@@ -150,43 +192,21 @@ export function Sidebar({
           }
 
           const open = openSections[section.heading] ?? true;
-          const showHeading = mobile || !collapsed;
 
           return (
             <div
               key={section.heading}
               style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: sIdx > 0 ? 6 : 0 }}
             >
-              {showHeading && (
-                <button
-                  type="button"
-                  onClick={() => toggle(section.heading as string)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '4px 8px',
-                    background: 'transparent',
-                    color: theme.axis.textColor,
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: fontSize - 1,
-                    fontFamily: 'inherit',
-                    fontWeight: 600,
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                    opacity: 0.7,
-                  }}
-                >
-                  <span>{section.heading}</span>
-                  <ChevronDown
-                    size={12}
-                    style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}
-                  />
-                </button>
-              )}
-              {(open || (collapsed && !mobile)) &&
-                section.items.map((item) => (
+              <SectionHeader
+                heading={section.heading}
+                open={open}
+                onToggle={() => toggle(section.heading as string)}
+                theme={theme}
+                fontSize={fontSize}
+              />
+              {open &&
+                (section.items ?? []).map((item) => (
                   <NavButton
                     key={item.route}
                     item={item}
@@ -194,14 +214,36 @@ export function Sidebar({
                     active={item.route === route}
                     onNavigate={onNavigate}
                     theme={theme}
-                    collapsed={collapsed && !mobile}
                     mobile={mobile}
-                    iconSize={navIconSize}
                     fontSize={fontSize}
                     accent={accent}
-                    indent={!collapsed || mobile}
+                    indent
                   />
                 ))}
+              {open &&
+                section.subsections?.map((sub) => {
+                  if (sub.heading === null) return null;
+
+                  return (
+                    <div key={sub.heading} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <SubsectionLabel heading={sub.heading} theme={theme} fontSize={fontSize} />
+                      {(sub.items ?? []).map((item) => (
+                        <NavButton
+                          key={item.route}
+                          item={item}
+                          label={labelFor(item, fw)}
+                          active={item.route === route}
+                          onNavigate={onNavigate}
+                          theme={theme}
+                          mobile={mobile}
+                          fontSize={fontSize}
+                          accent={accent}
+                          indent
+                        />
+                      ))}
+                    </div>
+                  );
+                })}
             </div>
           );
         })}
@@ -209,7 +251,7 @@ export function Sidebar({
 
       <div
         style={{
-          padding: mobile ? '10px 14px' : collapsed ? '6px 4px' : '6px 10px',
+          padding: mobile ? '10px 14px' : '6px 10px',
           borderTop: `1px solid ${border}`,
           display: 'flex',
           justifyContent: 'center',
@@ -217,27 +259,69 @@ export function Sidebar({
       >
         <FrameworkSelect theme={theme} compact />
       </div>
-
-      {!mobile && (
-        <button
-          type="button"
-          onClick={onToggle}
-          style={{
-            padding: 10,
-            background: 'transparent',
-            color: theme.axis.textColor,
-            border: 'none',
-            borderTop: `1px solid ${border}`,
-            cursor: 'pointer',
-            fontSize: 14,
-            fontFamily: 'inherit',
-            transition: 'color 0.1s',
-          }}
-        >
-          {collapsed ? '›' : '‹'}
-        </button>
-      )}
     </div>
+  );
+}
+
+function SubsectionLabel({ heading, theme, fontSize }: { heading: string; theme: ChartTheme; fontSize: number }) {
+  return (
+    <div
+      style={{
+        padding: '6px 8px 2px',
+        color: theme.axis.textColor,
+        fontSize: fontSize - 2,
+        fontFamily: 'inherit',
+        fontWeight: 500,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        opacity: 0.55,
+      }}
+    >
+      {heading}
+    </div>
+  );
+}
+
+function SectionHeader({
+  heading,
+  open,
+  onToggle,
+  theme,
+  fontSize,
+}: {
+  heading: string;
+  open: boolean;
+  onToggle: () => void;
+  theme: ChartTheme;
+  fontSize: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '4px 8px',
+        background: 'transparent',
+        color: theme.axis.textColor,
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: fontSize - 1,
+        fontFamily: 'inherit',
+        fontWeight: 600,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        opacity: 0.7,
+      }}
+    >
+      <span>{heading}</span>
+      <ChevronDown
+        size={12}
+        style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}
+      />
+    </button>
   );
 }
 
@@ -247,9 +331,7 @@ function NavButton({
   active,
   onNavigate,
   theme,
-  collapsed,
   mobile,
-  iconSize,
   fontSize,
   accent,
   indent = false,
@@ -260,16 +342,13 @@ function NavButton({
   active: boolean;
   onNavigate: (r: Route) => void;
   theme: ChartTheme;
-  collapsed: boolean;
   mobile: boolean;
-  iconSize: number;
   fontSize: number;
   accent: string;
   indent?: boolean;
 }) {
-  const Icon = item.icon;
   const displayLabel = label ?? item.label;
-  const padLeft = indent && !collapsed ? 18 : collapsed ? 0 : 10;
+  const padLeft = indent ? 18 : 10;
 
   return (
     <button
@@ -279,8 +358,8 @@ function NavButton({
         display: 'flex',
         alignItems: 'center',
         gap: mobile ? 12 : 10,
-        padding: mobile ? '10px 14px' : collapsed ? '8px 0' : `6px 10px 6px ${padLeft}px`,
-        justifyContent: collapsed ? 'center' : 'flex-start',
+        padding: mobile ? '10px 14px' : `6px 10px 6px ${padLeft}px`,
+        justifyContent: 'flex-start',
         background: active ? hexToRgba(theme.crosshair.labelBackground, 0.8) : 'transparent',
         color: active ? theme.tooltip.textColor : theme.crosshair.labelTextColor,
         border: 'none',
@@ -301,19 +380,7 @@ function NavButton({
         if (!active) e.currentTarget.style.background = 'transparent';
       }}
     >
-      <span
-        style={{
-          width: 20,
-          textAlign: 'center',
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        {Icon ? <Icon size={iconSize} /> : null}
-      </span>
-      {(!collapsed || mobile) && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayLabel}</span>}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayLabel}</span>
     </button>
   );
 }

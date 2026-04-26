@@ -12,7 +12,9 @@ import { useChartInstance } from './context';
 const BULK_THRESHOLD = 20;
 
 export interface CandlestickSeriesProps {
+  /** OHLC candles to render. Each element carries `time/open/high/low/close` and an optional `volume`. */
   data: OHLCInput[];
+  /** Visual options override — colours, body width, entrance animation, smoothing. Merged onto theme defaults. */
   options?: Partial<CandlestickSeriesOptions>;
   /** Stable series ID — same value across remounts. */
   id?: string;

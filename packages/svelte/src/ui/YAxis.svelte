@@ -1,6 +1,5 @@
 <script lang="ts">
-import type { ChartInstance, ValueFormatter } from '@wick-charts/core';
-import { resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
+import { type ChartInstance, resolveAxisFontSize, resolveAxisTextColor, type ValueFormatter } from '@wick-charts/core';
 import { onDestroy } from 'svelte';
 
 import { getChartContext } from '../context';
@@ -8,6 +7,13 @@ import { createYRange } from '../stores';
 
 /** Custom tick-label formatter. Overrides the built-in range-adaptive default. */
 export let format: ValueFormatter | undefined = undefined;
+/**
+ * Desired number of labels (≥ 2). Overrides any chart-level `axis.y.labelCount`.
+ * Realized count may differ ±1 after the 1-2-5 snap.
+ */
+export let labelCount: number | undefined = undefined;
+/** Minimum pixel gap between adjacent labels (hard floor). Overrides chart-level. */
+export let minLabelSpacing: number | undefined = undefined;
 
 interface TrackedTick {
   opacity: number;
@@ -72,6 +78,20 @@ $: if (chart) {
 }
 onDestroy(() => {
   $chartStore?.yScale.setFormat(null);
+});
+
+// Hold a stable reference to the chart so onDestroy still has it when the
+// parent ChartContainer's onDestroy has already cleared the store.
+let densityChart: typeof chart = null;
+$: if (chart) {
+  densityChart = chart;
+  chart.setYAxisLabelDensity({
+    labelCount: labelCount ?? null,
+    minLabelSpacing: minLabelSpacing ?? null,
+  });
+}
+onDestroy(() => {
+  densityChart?.setYAxisLabelDensity({ labelCount: null, minLabelSpacing: null });
 });
 </script>
 

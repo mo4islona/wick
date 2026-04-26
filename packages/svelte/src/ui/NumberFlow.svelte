@@ -2,8 +2,12 @@
 import { onMount } from 'svelte';
 
 export let value: number;
-/** Value-to-string formatter. Defaults to the current locale's `Intl.NumberFormat`. */
-export let format: ((value: number) => string) | undefined = undefined;
+/**
+ * Value-to-string formatter. Defaults to the current locale's
+ * `Intl.NumberFormat` when omitted. `Intl.NumberFormatOptions` is also
+ * accepted (legacy) — routed through the built-in `Intl.NumberFormat`.
+ */
+export let format: ((value: number) => string) | Intl.NumberFormatOptions | undefined = undefined;
 export let locale: string = 'en-US';
 export let spinDuration: number = 350;
 
@@ -32,11 +36,13 @@ function decompose(formatted: string): CharPart[] {
   return parts;
 }
 
-$: defaultFormat = (() => {
-  const nf = new Intl.NumberFormat(locale);
+$: effectiveFormat = (() => {
+  if (typeof format === 'function') return format;
+  const nf = new Intl.NumberFormat(locale, typeof format === 'object' ? format : undefined);
+
   return (v: number) => nf.format(v);
 })();
-$: formatted = (format ?? defaultFormat)(value);
+$: formatted = effectiveFormat(value);
 $: parts = decompose(formatted);
 </script>
 

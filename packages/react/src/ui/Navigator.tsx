@@ -18,6 +18,7 @@ export interface NavigatorProps {
   height?: number;
   /** Style override for the outer wrapper div. */
   style?: CSSProperties;
+  /** Extra class on the outer wrapper div. */
   className?: string;
 }
 

@@ -100,15 +100,11 @@ export default function App() {
 
   const mobile = useIsMobile();
   const [framework, setFramework] = useFrameworkState();
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('chart-theme', themeName);
   }, [themeName]);
-  useEffect(() => {
-    localStorage.setItem('sidebar-collapsed', String(collapsed));
-  }, [collapsed]);
 
   const preset = themes[themeName];
   const baseTheme = preset.theme;
@@ -227,15 +223,7 @@ export default function App() {
           }}
         >
           {/* Sidebar — hidden on mobile, shown on desktop */}
-          {!mobile && (
-            <Sidebar
-              route={route}
-              onNavigate={navigate}
-              collapsed={collapsed}
-              onToggle={() => setCollapsed((c) => !c)}
-              theme={theme}
-            />
-          )}
+          {!mobile && <Sidebar route={route} onNavigate={navigate} theme={theme} />}
 
           {/* Mobile overlay sidebar */}
           {mobile && mobileMenuOpen && (
@@ -263,8 +251,7 @@ export default function App() {
                     navigate(r);
                     setMobileMenuOpen(false);
                   }}
-                  collapsed={false}
-                  onToggle={() => setMobileMenuOpen(false)}
+                  onClose={() => setMobileMenuOpen(false)}
                   theme={theme}
                   mobile
                 />

@@ -10,7 +10,9 @@ export type SparklineVariant = 'line' | 'bar';
 export type SparklineValuePosition = 'left' | 'right' | 'none';
 
 export interface SparklineProps {
+  /** Data points plotted by the sparkline. A flat `TimePoint[]` — the sparkline only ever shows one tiny line/bar. */
   data: TimePoint[];
+  /** Visual theme. Drives series colour, background gradient, and the change-direction colours used in the value block. */
   theme: ChartTheme;
   /** 'line' (default) or 'bar' */
   variant?: SparklineVariant;
@@ -27,7 +29,10 @@ export interface SparklineProps {
   /** Secondary color for negative bars */
   negativeColor?: string;
   /** Show area fill under line */
-  area?: { visible: boolean };
+  area?: {
+    /** Whether the area fill is rendered under the sparkline. Defaults to `true`. */
+    visible: boolean;
+  };
   /** @deprecated Use {@link area} instead. */
   areaFill?: boolean;
   /** Chart width (default: 140) */

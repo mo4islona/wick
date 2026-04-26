@@ -59,10 +59,15 @@ const checker = program.getTypeChecker();
 
 /** Compress whitespace in a printed type so the table column stays readable. */
 function compactType(s) {
+  // `decl.type.getText()` preserves source trivia, including JSDoc/line
+  // comments on inline object members. Strip those before whitespace
+  // collapse, otherwise the comment text leaks into the rendered type.
   // Multi-line union types in source (`| 'a' | 'b'` on its own line) leave a
   // leading `|` after collapse; strip it so the rendered type doesn't open
   // with a stray pipe.
   return s
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\|\s*/, '');
@@ -136,8 +141,11 @@ function getJsDocInfo(symbol) {
 
   for (const tag of tags) {
     const text = ts.displayPartsToString(tag.text).trim();
-    if (tag.name === 'default' || tag.name === 'defaultValue') defaultValue = text;
-    else if (tag.name === 'deprecated') deprecated = text || true;
+    if (tag.name === 'default' || tag.name === 'defaultValue') {
+      // Strip surrounding backticks — the renderer applies its own code
+      // styling, matching `parseLeadingDefault`'s behaviour.
+      defaultValue = text.replace(/^`([\s\S]+)`$/, '$1');
+    } else if (tag.name === 'deprecated') deprecated = text || true;
     else if (tag.name === 'see') see.push(text);
   }
 
@@ -164,9 +172,13 @@ function printPropType(prop, decl) {
 }
 
 /**
- * Resolve `Partial<T>` or a bare named type → the underlying interface symbol
- * (so we can expand `options?: Partial<LineSeriesOptions>` into a nested table).
- * Returns null when the type isn't an expandable named object type.
+ * Resolve `Partial<T>`, a bare named type, or an inline object type literal
+ * → the members we can expand into a nested table. Named types come back as
+ * `{ kind: 'named', symbol, name }`; inline `{ ... }` types come back as
+ * `{ kind: 'inline', members }` with no name (the renderer omits the suffix).
+ *
+ * Used by `options?: Partial<LineSeriesOptions>` (named) and
+ * `padding?: { top?: number; ... }` (inline).
  */
 function resolveExpandable(decl) {
   if (!decl || !ts.isPropertySignature(decl) || !decl.type) return null;
@@ -179,6 +191,10 @@ function resolveExpandable(decl) {
     }
 
     return resolveTypeName(t);
+  }
+
+  if (ts.isTypeLiteralNode(t)) {
+    return { kind: 'inline', members: t.members };
   }
 
   return null;
@@ -197,21 +213,21 @@ function resolveTypeName(typeNode) {
     if (ts.isInterfaceDeclaration(d)) {
       if (['Partial', 'Pick', 'Omit', 'Record'].includes(aliased.getName())) return null;
 
-      return { symbol: aliased, name: aliased.getName() };
+      return { kind: 'named', symbol: aliased, name: aliased.getName() };
     }
     // Type aliases that resolve to object literals are expandable; unions /
     // string literals are not — they belong inline as the type column.
     if (ts.isTypeAliasDeclaration(d) && ts.isTypeLiteralNode(d.type)) {
-      return { symbol: aliased, name: aliased.getName() };
+      return { kind: 'named', symbol: aliased, name: aliased.getName() };
     }
   }
 
   return null;
 }
 
-function extractInterface(symbol) {
+function extractMembers(members) {
   const props = [];
-  for (const prop of symbol.getDeclarations()?.[0]?.members ?? []) {
+  for (const prop of members ?? []) {
     if (!ts.isPropertySignature(prop) || !prop.name) continue;
 
     const propSymbol = checker.getSymbolAtLocation(prop.name);
@@ -224,8 +240,12 @@ function extractInterface(symbol) {
 
     const expanded = resolveExpandable(prop);
     let nested = null;
-    if (expanded) {
+    if (expanded?.kind === 'named') {
       nested = { name: expanded.name, props: extractInterface(expanded.symbol) };
+    } else if (expanded?.kind === 'inline') {
+      // Anonymous shape — leave the name empty so the renderer omits the
+      // `· TypeName` suffix on the toggle button.
+      nested = { name: '', props: extractMembers(expanded.members) };
     }
 
     props.push({
@@ -241,6 +261,10 @@ function extractInterface(symbol) {
   }
 
   return props;
+}
+
+function extractInterface(symbol) {
+  return extractMembers(symbol.getDeclarations()?.[0]?.members);
 }
 
 function getComponentDescription(sourceFile, componentName) {

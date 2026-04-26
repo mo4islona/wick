@@ -35,7 +35,7 @@ export const INTROS: Record<string, string> = {
   InfoBar:
     'Persistent header strip showing the last-known values from each series, including direction arrows and percent change. Stays visible when no hover is active — the companion to `<Tooltip>`.',
   PieLegend:
-    'Legend tailored for pie/donut charts. Shows slice labels with their value or percent, anchored to one of three positions (`bottom`, `right`, `overlay`).',
+    'Companion to `<PieSeries>` — renders slice labels with their value or percent, anchored to one of three positions (`bottom`, `right`, `overlay`).',
   PieTooltip:
     'Hover tooltip for `<PieSeries>`. Behaves like `<Tooltip>` but takes a `seriesId` and exposes the active slice in the render-prop.',
   NumberFlow:

@@ -114,7 +114,9 @@ export type CandlestickEnterAnimation = CandlestickEntryAnimation;
  * `autoGradient(color)` for the subtle lightened/darkened look.
  */
 export interface CandlestickDirectionColors {
+  /** Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient. */
   body: string | [string, string];
+  /** Wick stroke colour. */
   wick: string;
 }
 
@@ -122,7 +124,9 @@ export interface CandlestickDirectionColors {
 export interface CandlestickSeriesOptions {
   /** Display label shown in the tooltip. */
   label?: string;
+  /** Colours for bullish candles (close ≥ open). */
   up: CandlestickDirectionColors;
+  /** Colours for bearish candles (close < open). */
   down: CandlestickDirectionColors;
   /** Width of candle body as a fraction of the available bar slot (0-1). */
   bodyWidthRatio: number;
@@ -181,7 +185,10 @@ export interface LineSeriesOptions {
   /** Stroke width in CSS pixels. Default: 1. `0` hides the line stroke. */
   strokeWidth: number;
   /** Area-fill configuration. Default: `{ visible: true }`. */
-  area: { visible: boolean };
+  area: {
+    /** Whether the area gradient under the line is rendered. Default: `true`. */
+    visible: boolean;
+  };
   /**
    * Whether to show an animated pulsing dot at the last data point.
    */
@@ -256,6 +263,7 @@ export interface BarSeriesOptions {
   label?: string;
   /** One color per layer. */
   colors: string[];
+  /** Width of each bar as a fraction of the available bar slot (0–1). `1` = bars touch; `0.6` = roughly 60 % of the slot. Default: 0.7. */
   barWidthRatio: number;
   /** Stacking mode. Default: 'off'. */
   stacking: StackingMode;
@@ -449,6 +457,8 @@ export interface XAxisConfig {
 
 /** Grouped axis configuration for both axes. */
 export interface AxisConfig {
+  /** Y-axis configuration — width, bounds, and visibility of the value axis. */
   y?: YAxisConfig;
+  /** X-axis configuration — height and visibility of the time axis. */
   x?: XAxisConfig;
 }

@@ -21,6 +21,8 @@ import { Cell } from '../components/Cell';
 import { FrameworkSelect } from '../components/FrameworkSelect';
 import { HighlightedCode } from '../components/playground/CodeView';
 import { Slider } from '../components/playground/primitives';
+import { WickLogo } from '../components/WickLogo';
+import { WickWordmark } from '../components/WickWordmark';
 import '../components/playground/styles.css';
 
 import { DEMO_INTERVAL, areaLine, barSingle, lowerBand, multiLines, ohlcBTC, upperBand } from '../data/demo';
@@ -355,22 +357,22 @@ function Hero({ theme, mobile }: { theme: ChartTheme; mobile: boolean }) {
         textAlign: 'center',
       }}
     >
-      {/* Logo + Name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 8 : 12 }}>
-        <img src="/wick-icon.svg" alt="" style={{ height: mobile ? 28 : 40, position: 'relative', top: -4 }} />
-        <span
-          style={{
-            fontSize: mobile ? 20 : 26,
-            fontWeight: 500,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: theme.tooltip.textColor,
-            fontFamily: theme.typography.fontFamily,
-            lineHeight: 1,
-          }}
-        >
-          Wick charts
-        </span>
+      {/* Logo + Wordmark */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: mobile ? 8 : 12,
+          marginBottom: mobile ? 6 : 10,
+        }}
+      >
+        <WickLogo
+          height={mobile ? 26 : 32}
+          color={theme.tooltip.textColor}
+          style={{ position: 'relative', top: -1 }}
+          ariaLabel="Wick Charts logo"
+        />
+        <WickWordmark height={mobile ? 20 : 24} color={theme.tooltip.textColor} ariaLabel="Wick Charts" />
       </div>
 
       {/* Tagline */}

@@ -87,10 +87,31 @@ function tokenize(source: string): Block[] {
   return out;
 }
 
+/**
+ * Strip JSDoc `{@link …}` inline tags before tokenisation. Forms handled:
+ *   {@link Foo}              → Foo
+ *   {@link Foo.bar}          → Foo.bar
+ *   {@link Foo | label text} → label text
+ *   {@link Foo  label text}  → label text   (TSDoc/JSDoc both)
+ * The extracted manifest preserves the raw `{@link …}` so doc readers
+ * shouldn't see the tag markers — drop them in the renderer.
+ */
+function stripJsdocLinks(text: string): string {
+  return text.replace(/\{@link\s+([^}|\s]+)(?:\s*[|]\s*([^}]+)|\s+([^}]+))?\s*\}/g, (_m, target, pipeLabel, spaceLabel) => {
+    const label = (pipeLabel ?? spaceLabel ?? target ?? '').trim();
+
+    return label;
+  });
+}
+
 /** Inline span renderer: `code`, **bold**, _italic_, [text](url). */
 function renderInline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let key = 0;
+
+  // Drop JSDoc `{@link …}` markers before tokenising so they don't leak as
+  // raw `{@link Foo}` text into the rendered docs.
+  text = stripJsdocLinks(text);
 
   // The grammar here is intentionally simple — we tokenize one pass with a
   // single combined regex so we don't need to recurse.
@@ -103,10 +124,12 @@ function renderInline(text: string): ReactNode[] {
     const tok = m[0];
 
     if (tok.startsWith('`')) {
+      // Render inline `…` as a styled span (not <code>) so it inherits the
+      // surrounding sans body font instead of falling back to UA monospace.
       out.push(
-        <code key={key++} className="md-inline-code">
+        <span key={key++} className="md-inline-code" style={{ fontFamily: 'inherit' }}>
           {tok.slice(1, -1)}
-        </code>,
+        </span>,
       );
     } else if (tok.startsWith('**')) {
       out.push(<strong key={key++}>{tok.slice(2, -2)}</strong>);

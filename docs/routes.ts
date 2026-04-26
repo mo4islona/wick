@@ -1,31 +1,6 @@
 // Centralised route table — sidebar groups, page titles, and hash-route
 // validation all read from here so adding/renaming a page is a one-file change.
 
-import {
-  Activity,
-  Anchor,
-  BarChart3,
-  CandlestickChart,
-  Crosshair as CrosshairIcon,
-  FileText,
-  FlaskConical,
-  Frame,
-  GitBranch,
-  Grid3x3,
-  Hash,
-  Heading1,
-  LayoutDashboard,
-  type LucideIcon,
-  Map as MapIcon,
-  MessageSquare,
-  Palette,
-  PieChart,
-  Sigma,
-  Tag,
-  TrendingUp,
-  Type,
-} from 'lucide-react';
-
 export type Route =
   | 'overview'
   | 'migration'
@@ -65,8 +40,6 @@ export type Route =
 export interface RouteEntry {
   route: Route;
   label: string;
-  /** Lucide icon — section items use this; section headers don't. */
-  icon?: LucideIcon;
   /**
    * Title shown in the App-level page header. Empty when the page renders
    * its own header (e.g. ApiPage, HookPage) — keeps us from showing the
@@ -78,7 +51,13 @@ export interface RouteEntry {
 export interface RouteSection {
   /** `null` = ungrouped (rendered without a header). */
   heading: string | null;
-  items: RouteEntry[];
+  /** Leaf entries. Mutually exclusive with `subsections` — a section is
+   *  either a flat list (Charts, Hooks) or a container of nested groups
+   *  (API → Components + Hooks). */
+  items?: RouteEntry[];
+  /** Nested groups, each rendered with their own collapsible heading
+   *  one indent level deeper than this section. */
+  subsections?: RouteSection[];
 }
 
 /**
@@ -107,67 +86,77 @@ export const ROUTE_ALIASES: Record<string, Route> = {
 };
 
 const CHARTS: RouteEntry[] = [
-  { route: 'charts/candlestick', label: 'Candlestick', icon: CandlestickChart, title: 'Candlestick' },
-  { route: 'charts/line', label: 'Line & Area', icon: TrendingUp, title: 'Line & Area' },
-  { route: 'charts/bar', label: 'Bar', icon: BarChart3, title: 'Bar' },
-  { route: 'charts/pie', label: 'Pie & Donut', icon: PieChart, title: 'Pie & Donut' },
-  { route: 'charts/sparkline', label: 'Sparkline', icon: Activity, title: 'Sparkline' },
+  { route: 'charts/candlestick', label: 'Candlestick', title: 'Candlestick' },
+  { route: 'charts/line', label: 'Line & Area', title: 'Line & Area' },
+  { route: 'charts/bar', label: 'Bar', title: 'Bar' },
+  { route: 'charts/pie', label: 'Pie & Donut', title: 'Pie & Donut' },
+  { route: 'charts/sparkline', label: 'Sparkline', title: 'Sparkline' },
 ];
 
 // API entries own their own header (rendered by ApiPage), so the App-level
 // title is left blank to avoid the "PieLegend / PieLegend" duplication.
-// Entries are sorted alphabetically by label — the API list is reference,
-// not curriculum, so a flat A→Z makes it scannable.
-const API: RouteEntry[] = [
-  { route: 'api/bar-series', label: 'BarSeries', icon: BarChart3, title: '' },
-  { route: 'api/candlestick-series', label: 'CandlestickSeries', icon: CandlestickChart, title: '' },
-  { route: 'api/chart-container', label: 'ChartContainer', icon: Frame, title: '' },
-  { route: 'api/crosshair', label: 'Crosshair', icon: CrosshairIcon, title: '' },
-  { route: 'api/info-bar', label: 'InfoBar', icon: FileText, title: '' },
-  { route: 'api/legend', label: 'Legend', icon: Tag, title: '' },
-  { route: 'api/line-series', label: 'LineSeries', icon: TrendingUp, title: '' },
-  { route: 'api/navigator', label: 'Navigator', icon: MapIcon, title: '' },
-  { route: 'api/number-flow', label: 'NumberFlow', icon: Sigma, title: '' },
-  { route: 'api/pie-legend', label: 'PieLegend', icon: Tag, title: '' },
-  { route: 'api/pie-series', label: 'PieSeries', icon: PieChart, title: '' },
-  { route: 'api/pie-tooltip', label: 'PieTooltip', icon: MessageSquare, title: '' },
-  { route: 'api/sparkline', label: 'Sparkline', icon: Activity, title: '' },
-  { route: 'api/title', label: 'Title', icon: Heading1, title: '' },
-  { route: 'api/tooltip', label: 'Tooltip', icon: MessageSquare, title: '' },
-  { route: 'api/x-axis', label: 'XAxis', icon: Grid3x3, title: '' },
-  { route: 'api/y-axis', label: 'YAxis', icon: Grid3x3, title: '' },
-  { route: 'api/y-label', label: 'YLabel', icon: Type, title: '' },
+// Split into two flat A→Z lists:
+//   - `Charts` — series renderers (have a "↗ Try the live demo" link
+//     to the matching `charts/*` route)
+//   - `Components` — container, axes, overlays, formatters
+// Both render under the API parent section in the sidebar.
+const API_CHARTS: RouteEntry[] = [
+  { route: 'api/bar-series', label: 'BarSeries', title: '' },
+  { route: 'api/candlestick-series', label: 'CandlestickSeries', title: '' },
+  { route: 'api/line-series', label: 'LineSeries', title: '' },
+  { route: 'api/pie-series', label: 'PieSeries', title: '' },
+  { route: 'api/sparkline', label: 'Sparkline', title: '' },
 ];
+
+const API_COMPONENTS: RouteEntry[] = [
+  { route: 'api/chart-container', label: 'ChartContainer', title: '' },
+  { route: 'api/crosshair', label: 'Crosshair', title: '' },
+  { route: 'api/info-bar', label: 'InfoBar', title: '' },
+  { route: 'api/legend', label: 'Legend', title: '' },
+  { route: 'api/navigator', label: 'Navigator', title: '' },
+  { route: 'api/number-flow', label: 'NumberFlow', title: '' },
+  { route: 'api/pie-legend', label: 'PieLegend', title: '' },
+  { route: 'api/pie-tooltip', label: 'PieTooltip', title: '' },
+  { route: 'api/title', label: 'Title', title: '' },
+  { route: 'api/tooltip', label: 'Tooltip', title: '' },
+  { route: 'api/x-axis', label: 'XAxis', title: '' },
+  { route: 'api/y-axis', label: 'YAxis', title: '' },
+  { route: 'api/y-label', label: 'YLabel', title: '' },
+];
+
+/** Combined flat list — used by `getSection` / `isRoute` lookups. */
+const API: RouteEntry[] = [...API_CHARTS, ...API_COMPONENTS];
 
 // Hook pages render their own H2, so leave the App-level title blank.
 const HOOKS: RouteEntry[] = [
-  { route: 'hooks/use-chart-instance', label: 'useChartInstance', icon: Anchor, title: '' },
-  { route: 'hooks/use-theme', label: 'useTheme', icon: Hash, title: '' },
-  { route: 'hooks/use-crosshair-position', label: 'useCrosshairPosition', icon: Hash, title: '' },
-  { route: 'hooks/use-last-y-value', label: 'useLastYValue', icon: Hash, title: '' },
-  { route: 'hooks/use-previous-close', label: 'usePreviousClose', icon: Hash, title: '' },
-  { route: 'hooks/use-visible-range', label: 'useVisibleRange', icon: Hash, title: '' },
-  { route: 'hooks/use-y-range', label: 'useYRange', icon: Hash, title: '' },
+  { route: 'hooks/use-chart-instance', label: 'useChartInstance', title: '' },
+  { route: 'hooks/use-theme', label: 'useTheme', title: '' },
+  { route: 'hooks/use-crosshair-position', label: 'useCrosshairPosition', title: '' },
+  { route: 'hooks/use-last-y-value', label: 'useLastYValue', title: '' },
+  { route: 'hooks/use-previous-close', label: 'usePreviousClose', title: '' },
+  { route: 'hooks/use-visible-range', label: 'useVisibleRange', title: '' },
+  { route: 'hooks/use-y-range', label: 'useYRange', title: '' },
 ];
 
-const CUSTOMIZATION: RouteEntry[] = [
-  { route: 'customization/theme', label: 'Theme', icon: Palette, title: 'Custom Theme' },
-];
+const CUSTOMIZATION: RouteEntry[] = [{ route: 'customization/theme', label: 'Theme', title: 'Custom Theme' }];
 
-const OVERVIEW: RouteEntry = { route: 'overview', label: 'Overview', icon: LayoutDashboard, title: '' };
-const MIGRATION: RouteEntry = {
-  route: 'migration',
-  label: 'Migration Guide',
-  icon: GitBranch,
-  title: 'Migration Guide',
-};
-const STRESS: RouteEntry = { route: 'stress-test', label: 'Stress', icon: FlaskConical, title: 'Stress Tests' };
+const OVERVIEW: RouteEntry = { route: 'overview', label: 'Overview', title: '' };
+// Title left blank — the markdown page already renders its own H1 ("Migration
+// guide"), so showing it again in the topbar would duplicate.
+const MIGRATION: RouteEntry = { route: 'migration', label: 'Migration Guide', title: '' };
+const STRESS: RouteEntry = { route: 'stress-test', label: 'Stress', title: 'Stress Tests' };
 
 const BASE_SECTIONS: RouteSection[] = [
   { heading: null, items: [OVERVIEW, MIGRATION] },
   { heading: 'Charts', items: CHARTS },
-  { heading: 'API', items: API },
-  { heading: 'Hooks', items: HOOKS },
+  {
+    heading: 'API',
+    subsections: [
+      { heading: 'Charts', items: API_CHARTS },
+      { heading: 'Components', items: API_COMPONENTS },
+      { heading: 'Hooks', items: HOOKS },
+    ],
+  },
   { heading: 'Customization', items: CUSTOMIZATION },
 ];
 
@@ -193,14 +182,47 @@ export function getTitle(route: Route): string {
 
 /**
  * Section heading for a given route — used by the breadcrumb on subcomponent
- * and chart pages. Returns `null` for top-level routes (Overview).
+ * and chart pages. Walks one level into `subsections` so a route under
+ * `API → Hooks` still resolves to `'API'` (the breadcrumb's outermost label).
+ * Returns `null` for top-level routes (Overview).
  */
 export function getSection(route: Route): string | null {
   for (const section of BASE_SECTIONS) {
-    if (section.items.some((i) => i.route === route)) return section.heading;
+    if (section.items?.some((i) => i.route === route)) return section.heading;
+    if (section.subsections?.some((sub) => sub.items?.some((i) => i.route === route))) {
+      return section.heading;
+    }
   }
 
   return null;
+}
+
+/**
+ * Returns every heading on the path from root to the leaf containing `route`.
+ * Used by the sidebar to auto-expand nested groups on deep-link / nav.
+ *
+ * For `route = 'hooks/use-chart-instance'` returns `['API', 'Hooks']`; for a
+ * top-level route under `Charts` returns `['Charts']`.
+ */
+export function getSectionPath(route: Route): string[] {
+  for (const section of BASE_SECTIONS) {
+    if (section.items?.some((i) => i.route === route)) {
+      return section.heading ? [section.heading] : [];
+    }
+    if (section.subsections) {
+      for (const sub of section.subsections) {
+        if (sub.items?.some((i) => i.route === route)) {
+          const path: string[] = [];
+          if (section.heading) path.push(section.heading);
+          if (sub.heading) path.push(sub.heading);
+
+          return path;
+        }
+      }
+    }
+  }
+
+  return [];
 }
 
 /** Charts API → Charts demo route mapping (used for the "↗ See demos" cross-link). */

@@ -7,6 +7,7 @@ import { useChartInstance } from './context';
 export interface BarSeriesProps {
   /** Array of datasets — one per layer. A single-layer bar chart uses `[data]`. */
   data: TimePoint[][];
+  /** Visual options override — colours per layer, bar-width ratio, stacking, entrance animation, smoothing. */
   options?: Partial<BarSeriesOptions>;
   /** Stable series ID — same value across remounts. */
   id?: string;
