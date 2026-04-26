@@ -24,7 +24,9 @@ export const nightOwl = createTheme({
   ],
   bands: { upper: '#6bc5e0', lower: '#d47084' },
   crosshair: { color: 'rgba(99,119,119,0.4)', labelBackground: '#1d3b53' },
-  axis: { textColor: '#495a5a' },
+  // Hue nudged from cyan (`#495a5a`) toward navy so the muted text shares
+  // the page bg's blue family instead of reading as a separate teal-grey.
+  axis: { textColor: '#4d5a6c' },
   tooltip: { background: 'rgba(1,22,39,0.92)', textColor: '#d6deeb', borderColor: 'rgba(31,52,72,0.6)' },
   typography: { fontFamily: MONO },
   fontUrl: MONO_URL,

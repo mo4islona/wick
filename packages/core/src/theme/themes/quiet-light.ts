@@ -4,6 +4,10 @@ export const quietLight = createTheme({
   name: 'Quiet Light',
   description: 'Subdued and easy on the eyes',
   background: '#f5f5f5',
+  // Pin the gradient top stop instead of letting `createTheme` derive it
+  // from `lightenHex(bg, 0.06)` — that landed at `#ffffff`, which read as
+  // a hard white seam against the rest of the chrome.
+  chartGradient: ['#fdfdfd', '#f5f5f5'],
   grid: { color: 'rgba(200,200,200,0.5)' },
   candlestick: {
     up: { body: autoGradient('#448c27'), wick: '#448c27' },

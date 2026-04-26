@@ -8,9 +8,13 @@ export const handwritten: ThemePreset = {
   theme: {
     background: '#fdf5e6',
     chartGradient: ['#fef6e3', '#fdf5e6'],
+    // Caveat reads larger than monospace at the same px size, but `18` was
+    // overshooting — sidebar items and prop descriptions sat ~50 % taller
+    // than every other theme. `15` lands in the same visual weight class
+    // while still feeling distinctly handwritten.
     typography: {
       fontFamily: CAVEAT,
-      fontSize: 18,
+      fontSize: 15,
     },
     grid: {
       color: 'rgba(180,170,150,0.3)',

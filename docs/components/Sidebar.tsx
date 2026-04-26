@@ -274,7 +274,6 @@ function SubsectionLabel({ heading, theme, fontSize }: { heading: string; theme:
         fontWeight: 500,
         letterSpacing: '0.04em',
         textTransform: 'uppercase',
-        opacity: 0.55,
       }}
     >
       {heading}
@@ -313,7 +312,6 @@ function SectionHeader({
         fontWeight: 600,
         letterSpacing: '0.04em',
         textTransform: 'uppercase',
-        opacity: 0.7,
       }}
     >
       <span>{heading}</span>

@@ -9,7 +9,7 @@ import { type ReactNode, useState } from 'react';
 
 import type { ChartTheme } from '@wick-charts/react';
 
-import { hexToRgba } from '../utils';
+import { docFontSize, hexToRgba } from '../utils';
 
 export interface ApiProp {
   name: string;
@@ -45,7 +45,7 @@ export function ApiTable({ props, theme }: { props: ApiProp[]; theme: ChartTheme
         style={{
           padding: 12,
           color: theme.axis.textColor,
-          fontSize: 13,
+          fontSize: '1.08em',
           fontStyle: 'italic',
           opacity: 0.7,
         }}
@@ -62,6 +62,11 @@ export function ApiTable({ props, theme }: { props: ApiProp[]; theme: ChartTheme
         borderRadius: 8,
         background: theme.tooltip.background,
         overflow: 'hidden',
+        // Set the cascade base for all inner sizes — they're declared in `em`
+        // so the whole table scales together. `docFontSize` adds a few pixels
+        // for Caveat (Handwritten) so its thin script reads, while keeping
+        // monospace themes at their original visual size.
+        fontSize: docFontSize(theme),
       }}
     >
       <PropList props={props} theme={theme} depth={0} />
@@ -124,7 +129,7 @@ function PropEntry({
           style={{
             color: codeColor,
             fontWeight: 600,
-            fontSize: 14,
+            fontSize: '1.17em',
             // Inherit the surrounding sans font instead of `<code>`'s UA-default
             // monospace — prop names read as identifiers in the body copy now.
             fontFamily: 'inherit',
@@ -135,9 +140,9 @@ function PropEntry({
         </span>
 
         {prop.defaultValue && (
-          <span style={{ fontSize: 12, color: mutedColor }}>
+          <span style={{ fontSize: '1em', color: mutedColor }}>
             default{' '}
-            <span className="md-inline-code" style={{ fontSize: 12, fontFamily: 'inherit' }}>
+            <span className="md-inline-code" style={{ fontSize: '1em', fontFamily: 'inherit' }}>
               {prop.defaultValue}
             </span>
           </span>
@@ -146,7 +151,7 @@ function PropEntry({
         {prop.deprecated && (
           <span
             style={{
-              fontSize: 9,
+              fontSize: '0.75em',
               padding: '1px 6px',
               borderRadius: 3,
               background: hexToRgba(deprecatedColor(theme), 0.15),
@@ -168,7 +173,7 @@ function PropEntry({
           <span
             className="md-inline-code"
             style={{
-              fontSize: 12.5,
+              fontSize: '1.04em',
               color: mutedColor,
               padding: '1px 6px',
               background: hexToRgba(theme.crosshair.labelBackground, 0.35),
@@ -194,7 +199,7 @@ function PropEntry({
           style={{
             margin: '6px 0 0',
             padding: '8px 10px',
-            fontSize: 12,
+            fontSize: '1em',
             color: mutedColor,
             background: hexToRgba(theme.crosshair.labelBackground, 0.35),
             borderRadius: 4,
@@ -213,7 +218,7 @@ function PropEntry({
         <div
           style={{
             marginTop: 6,
-            fontSize: 12,
+            fontSize: '1em',
             lineHeight: 1.55,
             color: theme.tooltip.textColor,
             opacity: 0.92,
@@ -234,7 +239,7 @@ function PropEntry({
               alignItems: 'center',
               gap: 6,
               padding: '2px 8px 2px 6px',
-              fontSize: 12,
+              fontSize: '1em',
               borderRadius: 4,
               border: `1px solid ${borderColor}`,
               background: 'transparent',
@@ -243,7 +248,7 @@ function PropEntry({
               fontFamily: 'inherit',
             }}
           >
-            <span style={{ fontSize: 10, lineHeight: 1 }}>{open ? '▼' : '▶'}</span>
+            <span style={{ fontSize: '0.83em', lineHeight: 1 }}>{open ? '▼' : '▶'}</span>
             {open ? `Hide ${prop.nested.props.length} fields` : `Show ${prop.nested.props.length} fields`}
             {prop.nested.name && <span style={{ opacity: 0.6 }}>· {prop.nested.name}</span>}
           </button>
@@ -353,7 +358,7 @@ function Description({
     <div style={{ whiteSpace: 'pre-wrap' }}>
       {renderInline(cleaned)}
       {typeof deprecated === 'string' && deprecated.length > 0 && (
-        <div style={{ marginTop: 4, fontSize: 12, color: mutedColor, fontStyle: 'italic' }}>
+        <div style={{ marginTop: 4, fontSize: '1em', color: mutedColor, fontStyle: 'italic' }}>
           {renderInline(deprecated)}
         </div>
       )}

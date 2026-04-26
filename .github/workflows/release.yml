@@ -41,13 +41,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm 10+ is required for Trusted Publishing's OIDC auth — pnpm 9
+      # delegates auth to the bundled npm (10.x on Node 22), which can sign
+      # provenance but can't exchange the OIDC token for a publish credential.
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
+      # Node 24 ships with npm 11+, required for the OIDC token-exchange that
+      # backs Trusted Publishing. Node 22 (npm 10.x) signs provenance fine but
+      # 404s on the publish PUT because it can't mint a publish credential.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
 

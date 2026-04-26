@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 
 import type { ChartTheme } from '@wick-charts/react';
 
+import { docFontSize } from '../utils';
 import { HighlightedCode } from './playground/CodeView';
 
 interface Block {
@@ -97,11 +98,14 @@ function tokenize(source: string): Block[] {
  * shouldn't see the tag markers — drop them in the renderer.
  */
 function stripJsdocLinks(text: string): string {
-  return text.replace(/\{@link\s+([^}|\s]+)(?:\s*[|]\s*([^}]+)|\s+([^}]+))?\s*\}/g, (_m, target, pipeLabel, spaceLabel) => {
-    const label = (pipeLabel ?? spaceLabel ?? target ?? '').trim();
+  return text.replace(
+    /\{@link\s+([^}|\s]+)(?:\s*[|]\s*([^}]+)|\s+([^}]+))?\s*\}/g,
+    (_m, target, pipeLabel, spaceLabel) => {
+      const label = (pipeLabel ?? spaceLabel ?? target ?? '').trim();
 
-    return label;
-  });
+      return label;
+    },
+  );
 }
 
 /** Inline span renderer: `code`, **bold**, _italic_, [text](url). */
@@ -160,7 +164,7 @@ export function Markdown({ source, theme }: { source: string; theme: ChartTheme 
       className="md-doc"
       style={{
         color: theme.tooltip.textColor,
-        fontSize: theme.typography.fontSize,
+        fontSize: docFontSize(theme),
         lineHeight: 1.6,
         maxWidth: 920,
       }}
