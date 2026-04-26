@@ -230,6 +230,36 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     return 10 * this.dataInterval;
   }
 
+  /**
+   * "Warm-up" predicate for streaming charts: returns `true` while the
+   * viewport's left edge is still at its natural fit-to-data anchor
+   * (`dataStart − leftPad`). While true, `Chart.onDataChanged` re-fits on each
+   * new tick — the right edge expands to absorb fresh data instead of
+   * `scrollToEnd` sliding the whole window right and pushing the head off-screen.
+   *
+   * The right-edge condition is intentionally absent: the predicate is meant
+   * to detect "user hasn't panned/zoomed away from fit", not "data already fits
+   * in the current window" — we explicitly want to keep refitting (and growing
+   * the viewport) even when the new tail would extend past the current right
+   * edge. Once the natural-fit window grows past the maxBars cap inside
+   * `fitToData`, its targetFrom anchors on `lastTime - maxRange` and the left
+   * edge advances away from `dataStart − leftPad`, flipping this predicate to
+   * `false` and handing off to `scrollToEnd`'s pan-aware tail-tracking.
+   */
+  dataFitsCurrentViewport(chartWidth = 0): boolean {
+    if (this.#dataStart === null || this.#dataEnd === null) return false;
+    const range = this._visibleRange.to - this._visibleRange.from;
+    if (range <= 0) return false;
+    if (chartWidth > 0) this._lastChartWidth = chartWidth;
+    const width = chartWidth > 0 ? chartWidth : this._lastChartWidth;
+    const pl = this.resolveHPad(this.padding.left, range, width);
+
+    const naturalLeft = this.#dataStart - pl;
+    const tolerance = this.dataInterval * 0.5;
+
+    return Math.abs(this._visibleRange.from - naturalLeft) <= tolerance;
+  }
+
   /** Maximum visible range (zoom-out floor). When interval-based horizontal padding is
    * configured, keep this ceiling aligned with the soft-pan bounds so rebound does not
    * clamp to a range wider than can fit inside them. Falls back to span + 5 intervals

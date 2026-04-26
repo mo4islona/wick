@@ -1373,7 +1373,20 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
         // between appends), so from the 4th bar on last.time > visibleRange.to
         // and the gate would falsify, dropping updates for the rest of the
         // burst. Pan disables autoScroll explicitly; zoom leaves it alone.
-        this.#viewport.scrollToEnd(last, chartWidth);
+        //
+        // Warm-up exception: while the data still fits inside the natural
+        // fit-to-data viewport (typical at stream start when only a handful of
+        // points have arrived), re-fit on each tick so the right edge grows
+        // with the data — otherwise scrollToEnd preserves the initial 1-point
+        // window and slides existing points off the left edge.
+        if (this.#viewport.dataFitsCurrentViewport(chartWidth)) {
+          // Apply immediately (no animation) — matches `scrollToEnd`'s
+          // per-tick responsiveness and avoids fitToData's 450ms ease-out
+          // accumulating across rapid streaming ticks.
+          this.#viewport.fitToData(first, last, chartWidth, false);
+        } else {
+          this.#viewport.scrollToEnd(last, chartWidth);
+        }
       }
     }
 

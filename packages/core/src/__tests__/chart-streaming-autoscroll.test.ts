@@ -161,6 +161,30 @@ describe('ChartInstance — streaming auto-scroll (candlestick regression)', () 
     expect(to).toBeCloseTo(lastTime + 3 * INTERVAL, -1);
   });
 
+  it('streaming from a SINGLE seed point grows the viewport instead of scrolling existing points off-screen', () => {
+    // Bug regression: when a chart starts with 1 candle and points arrive one
+    // at a time, the viewport used to keep its initial 3-bar width and slide
+    // the right edge with every tick — pushing the seed point off the left
+    // edge and leaving "always exactly one point visible". Expected behaviour
+    // is to grow the viewport (zoom out) until the data fills the natural
+    // fit-to-data window before scrolling kicks in.
+    const startTime = 1_000_000;
+    const id = seedCandles(chart, 1, startTime);
+    raf.flush(20);
+
+    let lastTime = startTime;
+    for (let i = 1; i <= 10; i++) {
+      lastTime = startTime + i * INTERVAL;
+      chart.appendData(id, { time: lastTime, open: 101, high: 106, low: 100, close: 105 });
+      raf.flush(5);
+    }
+
+    const { from, to } = chart.getVisibleRange();
+
+    expect(from).toBeLessThanOrEqual(startTime);
+    expect(to).toBeCloseTo(lastTime + 3 * INTERVAL, -1);
+  });
+
   it('updateData bursts on the same bar do NOT lose the right-edge pin', () => {
     const id = seedCandles(chart, 20);
     const lastTime = 1_000_000 + 19 * INTERVAL;
