@@ -1,10 +1,14 @@
 <script lang="ts">
-import type { ChartInstance } from '@wick-charts/core';
-import { formatTime, resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
+import { type ChartInstance, formatTime, resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
 import { onDestroy } from 'svelte';
 
 import { getChartContext } from '../context';
 import { createVisibleRange } from '../stores';
+
+/** Desired number of labels (≥ 2). Overrides chart-level `axis.x.labelCount`. */
+export let labelCount: number | undefined = undefined;
+/** Minimum pixel gap between adjacent labels (hard floor). Overrides chart-level. */
+export let minLabelSpacing: number | undefined = undefined;
 
 interface TrackedTick {
   opacity: number;
@@ -13,6 +17,20 @@ interface TrackedTick {
 
 const chartStore = getChartContext();
 const tickMap = new Map<number, TrackedTick>();
+
+// Hold a stable reference to the chart so onDestroy still has it when the
+// parent ChartContainer's onDestroy has already cleared the store.
+let densityChart: import('@wick-charts/core').ChartInstance | null = null;
+$: if ($chartStore) {
+  densityChart = $chartStore;
+  $chartStore.setTimeAxisLabelDensity({
+    labelCount: labelCount ?? null,
+    minLabelSpacing: minLabelSpacing ?? null,
+  });
+}
+onDestroy(() => {
+  densityChart?.setTimeAxisLabelDensity({ labelCount: null, minLabelSpacing: null });
+});
 
 let visibleRangeUnsub: (() => void) | null = null;
 let allTicks: [number, TrackedTick][] = [];

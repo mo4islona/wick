@@ -2,9 +2,11 @@
 import { type ChartInstance, type SliceInfo, type ValueFormatter, formatCompact } from '@wick-charts/core';
 import { onDestroy } from 'svelte';
 
-import { getChartContext, getThemeContext } from '../context';
+import { getChartContext, getLegendAnchor, getLegendRightAnchor, getThemeContext } from '../context';
+import { portal } from './portal';
 
 type PieLegendMode = 'value' | 'percent' | 'both';
+type PieLegendPosition = 'bottom' | 'right' | 'overlay';
 
 /**
  * Owning series id. **Optional** — when omitted, the first visible pie
@@ -15,6 +17,15 @@ export let seriesId: string | undefined = undefined;
 export let mode: PieLegendMode | undefined = undefined;
 /** Custom formatter for the absolute slice value. */
 export let format: ValueFormatter | undefined = undefined;
+/** Layout placement. Default: `'bottom'`. */
+export let position: PieLegendPosition = 'bottom';
+
+const bottomAnchorStore = getLegendAnchor();
+const rightAnchorStore = getLegendRightAnchor();
+
+// Overlay mode renders inline (no portal) — same behaviour as React, where
+// `position='overlay'` keeps PieLegend in the series-overlay layer.
+$: portalTarget = position === 'right' ? $rightAnchorStore : position === 'bottom' ? $bottomAnchorStore : null;
 
 $: resolvedMode = (mode ?? 'both') as PieLegendMode;
 $: resolvedFormat = (format ?? formatCompact) as ValueFormatter;
@@ -52,7 +63,12 @@ function resolvePieSeriesId(c: ChartInstance, explicit: string | undefined): str
 $: chart = $chartStore;
 $: theme = $themeStore;
 $: resolvedId = chart && bump >= 0 ? resolvePieSeriesId(chart, seriesId) : null;
-$: slices = ((chart && resolvedId !== null ? chart.getSliceInfo(resolvedId) : null) ?? []) as readonly SliceInfo[];
+// Reference `bump` directly so Svelte invalidates this cell on every bump,
+// even when `resolvedId` resolves to the same string identity (Svelte's
+// same-value optimization would otherwise short-circuit the downstream
+// recomputation and stale-cache the empty initial slice list).
+$: slices = ((chart && resolvedId !== null && bump >= 0 ? chart.getSliceInfo(resolvedId) : null) ??
+  []) as readonly SliceInfo[];
 </script>
 
 {#if slices.length > 0 && theme}
@@ -60,7 +76,12 @@ $: slices = ((chart && resolvedId !== null ? chart.getSliceInfo(resolvedId) : nu
     <slot slices={slices} mode={resolvedMode} format={resolvedFormat} />
   {:else}
     <div
-      style="display:flex;flex-direction:column;gap:6px;padding:8px 12px;font-family:{theme.typography.fontFamily};font-size:{theme.typography.fontSize}px;color:{theme.tooltip.textColor};pointer-events:auto;"
+      use:portal={portalTarget}
+      data-chart-pie-legend=""
+      data-chart-pie-legend-position={position}
+      style="display:flex;flex-direction:column;gap:6px;padding:{position === 'overlay'
+        ? '8px 12px'
+        : '6px 10px'};font-family:{theme.typography.fontFamily};font-size:{theme.typography.fontSize}px;color:{theme.tooltip.textColor};pointer-events:auto;"
     >
       {#each slices as slice, i (i)}
         <div style="display:flex;align-items:center;gap:10px;">

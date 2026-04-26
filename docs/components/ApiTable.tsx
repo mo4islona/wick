@@ -120,26 +120,26 @@ function PropEntry({
           fontFamily: 'inherit',
         }}
       >
-        <code
-          className="md-inline-code"
+        <span
           style={{
             color: codeColor,
             fontWeight: 600,
             fontSize: 14,
-            padding: 0,
-            background: 'transparent',
+            // Inherit the surrounding sans font instead of `<code>`'s UA-default
+            // monospace — prop names read as identifiers in the body copy now.
+            fontFamily: 'inherit',
           }}
         >
           {prop.name}
           {prop.optional && <span style={{ color: mutedColor, fontWeight: 400 }}>?</span>}
-        </code>
+        </span>
 
         {prop.defaultValue && (
           <span style={{ fontSize: 12, color: mutedColor }}>
             default{' '}
-            <code className="md-inline-code" style={{ fontSize: 12 }}>
+            <span className="md-inline-code" style={{ fontSize: 12, fontFamily: 'inherit' }}>
               {prop.defaultValue}
-            </code>
+            </span>
           </span>
         )}
 
@@ -165,7 +165,7 @@ function PropEntry({
         {/* Type lives on the right of the header — but only when short.
             Multi-line types drop to their own row below. */}
         {!isMultilineType && (
-          <code
+          <span
             className="md-inline-code"
             style={{
               fontSize: 12.5,
@@ -177,16 +177,19 @@ function PropEntry({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
+              fontFamily: 'inherit',
             }}
             title={prettyType}
           >
             {prettyType}
-          </code>
+          </span>
         )}
       </div>
 
-      {/* Multi-line type: rendered below the header on its own block */}
-      {isMultilineType && (
+      {/* Multi-line type: rendered below the header on its own block.
+          Suppressed when nested expansion is available — the toggle below
+          already shows the full shape, so the pre block would just duplicate. */}
+      {isMultilineType && !hasNested && (
         <pre
           style={{
             margin: '6px 0 0',
@@ -210,7 +213,7 @@ function PropEntry({
         <div
           style={{
             marginTop: 6,
-            fontSize: 13,
+            fontSize: 12,
             lineHeight: 1.55,
             color: theme.tooltip.textColor,
             opacity: 0.92,
@@ -242,7 +245,7 @@ function PropEntry({
           >
             <span style={{ fontSize: 10, lineHeight: 1 }}>{open ? '▼' : '▶'}</span>
             {open ? `Hide ${prop.nested.props.length} fields` : `Show ${prop.nested.props.length} fields`}
-            <span style={{ opacity: 0.6 }}>· {prop.nested.name}</span>
+            {prop.nested.name && <span style={{ opacity: 0.6 }}>· {prop.nested.name}</span>}
           </button>
 
           {open && (
@@ -333,10 +336,18 @@ function Description({
   mutedColor: string;
   deprecated: string | boolean | null;
 }) {
-  // Preserve newlines from JSDoc but collapse {@link X} into the bare name —
-  // the link target rarely lives on the page anyway, so the bare reference
-  // is more honest than a broken anchor.
-  const cleaned = text.replace(/\{@link\s+([^}]+)\s*\}/g, (_, ref) => `\`${String(ref).trim().split(/\s+/)[0]}\``);
+  // Preserve newlines from JSDoc but collapse `{@link X}` (and the
+  // `{@link X | label}` / `{@link X label}` variants) into the bare name
+  // rendered as inline code. The link target rarely lives on the page
+  // anyway, so the bare reference is more honest than a broken anchor.
+  const cleaned = text.replace(
+    /\{@link\s+([^}|\s]+)(?:\s*[|]\s*([^}]+)|\s+([^}]+))?\s*\}/g,
+    (_m, target, pipeLabel, spaceLabel) => {
+      const label = (pipeLabel ?? spaceLabel ?? target ?? '').trim();
+
+      return `\`${label}\``;
+    },
+  );
 
   return (
     <div style={{ whiteSpace: 'pre-wrap' }}>
@@ -360,9 +371,9 @@ function renderInline(text: string): ReactNode[] {
     const idx = m.index ?? 0;
     if (idx > last) out.push(text.slice(last, idx));
     out.push(
-      <code key={key++} className="md-inline-code">
+      <span key={key++} className="md-inline-code" style={{ fontFamily: 'inherit' }}>
         {m[0].slice(1, -1)}
-      </code>,
+      </span>,
     );
     last = idx + m[0].length;
   }

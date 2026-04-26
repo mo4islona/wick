@@ -4,8 +4,12 @@ import { computed, onMounted, ref } from 'vue';
 const props = withDefaults(
   defineProps<{
     value: number;
-    /** Value-to-string formatter. Defaults to the current locale's `Intl.NumberFormat`. */
-    format?: (value: number) => string;
+    /**
+     * Value-to-string formatter. Defaults to the current locale's
+     * `Intl.NumberFormat` when omitted. `Intl.NumberFormatOptions` is also
+     * accepted (legacy) — routed through the built-in `Intl.NumberFormat`.
+     */
+    format?: ((value: number) => string) | Intl.NumberFormatOptions;
     locale?: string;
     spinDuration?: number;
   }>(),
@@ -20,8 +24,11 @@ onMounted(() => {
   mounted.value = true;
 });
 
-const defaultFormat = computed(() => {
-  const nf = new Intl.NumberFormat(props.locale);
+const effectiveFormat = computed<(v: number) => string>(() => {
+  const f = props.format;
+  if (typeof f === 'function') return f;
+  const nf = new Intl.NumberFormat(props.locale, typeof f === 'object' ? f : undefined);
+
   return (v: number) => nf.format(v);
 });
 
@@ -31,8 +38,7 @@ interface CharPart {
 }
 
 const parts = computed<CharPart[]>(() => {
-  const fn = props.format ?? defaultFormat.value;
-  const formatted = fn(props.value);
+  const formatted = effectiveFormat.value(props.value);
   const result: CharPart[] = [];
   for (const char of formatted) {
     if (char >= '0' && char <= '9') {

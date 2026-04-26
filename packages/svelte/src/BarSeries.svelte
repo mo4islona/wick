@@ -5,7 +5,7 @@ import { get } from 'svelte/store';
 
 import { getChartContext } from './context';
 
-export let data: TimePoint[][] = [];
+export let data: TimePoint[][];
 export let options: Partial<BarSeriesOptions> | undefined = undefined;
 /** Stable series ID — same value across remounts. */
 export let id: string | undefined = undefined;

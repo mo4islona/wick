@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
 
 export interface NumberFlowProps {
+  /** Numeric value to display. Each digit that changes between renders animates with a vertical spin. */
   value: number;
   /**
    * Value-to-string formatter. Defaults to the current locale's
@@ -12,9 +13,13 @@ export interface NumberFlowProps {
    * from before this prop was a function.
    */
   format?: ((value: number) => string) | Intl.NumberFormatOptions;
+  /** BCP 47 locale tag used by the default formatter. Defaults to `'en-US'`. */
   locale?: string;
+  /** Per-digit spin animation duration in milliseconds. Defaults to `350`. */
   spinDuration?: number;
+  /** Extra class on the root `<span>`. */
   className?: string;
+  /** Inline style on the root `<span>`. Useful for `fontVariantNumeric: 'tabular-nums'`. */
   style?: CSSProperties;
 }
 

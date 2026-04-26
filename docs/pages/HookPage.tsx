@@ -12,8 +12,7 @@ import type { ChartTheme } from '@wick-charts/react';
 
 import { Markdown } from '../components/Markdown';
 import { HighlightedCode } from '../components/playground/CodeView';
-import { type Framework, useFramework } from '../context/framework';
-import { FRAMEWORK_META, HOOK_NAMES, getHookName } from './api/frameworks';
+import { useFramework } from '../context/framework';
 
 interface FrameworkHook {
   name: string;
@@ -116,53 +115,259 @@ const theme = useTheme();
     react: {
       name: 'useCrosshairPosition',
       signature: '(chart: ChartInstance) => CrosshairPosition | null',
+      example: `import { useChartInstance, useCrosshairPosition } from '@wick-charts/react';
+
+function HoverReadout() {
+  const chart = useChartInstance();
+  const pos = useCrosshairPosition(chart);
+  if (!pos) return null;
+
+  return <span>t = {new Date(pos.time).toISOString()}, y = {pos.y.toFixed(2)}</span>;
+}`,
     },
     vue: {
       name: 'useCrosshairPosition',
       signature: '(chart: ChartInstance) => Ref<CrosshairPosition | null>',
+      example: `<script setup lang="ts">
+import { useChartInstance, useCrosshairPosition } from '@wick-charts/vue';
+
+const chart = useChartInstance();
+const pos = useCrosshairPosition(chart);
+</script>
+
+<template>
+  <span v-if="pos">
+    t = {{ new Date(pos.time).toISOString() }}, y = {{ pos.y.toFixed(2) }}
+  </span>
+</template>`,
     },
     svelte: {
       name: 'createCrosshairPosition',
       signature: '(chart: ChartInstance) => Readable<CrosshairPosition | null>',
+      example: `<script lang="ts">
+  import { createCrosshairPosition, getChartContext } from '@wick-charts/svelte';
+  import { get } from 'svelte/store';
+
+  const chart = get(getChartContext());
+  const pos = createCrosshairPosition(chart);
+</script>
+
+{#if $pos}
+  <span>t = {new Date($pos.time).toISOString()}, y = {$pos.y.toFixed(2)}</span>
+{/if}`,
     },
   },
 
   useLastYValue: {
     description:
       'Reactive snapshot of the most-recent Y value for a series. Tracks the smoothed value used by `<YLabel>`, so values animate consistently with the price badge.',
-    react: { name: 'useLastYValue', signature: '(chart: ChartInstance, seriesId: string) => number | null' },
-    vue: { name: 'useLastYValue', signature: '(chart: ChartInstance, seriesId: string) => Ref<number | null>' },
+    react: {
+      name: 'useLastYValue',
+      signature: '(chart: ChartInstance, seriesId: string) => number | null',
+      example: `import { useChartInstance, useLastYValue } from '@wick-charts/react';
+
+function PriceBadge({ seriesId }: { seriesId: string }) {
+  const chart = useChartInstance();
+  const last = useLastYValue(chart, seriesId);
+  if (last === null) return null;
+
+  return <span className="badge">\${last.toFixed(2)}</span>;
+}`,
+    },
+    vue: {
+      name: 'useLastYValue',
+      signature: '(chart: ChartInstance, seriesId: string) => Ref<number | null>',
+      example: `<script setup lang="ts">
+import { useChartInstance, useLastYValue } from '@wick-charts/vue';
+
+const props = defineProps<{ seriesId: string }>();
+const chart = useChartInstance();
+const last = useLastYValue(chart, props.seriesId);
+</script>
+
+<template>
+  <span v-if="last !== null" class="badge">\${{ last.toFixed(2) }}</span>
+</template>`,
+    },
     svelte: {
       name: 'createLastYValue',
       signature: '(chart: ChartInstance, seriesId: string) => Readable<number | null>',
+      example: `<script lang="ts">
+  import { createLastYValue, getChartContext } from '@wick-charts/svelte';
+  import { get } from 'svelte/store';
+
+  export let seriesId: string;
+  const chart = get(getChartContext());
+  const last = createLastYValue(chart, seriesId);
+</script>
+
+{#if $last !== null}
+  <span class="badge">\${$last.toFixed(2)}</span>
+{/if}`,
     },
   },
 
   usePreviousClose: {
     description:
       'Returns the previous-session close for a series, when one is set on the chart. Useful for building custom "% change" overlays that match the built-in `<InfoBar>`.',
-    react: { name: 'usePreviousClose', signature: '(chart: ChartInstance, seriesId: string) => number | null' },
-    vue: { name: 'usePreviousClose', signature: '(chart: ChartInstance, seriesId: string) => Ref<number | null>' },
+    react: {
+      name: 'usePreviousClose',
+      signature: '(chart: ChartInstance, seriesId: string) => number | null',
+      example: `import { useChartInstance, useLastYValue, usePreviousClose } from '@wick-charts/react';
+
+function ChangePill({ seriesId }: { seriesId: string }) {
+  const chart = useChartInstance();
+  const last = useLastYValue(chart, seriesId);
+  const prev = usePreviousClose(chart, seriesId);
+  if (last === null || prev === null) return null;
+
+  const pct = ((last - prev) / prev) * 100;
+
+  return <span style={{ color: pct >= 0 ? 'limegreen' : 'tomato' }}>{pct.toFixed(2)}%</span>;
+}`,
+    },
+    vue: {
+      name: 'usePreviousClose',
+      signature: '(chart: ChartInstance, seriesId: string) => Ref<number | null>',
+      example: `<script setup lang="ts">
+import { computed } from 'vue';
+import { useChartInstance, useLastYValue, usePreviousClose } from '@wick-charts/vue';
+
+const props = defineProps<{ seriesId: string }>();
+const chart = useChartInstance();
+const last = useLastYValue(chart, props.seriesId);
+const prev = usePreviousClose(chart, props.seriesId);
+
+const pct = computed(() => {
+  if (last.value === null || prev.value === null) return null;
+
+  return ((last.value - prev.value) / prev.value) * 100;
+});
+</script>
+
+<template>
+  <span v-if="pct !== null" :style="{ color: pct >= 0 ? 'limegreen' : 'tomato' }">
+    {{ pct.toFixed(2) }}%
+  </span>
+</template>`,
+    },
     svelte: {
       name: 'createPreviousClose',
       signature: '(chart: ChartInstance, seriesId: string) => Readable<number | null>',
+      example: `<script lang="ts">
+  import { createLastYValue, createPreviousClose, getChartContext } from '@wick-charts/svelte';
+  import { derived, get } from 'svelte/store';
+
+  export let seriesId: string;
+  const chart = get(getChartContext());
+  const last = createLastYValue(chart, seriesId);
+  const prev = createPreviousClose(chart, seriesId);
+  const pct = derived([last, prev], ([$l, $p]) =>
+    $l === null || $p === null ? null : (($l - $p) / $p) * 100,
+  );
+</script>
+
+{#if $pct !== null}
+  <span style="color: {$pct >= 0 ? 'limegreen' : 'tomato'}">
+    {$pct.toFixed(2)}%
+  </span>
+{/if}`,
     },
   },
 
   useVisibleRange: {
     description:
       "Subscribes to viewport changes. Returns the visible time range `{ start, end }` of the chart. Use this to drive secondary visualisations (mini-maps, range-aware fetchers) that should track the user's pan/zoom.",
-    react: { name: 'useVisibleRange', signature: '(chart: ChartInstance) => VisibleRange' },
-    vue: { name: 'useVisibleRange', signature: '(chart: ChartInstance) => Ref<VisibleRange>' },
-    svelte: { name: 'createVisibleRange', signature: '(chart: ChartInstance) => Readable<VisibleRange>' },
+    react: {
+      name: 'useVisibleRange',
+      signature: '(chart: ChartInstance) => VisibleRange',
+      example: `import { useEffect } from 'react';
+import { useChartInstance, useVisibleRange } from '@wick-charts/react';
+
+function RangeFetcher({ onRangeChange }: { onRangeChange: (start: number, end: number) => void }) {
+  const chart = useChartInstance();
+  const { start, end } = useVisibleRange(chart);
+
+  useEffect(() => {
+    onRangeChange(start, end);
+  }, [start, end, onRangeChange]);
+
+  return null;
+}`,
+    },
+    vue: {
+      name: 'useVisibleRange',
+      signature: '(chart: ChartInstance) => Ref<VisibleRange>',
+      example: `<script setup lang="ts">
+import { watch } from 'vue';
+import { useChartInstance, useVisibleRange } from '@wick-charts/vue';
+
+const emit = defineEmits<{ rangeChange: [start: number, end: number] }>();
+const chart = useChartInstance();
+const range = useVisibleRange(chart);
+
+watch(range, ({ start, end }) => emit('rangeChange', start, end), { immediate: true });
+</script>`,
+    },
+    svelte: {
+      name: 'createVisibleRange',
+      signature: '(chart: ChartInstance) => Readable<VisibleRange>',
+      example: `<script lang="ts">
+  import { createEventDispatcher } from 'svelte';
+  import { createVisibleRange, getChartContext } from '@wick-charts/svelte';
+  import { get } from 'svelte/store';
+
+  const dispatch = createEventDispatcher<{ rangeChange: { start: number; end: number } }>();
+  const chart = get(getChartContext());
+  const range = createVisibleRange(chart);
+
+  $: dispatch('rangeChange', $range);
+</script>`,
+    },
   },
 
   useYRange: {
     description:
       'Subscribes to Y-axis range changes. Returns the current `{ min, max }` derived from visible data plus padding. Re-renders on every viewport recompute.',
-    react: { name: 'useYRange', signature: '(chart: ChartInstance) => YRange' },
-    vue: { name: 'useYRange', signature: '(chart: ChartInstance) => Ref<YRange>' },
-    svelte: { name: 'createYRange', signature: '(chart: ChartInstance) => Readable<YRange>' },
+    react: {
+      name: 'useYRange',
+      signature: '(chart: ChartInstance) => YRange',
+      example: `import { useChartInstance, useYRange } from '@wick-charts/react';
+
+function YRangeReadout() {
+  const chart = useChartInstance();
+  const { min, max } = useYRange(chart);
+
+  return <span>{min.toFixed(2)} – {max.toFixed(2)}</span>;
+}`,
+    },
+    vue: {
+      name: 'useYRange',
+      signature: '(chart: ChartInstance) => Ref<YRange>',
+      example: `<script setup lang="ts">
+import { useChartInstance, useYRange } from '@wick-charts/vue';
+
+const chart = useChartInstance();
+const range = useYRange(chart);
+</script>
+
+<template>
+  <span>{{ range.min.toFixed(2) }} – {{ range.max.toFixed(2) }}</span>
+</template>`,
+    },
+    svelte: {
+      name: 'createYRange',
+      signature: '(chart: ChartInstance) => Readable<YRange>',
+      example: `<script lang="ts">
+  import { createYRange, getChartContext } from '@wick-charts/svelte';
+  import { get } from 'svelte/store';
+
+  const chart = get(getChartContext());
+  const range = createYRange(chart);
+</script>
+
+<span>{$range.min.toFixed(2)} – {$range.max.toFixed(2)}</span>`,
+    },
   },
 };
 
@@ -179,7 +384,6 @@ export function HookPage({ hookKey, theme }: { hookKey: string; theme: ChartThem
   }
 
   const variant = entry[fw];
-  const equivalents = buildEquivalentsLine(hookKey, fw);
 
   return (
     <div style={{ padding: '8px 20px 40px', maxWidth: 1080 }}>
@@ -200,38 +404,16 @@ export function HookPage({ hookKey, theme }: { hookKey: string; theme: ChartThem
         <code>{`${variant.name}: ${variant.signature}`}</code>
       </pre>
 
-      <div style={{ fontSize: 12, color: theme.axis.textColor, opacity: 0.75, marginBottom: 12 }}>
-        Imported from <code className="md-inline-code">{FRAMEWORK_META[fw].pkg}</code>
-        {equivalents && <> · {equivalents}</>}
-      </div>
-
       <Markdown source={entry.description} theme={theme} />
 
       {variant.example && (
         <>
           <h3 style={{ fontSize: 18, fontWeight: 600, margin: '24px 0 8px', letterSpacing: '-0.01em' }}>Example</h3>
           <div style={{ marginTop: 8 }}>
-            <HighlightedCode code={variant.example} theme={theme} label={FRAMEWORK_META[fw].label} />
+            <HighlightedCode code={variant.example} theme={theme} />
           </div>
         </>
       )}
     </div>
   );
-}
-
-/** Returns the "Equivalent in other frameworks: …" trailer when names diverge. */
-function buildEquivalentsLine(hookKey: string, fw: Framework): string {
-  const renames = HOOK_NAMES[hookKey];
-  if (!renames) return '';
-
-  const others = (['react', 'vue', 'svelte'] as Framework[])
-    .filter((other) => other !== fw)
-    .map((other) => ({ fw: other, name: getHookName(hookKey, other) }))
-    .filter(({ name }) => name !== renames[fw]);
-
-  if (others.length === 0) return '';
-
-  const parts = others.map(({ fw: other, name }) => `${FRAMEWORK_META[other].label}: ${name}`);
-
-  return `Equivalent → ${parts.join(', ')}`;
 }

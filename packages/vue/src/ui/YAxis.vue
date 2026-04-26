@@ -8,6 +8,13 @@ import { useChartInstance } from '../context';
 const props = defineProps<{
   /** Custom tick-label formatter. Overrides the built-in range-adaptive default. */
   format?: ValueFormatter;
+  /**
+   * Desired number of labels (≥ 2). Overrides any chart-level `axis.y.labelCount`.
+   * Realized count may differ ±1 after the 1-2-5 snap.
+   */
+  labelCount?: number;
+  /** Minimum pixel gap between adjacent labels (hard floor). Overrides chart-level. */
+  minLabelSpacing?: number;
 }>();
 
 interface TrackedTick {
@@ -25,6 +32,18 @@ const syncFormat = () => chart.yScale.setFormat(props.format ?? null);
 onMounted(syncFormat);
 watch(() => props.format, syncFormat);
 onUnmounted(() => chart.yScale.setFormat(null));
+
+const applyDensity = () => {
+  chart.setYAxisLabelDensity({
+    labelCount: props.labelCount ?? null,
+    minLabelSpacing: props.minLabelSpacing ?? null,
+  });
+};
+// Run during setup (before first paint) to match TimeAxis.vue and avoid a
+// post-mount density change that would cause a visible tick "jump".
+applyDensity();
+watch(() => [props.labelCount, props.minLabelSpacing], applyDensity);
+onUnmounted(() => chart.setYAxisLabelDensity({ labelCount: null, minLabelSpacing: null }));
 
 const tickMap = new Map<number, TrackedTick>();
 

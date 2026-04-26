@@ -37,7 +37,7 @@ const TIME_POINT: DataShape = {
       optional: false,
       defaultValue: null,
       deprecated: null,
-      description: '',
+      description: 'Y-axis value at this point. Drives the line height / bar height.',
     },
   ],
 };
@@ -49,7 +49,7 @@ export const CHART_DATA_TYPES: Record<string, DataShape> = {
   },
   BarSeries: {
     ...TIME_POINT,
-    description: "Same shape as `LineSeries` — bars take `TimePoint[][]` (one layer per stacked / overlapping series).",
+    description: 'Same shape as `LineSeries` — bars take `TimePoint[][]` (one layer per stacked / overlapping series).',
   },
   Sparkline: {
     ...TIME_POINT,
@@ -62,11 +62,48 @@ export const CHART_DATA_TYPES: Record<string, DataShape> = {
       "One inner array per candlestick stream. `volume` is optional — omit it when you don't want a volume pane.",
     props: [
       TIME_FIELD,
-      { name: 'open', type: 'number', optional: false, defaultValue: null, deprecated: null, description: '' },
-      { name: 'high', type: 'number', optional: false, defaultValue: null, deprecated: null, description: '' },
-      { name: 'low', type: 'number', optional: false, defaultValue: null, deprecated: null, description: '' },
-      { name: 'close', type: 'number', optional: false, defaultValue: null, deprecated: null, description: '' },
-      { name: 'volume', type: 'number', optional: true, defaultValue: null, deprecated: null, description: '' },
+      {
+        name: 'open',
+        type: 'number',
+        optional: false,
+        defaultValue: null,
+        deprecated: null,
+        description: 'Price at the start of the candle interval.',
+      },
+      {
+        name: 'high',
+        type: 'number',
+        optional: false,
+        defaultValue: null,
+        deprecated: null,
+        description: 'Highest price reached during the interval. Drives the upper wick.',
+      },
+      {
+        name: 'low',
+        type: 'number',
+        optional: false,
+        defaultValue: null,
+        deprecated: null,
+        description: 'Lowest price reached during the interval. Drives the lower wick.',
+      },
+      {
+        name: 'close',
+        type: 'number',
+        optional: false,
+        defaultValue: null,
+        deprecated: null,
+        description:
+          'Price at the end of the interval. The body is drawn between `open` and `close`; `close > open` paints the up colour, otherwise the down colour.',
+      },
+      {
+        name: 'volume',
+        type: 'number',
+        optional: true,
+        defaultValue: null,
+        deprecated: null,
+        description:
+          'Trade volume for the interval. When present on any candle, the chart adds a volume pane below the price pane; omit it across the whole series to hide that pane.',
+      },
     ],
   },
 
@@ -75,8 +112,22 @@ export const CHART_DATA_TYPES: Record<string, DataShape> = {
     description:
       'A single flat array of slices. The renderer applies the seriesColors palette automatically when no per-slice `color` is set.',
     props: [
-      { name: 'label', type: 'string', optional: false, defaultValue: null, deprecated: null, description: '' },
-      { name: 'value', type: 'number', optional: false, defaultValue: null, deprecated: null, description: '' },
+      {
+        name: 'label',
+        type: 'string',
+        optional: false,
+        defaultValue: null,
+        deprecated: null,
+        description: 'Slice name. Shown in the legend and the slice tooltip.',
+      },
+      {
+        name: 'value',
+        type: 'number',
+        optional: false,
+        defaultValue: null,
+        deprecated: null,
+        description: "Slice magnitude. Sums across slices determine each one's share of the pie.",
+      },
       {
         name: 'color',
         type: 'string',

@@ -1,5 +1,6 @@
 /** Font family and base font size used across the chart. */
 export interface Typography {
+  /** CSS `font-family` stack applied to all text rendered by the chart. */
   fontFamily: string;
   /** Base body font size — titles, infobar, pie tooltip/legend default to this. */
   fontSize: number;
@@ -14,11 +15,14 @@ export interface ChartTheme {
   background: string;
   /** Chart area gradient [top, bottom] — subtle vignette for depth */
   chartGradient: [string, string];
+  /** Font family and base size used across the chart's text. */
   typography: Typography;
 
   /** Grid line appearance in the chart area. */
   grid: {
+    /** Grid line stroke colour. */
     color: string;
+    /** Grid line dash pattern. */
     style: 'solid' | 'dashed' | 'dotted';
   };
 
@@ -31,15 +35,31 @@ export interface ChartTheme {
    * want the subtle lightened/darkened look pass `autoGradient(color)`.
    */
   candlestick: {
-    up: { body: string | [string, string]; wick: string };
-    down: { body: string | [string, string]; wick: string };
+    /** Bullish candle (close ≥ open). */
+    up: {
+      /** Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient. */
+      body: string | [string, string];
+      /** Wick stroke colour. */
+      wick: string;
+    };
+    /** Bearish candle (close < open). */
+    down: {
+      /** Body fill — single colour for flat, `[top, bottom]` tuple for a 2-stop vertical gradient. */
+      body: string | [string, string];
+      /** Wick stroke colour. */
+      wick: string;
+    };
   };
 
   /** Default line series appearance including area gradient fill. */
   line: {
+    /** Stroke colour of the line. */
     color: string;
+    /** Stroke width in CSS pixels. */
     width: number;
+    /** Top stop of the area-fill vertical gradient (closest to the line). */
     areaTopColor: string;
+    /** Bottom stop of the area-fill vertical gradient (closest to the X axis). */
     areaBottomColor: string;
   };
 
@@ -48,14 +68,19 @@ export interface ChartTheme {
 
   /** Bollinger band / envelope fill colors. */
   bands: {
+    /** Fill for the upper band region (above the middle band). */
     upper: string;
+    /** Fill for the lower band region (below the middle band). */
     lower: string;
   };
 
   /** Crosshair line and axis label styling. */
   crosshair: {
+    /** Stroke colour of the crosshair lines. */
     color: string;
+    /** Background fill of the X/Y axis label pills shown at the crosshair position. */
     labelBackground: string;
+    /** Text colour inside the crosshair axis label pills. */
     labelTextColor: string;
   };
 
@@ -66,26 +91,49 @@ export interface ChartTheme {
    * diverge.
    */
   axis: {
+    /** Default tick-label font size shared by both axes. */
     fontSize: number;
+    /** Default tick-label colour shared by both axes. */
     textColor: string;
-    x?: { fontSize?: number; textColor?: string };
-    y?: { fontSize?: number; textColor?: string };
+    /** Override the shared defaults on the X axis only. */
+    x?: {
+      /** X-axis tick-label font size. Falls back to `axis.fontSize`. */
+      fontSize?: number;
+      /** X-axis tick-label colour. Falls back to `axis.textColor`. */
+      textColor?: string;
+    };
+    /** Override the shared defaults on the Y axis only. */
+    y?: {
+      /** Y-axis tick-label font size. Falls back to `axis.fontSize`. */
+      fontSize?: number;
+      /** Y-axis tick-label colour. Falls back to `axis.textColor`. */
+      textColor?: string;
+    };
   };
 
   /** Floating label shown at the current value level on the Y axis. */
   yLabel: {
+    /** Font size of the value text inside the floating Y label. */
     fontSize: number;
+    /** Pill background when the latest delta is positive. */
     upBackground: string;
+    /** Pill background when the latest delta is negative. */
     downBackground: string;
+    /** Pill background when the latest delta is zero / unknown. */
     neutralBackground: string;
+    /** Text colour inside the floating Y label pill. */
     textColor: string;
   };
 
   /** Hover tooltip styling. */
   tooltip: {
+    /** Tooltip body font size. */
     fontSize: number;
+    /** Tooltip background fill. */
     background: string;
+    /** Tooltip text colour. */
     textColor: string;
+    /** Tooltip outer border colour. */
     borderColor: string;
   };
 
@@ -106,29 +154,51 @@ export interface ChartTheme {
     borderColor: string;
     /** Line / close-price miniature color and geometry. */
     line: {
+      /** Stroke colour of the miniature line. */
       color: string;
+      /** Stroke width of the miniature line in CSS pixels. */
       width: number;
+      /** Top stop of the miniature area-fill gradient. */
       areaTopColor: string;
+      /** Bottom stop of the miniature area-fill gradient. */
       areaBottomColor: string;
     };
     /** Colors for candlestick-type miniature rendering. */
     candlestick: {
-      up: { body: string | [string, string]; wick: string };
-      down: { body: string | [string, string]; wick: string };
+      /** Bullish miniature candle (close ≥ open). */
+      up: {
+        /** Body fill — single colour for flat, `[top, bottom]` tuple for a vertical gradient. */
+        body: string | [string, string];
+        /** Wick stroke colour. */
+        wick: string;
+      };
+      /** Bearish miniature candle (close < open). */
+      down: {
+        /** Body fill — single colour for flat, `[top, bottom]` tuple for a vertical gradient. */
+        body: string | [string, string];
+        /** Wick stroke colour. */
+        wick: string;
+      };
     };
     /** The draggable visible-range window indicator. */
     window: {
+      /** Fill inside the visible-range window. Usually a translucent tint. */
       fill: string;
+      /** Stroke colour around the window. */
       border: string;
+      /** Stroke width of the window border in CSS pixels. */
       borderWidth: number;
     };
     /** Left/right resize handles on the window edges. */
     handle: {
+      /** Stroke colour of the handle marker. */
       color: string;
+      /** Handle marker width in CSS pixels. */
       width: number;
     };
     /** Dim overlay covering the regions outside the window. */
     mask: {
+      /** Fill of the dim overlay applied to regions outside the window. */
       fill: string;
     };
   };

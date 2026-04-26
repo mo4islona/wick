@@ -32,14 +32,28 @@ export interface ChartContainerProps {
   /** Grouped axis configuration (Y/X visibility, bounds, sizing). */
   axis?: AxisConfig;
   /**
-   * Viewport padding. `top`/`bottom` are in pixels. `left`/`right` accept either pixels (`50`)
-   * or data intervals (`{ intervals: 3 }`). Set to 0 for edge-to-edge sparklines. Applied on mount only.
-   * Defaults: `{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }`.
+   * Viewport padding around the plot area. Applied on mount only — changing
+   * this prop after mount is ignored. Set every side to `0` for an
+   * edge-to-edge sparkline.
+   *
+   * @default `{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }`
    */
   padding?: {
+    /** Pixels of empty space above the plot area. Default `20`. */
     top?: number;
+    /** Pixels of empty space below the plot area. Default `20`. */
     bottom?: number;
+    /**
+     * Empty space on the right edge. A `number` is pixels (e.g. `50`); an
+     * object pads by data intervals on the time axis (e.g. `{ intervals: 3 }`
+     * leaves room for three more bars/candles past the latest point). Default
+     * `{ intervals: 3 }`.
+     */
     right?: number | { intervals: number };
+    /**
+     * Empty space on the left edge. A `number` is pixels; an object pads by
+     * data intervals on the time axis. Default `{ intervals: 0 }`.
+     */
     left?: number | { intervals: number };
   };
   /** Show the chart background gradient. Defaults to true. */
@@ -47,7 +61,10 @@ export interface ChartContainerProps {
   /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
   interactive?: boolean;
   /** Background grid configuration. Default: `{ visible: true }`. */
-  grid?: { visible: boolean };
+  grid?: {
+    /** Whether the background grid is rendered. Default: `true`. */
+    visible: boolean;
+  };
   /**
    * How `<Title>` and `<InfoBar>` are positioned relative to the canvas.
    * - `'overlay'` (default): absolute overlays on top of the canvas — the grid
@@ -67,7 +84,9 @@ export interface ChartContainerProps {
    * Only read at mount; changing this prop after the chart is created is ignored.
    */
   perf?: PerfOption;
+  /** Inline style for the chart's outer wrapper element. */
   style?: CSSProperties;
+  /** Extra class for the chart's outer wrapper element. */
   className?: string;
 }
 

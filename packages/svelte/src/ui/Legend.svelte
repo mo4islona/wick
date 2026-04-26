@@ -18,10 +18,12 @@ export interface LegendItemOverride {
   import { getChartContext, getLegendAnchor, getLegendRightAnchor, getThemeContext } from '../context';
   import { portal } from './portal';
 
+  type LegendMode = 'toggle' | 'isolate' | 'solo';
+
   export let items: LegendItemOverride[] | undefined = undefined;
   export let position: 'bottom' | 'right' = 'bottom';
   /** `'isolate'` shows only the clicked item; `'solo'` is a @deprecated alias. */
-  export let mode: 'toggle' | 'isolate' | 'solo' = 'toggle';
+  export let mode: LegendMode = 'toggle';
 
   const chartStore = getChartContext();
   const themeStore = getThemeContext();
@@ -154,7 +156,7 @@ export interface LegendItemOverride {
         const label = c.getSeriesLabel(seriesId);
         const visible = c.isSeriesVisible(seriesId);
         result.push(
-          makeItem(c, isolated, {
+          makeItem(c, {
             id: seriesId,
             seriesId,
             layerIndex: undefined,

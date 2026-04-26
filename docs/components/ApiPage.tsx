@@ -24,6 +24,7 @@ import {
   resolveBodyExample,
 } from '../pages/api/snippets';
 import type { Route } from '../routes';
+import { hexToRgba } from '../utils';
 import { type ApiProp, ApiTable } from './ApiTable';
 import { Markdown } from './Markdown';
 import { HighlightedCode } from './playground/CodeView';
@@ -146,27 +147,35 @@ function mergeDataShapeIntoProps(component: string, props: ApiProp[]): ApiProp[]
 }
 
 function DemoLink({ demoRoute, theme }: { demoRoute: Route; theme: ChartTheme }) {
+  const accent = theme.line.color;
+
   return (
     <a
       href={`#${demoRoute}`}
       style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
         fontSize: 13,
-        padding: '4px 10px',
+        fontWeight: 500,
+        padding: '6px 12px',
         borderRadius: 6,
-        border: `1px solid ${theme.tooltip.borderColor}`,
-        color: theme.tooltip.textColor,
+        border: `1px solid ${hexToRgba(accent, 0.4)}`,
+        background: hexToRgba(accent, 0.12),
+        color: accent,
         textDecoration: 'none',
-        opacity: 0.85,
-        transition: 'opacity 0.1s',
+        transition: 'background 0.1s, border-color 0.1s',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.opacity = '1';
+        e.currentTarget.style.background = hexToRgba(accent, 0.2);
+        e.currentTarget.style.borderColor = hexToRgba(accent, 0.6);
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.opacity = '0.85';
+        e.currentTarget.style.background = hexToRgba(accent, 0.12);
+        e.currentTarget.style.borderColor = hexToRgba(accent, 0.4);
       }}
     >
-      ↗ See demos
+      <span aria-hidden="true">↗</span> Try the live demo
     </a>
   );
 }
@@ -212,7 +221,7 @@ function ReactOnlyNotice({ theme, component, fw }: { theme: ChartTheme; componen
       }}
     >
       <strong>{component}</strong> is currently only available in{' '}
-      <code className="md-inline-code">@wick-charts/react</code>. The {FRAMEWORK_META[fw].label} package does not export
+      <span className="md-inline-code" style={{ fontFamily: 'inherit' }}>@wick-charts/react</span>. The {FRAMEWORK_META[fw].label} package does not export
       an equivalent component yet — the props reference below applies if you're using the React surface inside a mixed
       app.
     </div>
