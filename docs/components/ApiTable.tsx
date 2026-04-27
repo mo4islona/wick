@@ -5,11 +5,12 @@
 // Tanstack docs use, for the same reason: types and descriptions don't fit
 // into fixed-width table columns once they get long.
 
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 
 import type { ChartTheme } from '@wick-charts/react';
 
 import { docFontSize, hexToRgba } from '../utils';
+import { Markdown } from './Markdown';
 
 export interface ApiProp {
   name: string;
@@ -224,7 +225,12 @@ function PropEntry({
             opacity: 0.92,
           }}
         >
-          <Description text={prop.description} mutedColor={mutedColor} deprecated={prop.deprecated} />
+          <Description
+            text={prop.description}
+            mutedColor={mutedColor}
+            deprecated={prop.deprecated}
+            theme={theme}
+          />
         </div>
       )}
 
@@ -336,53 +342,21 @@ function Description({
   text,
   mutedColor,
   deprecated,
+  theme,
 }: {
   text: string;
   mutedColor: string;
   deprecated: string | boolean | null;
+  theme: ChartTheme;
 }) {
-  // Preserve newlines from JSDoc but collapse `{@link X}` (and the
-  // `{@link X | label}` / `{@link X label}` variants) into the bare name
-  // rendered as inline code. The link target rarely lives on the page
-  // anyway, so the bare reference is more honest than a broken anchor.
-  const cleaned = text.replace(
-    /\{@link\s+([^}|\s]+)(?:\s*[|]\s*([^}]+)|\s+([^}]+))?\s*\}/g,
-    (_m, target, pipeLabel, spaceLabel) => {
-      const label = (pipeLabel ?? spaceLabel ?? target ?? '').trim();
-
-      return `\`${label}\``;
-    },
-  );
-
   return (
-    <div style={{ whiteSpace: 'pre-wrap' }}>
-      {renderInline(cleaned)}
+    <div>
+      <Markdown source={text} theme={theme} />
       {typeof deprecated === 'string' && deprecated.length > 0 && (
         <div style={{ marginTop: 4, fontSize: '1em', color: mutedColor, fontStyle: 'italic' }}>
-          {renderInline(deprecated)}
+          <Markdown source={deprecated} theme={theme} />
         </div>
       )}
     </div>
   );
-}
-
-function renderInline(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  const re = /(`[^`]+`)/g;
-  let last = 0;
-  let key = 0;
-
-  for (const m of text.matchAll(re)) {
-    const idx = m.index ?? 0;
-    if (idx > last) out.push(text.slice(last, idx));
-    out.push(
-      <span key={key++} className="md-inline-code" style={{ fontFamily: 'inherit' }}>
-        {m[0].slice(1, -1)}
-      </span>,
-    );
-    last = idx + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-
-  return out;
 }

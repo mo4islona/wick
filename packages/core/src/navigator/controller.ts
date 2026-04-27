@@ -1,3 +1,5 @@
+import { Animator, easeOutCubic } from '../animation';
+import { DEFAULT_ENTER_MS } from '../animation-constants';
 import type { ChartInstance } from '../chart';
 import { TimeScale } from '../scales/time-scale';
 import { YScale } from '../scales/y-scale';
@@ -64,6 +66,24 @@ export class NavigatorController {
 
   #rafHandle: number | null = null;
   #dirty = true;
+
+  /**
+   * Eases the alpha of the trailing bar/candle/line-segment from 0 → 1 over
+   * `DEFAULT_ENTER_MS` whenever {@link setData} reports a new last point
+   * (a `time` we haven't seen before). Mirrors the per-point entrance
+   * animation that the main chart's series renderers run, so a streaming
+   * tick reads as a smooth fade-in here too instead of a redraw pop.
+   *
+   * `null` means "no entrance in flight, draw the tail at full alpha".
+   */
+  #tailEntrance: Animator<number> | null = null;
+  /** `time` of the last point we've ever seen — initialises after the first
+   * `setData`/render so the first paint doesn't trigger a fade-in. */
+  #lastSeenTime: number | null = null;
+  /** Series index in `lineSeriesList(data)` that owns the newest last-time,
+   * so the tail fade applies to the series that actually grew — not always
+   * the last entry in the stack. -1 for candlestick (single-series). */
+  #tailSeriesIndex = -1;
 
   #resizeObserver: ResizeObserver;
 
@@ -162,6 +182,24 @@ export class NavigatorController {
   }
 
   setData(data: NavigatorData): void {
+    const tail = tailOfData(data);
+    const newLastTime = tail?.time ?? null;
+    if (newLastTime !== null && this.#lastSeenTime !== null && newLastTime !== this.#lastSeenTime) {
+      // A new point at a previously-unseen time — start fading the tail in.
+      // Drop any in-flight entrance and start fresh; back-to-back streaming
+      // ticks each restart the curve from the current alpha so the visual
+      // continuity is preserved by the Animator's retarget contract.
+      const prev = this.#tailEntrance?.current ?? 0;
+      this.#tailEntrance = new Animator<number>({
+        initial: prev,
+        duration: DEFAULT_ENTER_MS,
+        easing: easeOutCubic,
+        lerp: (a, b, t) => a + (b - a) * t,
+      });
+      this.#tailEntrance.setTarget(1);
+    }
+    this.#lastSeenTime = newLastTime;
+    this.#tailSeriesIndex = tail?.seriesIndex ?? -1;
     this.#data = data;
     this.#markDirty();
   }
@@ -408,22 +446,42 @@ export class NavigatorController {
 
     renderBackground(rc);
 
+    // Tail entrance alpha — eases the trailing bar/candle/line segment from
+    // 0 to 1 when a new point streamed in via setData. While in flight,
+    // request another frame so the fade-in reads as continuous motion.
+    let tailAlpha = 1;
+    if (this.#tailEntrance !== null) {
+      this.#tailEntrance.tick(performance.now());
+      tailAlpha = this.#tailEntrance.current;
+      if (this.#tailEntrance.animating) {
+        this.#markDirty();
+      } else {
+        this.#tailEntrance = null;
+      }
+    }
+
     // Miniature series — decimated to ~1 bucket per pixel of active width.
     // Line/bar callers may pass either a single `points` array or `series` for
     // multi-series overlays; the candlestick path stays single-series.
     const buckets = Math.max(1, Math.round(this.#activeWidth));
     const data = this.#data;
     if (data.type === 'candlestick') {
-      renderMiniCandlestick(rc, decimateCandles(data.points, buckets));
+      renderMiniCandlestick(rc, decimateCandles(data.points, buckets), tailAlpha);
     } else {
       const seriesList = lineSeriesList(data);
       const drawArea = seriesList.length === 1; // multiple stacked area fills muddy the strip
-      for (const seriesPoints of seriesList) {
-        const decimated = decimateLinear(seriesPoints, buckets);
+      // Tail-fade applies only to the series whose last point is the newest
+      // (`#tailSeriesIndex`, set in `setData`). Falling back to "last in the
+      // stack" would fade the wrong series whenever a non-last series receives
+      // an update, which is visually confusing on overlapping strokes.
+      const tailIndex = this.#tailSeriesIndex >= 0 ? this.#tailSeriesIndex : seriesList.length - 1;
+      for (let s = 0; s < seriesList.length; s++) {
+        const decimated = decimateLinear(seriesList[s], buckets);
+        const alpha = s === tailIndex ? tailAlpha : 1;
         if (data.type === 'bar') {
-          renderMiniBar(rc, decimated);
+          renderMiniBar(rc, decimated, alpha);
         } else {
-          renderMiniLine(rc, decimated, drawArea);
+          renderMiniLine(rc, decimated, drawArea, alpha);
         }
       }
     }
@@ -567,6 +625,35 @@ function lineSeriesList(
   data: Extract<NavigatorData, { type: 'line' | 'bar' }>,
 ): readonly (readonly NavigatorLinePoint[])[] {
   return 'series' in data ? data.series : [data.points];
+}
+
+/** The newest tail across every point/series in `data`, or `null` for empty
+ * data. Used to detect "a new last point arrived" in {@link
+ * NavigatorController.setData}; the `seriesIndex` tells the renderer which
+ * series owns that tail so the fade-in alpha is applied to the right stroke
+ * (multi-series line/bar). `seriesIndex` is `-1` for candlestick. */
+function tailOfData(data: NavigatorData): { time: number; seriesIndex: number } | null {
+  if (data.type === 'candlestick') {
+    const n = data.points.length;
+    if (n === 0) return null;
+
+    return { time: data.points[n - 1].time, seriesIndex: -1 };
+  }
+  const seriesList = 'series' in data ? data.series : [data.points];
+  let maxTime: number | null = null;
+  let maxIndex = -1;
+  for (let i = 0; i < seriesList.length; i++) {
+    const points = seriesList[i];
+    if (points.length === 0) continue;
+    const t = points[points.length - 1].time;
+    if (maxTime === null || t > maxTime) {
+      maxTime = t;
+      maxIndex = i;
+    }
+  }
+  if (maxTime === null) return null;
+
+  return { time: maxTime, seriesIndex: maxIndex };
 }
 
 function cursorForGesture(gesture: NavigatorGesture, dragging: boolean): string {

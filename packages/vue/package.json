@@ -1,6 +1,6 @@
 {
   "name": "@wick-charts/vue",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "High-performance canvas timeseries charts for Vue — candlestick, line, bar, pie. Tree-shakeable, zero runtime deps.",
   "license": "MIT",
   "repository": {

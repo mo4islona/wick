@@ -74,6 +74,12 @@ describe('data update scale sync (regression #2)', () => {
 
     let observedMax: number | null = null;
     mounted.chart.on('dataUpdate', () => {
+      // The React wrapper detects a length-unchanged update and routes it
+      // through `updateData` (last-point in place), which is the streaming
+      // path — Y range eases instead of snapping. The original regression
+      // (commit 7ac1a6b) was about scale-sync ORDERING, not magnitudes; it's
+      // enough that yScale has been updated *toward* the new domain by the
+      // time listeners fire (i.e. not stuck at the pre-update max of ~2).
       observedMax = mounted!.chart.getYRange().max;
     });
 
@@ -85,9 +91,13 @@ describe('data update scale sync (regression #2)', () => {
     ];
     mounted.rerender(<LineSeries data={next} />);
 
-    // When listeners fire, yScale must already reflect the new data — the bug
-    // was that components got `dataUpdate` before `syncScales()` ran.
     expect(observedMax).not.toBeNull();
-    expect(observedMax!).toBeGreaterThanOrEqual(500);
+    // Has begun moving toward 500 (proves syncScales ran before dataUpdate);
+    // the old stale value would have been ~2.
+    expect(observedMax!).toBeGreaterThan(2);
+
+    // After draining frames, yScale fully reflects the new domain.
+    mounted.flushScheduler();
+    expect(mounted.chart.getYRange().max).toBeGreaterThanOrEqual(500);
   });
 });

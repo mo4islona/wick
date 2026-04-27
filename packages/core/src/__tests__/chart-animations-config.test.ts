@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_ENTER_MS,
+  DEFAULT_INPUT_RESPONSE_MS,
   DEFAULT_PULSE_MS,
   DEFAULT_REBOUND_MS,
   DEFAULT_SMOOTH_MS,
@@ -22,7 +23,11 @@ describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {
     expect(resolveAnimationsConfig(undefined)).toEqual({
       points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
-      viewport: { reboundMs: DEFAULT_REBOUND_MS, yAxisMs: DEFAULT_Y_AXIS_MS },
+      viewport: {
+        reboundMs: DEFAULT_REBOUND_MS,
+        yAxisMs: DEFAULT_Y_AXIS_MS,
+        inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
+      },
     });
   });
 
@@ -33,18 +38,22 @@ describe('resolveAnimationsConfig', () => {
   it('false collapses every field to 0', () => {
     expect(resolveAnimationsConfig(false)).toEqual({
       points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, yAxisMs: 0 },
+      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
     });
   });
 
   it('category-level false disables every field in that category', () => {
     expect(resolveAnimationsConfig({ points: false })).toEqual({
       points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: DEFAULT_REBOUND_MS, yAxisMs: DEFAULT_Y_AXIS_MS },
+      viewport: {
+        reboundMs: DEFAULT_REBOUND_MS,
+        yAxisMs: DEFAULT_Y_AXIS_MS,
+        inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
+      },
     });
     expect(resolveAnimationsConfig({ viewport: false })).toEqual({
       points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
-      viewport: { reboundMs: 0, yAxisMs: 0 },
+      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
     });
   });
 

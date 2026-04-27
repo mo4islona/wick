@@ -109,7 +109,7 @@ const allTicks = computed(() => {
         fontVariantNumeric: 'tabular-nums',
         userSelect: 'none',
         opacity: entry.opacity,
-        transition: 'opacity 0.3s ease',
+        transition: 'opacity 0.25s ease',
         willChange: 'opacity',
       }"
     >

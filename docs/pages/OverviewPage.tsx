@@ -87,7 +87,6 @@ function CandleChart({ theme, speed }: StreamProps) {
       <CandlestickSeries id={sid} data={data} />
       <InitialCandleZoom bars={INITIAL_CANDLE_BARS} ready={data.length > 0} />
       <YLabel seriesId={sid} />
-      <Tooltip />
       <Crosshair />
       <YAxis />
       <TimeAxis />
@@ -161,6 +160,7 @@ function BarChart({ theme, speed }: StreamProps) {
           ],
         }}
       />
+      <Tooltip />
       <Crosshair />
       <YAxis />
       <TimeAxis />
@@ -372,7 +372,7 @@ function Hero({ theme, mobile }: { theme: ChartTheme; mobile: boolean }) {
           style={{ position: 'relative', top: -1 }}
           ariaLabel="Wick Charts logo"
         />
-        <WickWordmark height={mobile ? 20 : 24} color={theme.tooltip.textColor} ariaLabel="Wick Charts" />
+        <WickWordmark height={mobile ? 18 : 22} color={theme.tooltip.textColor} ariaLabel="Wick Charts" />
       </div>
 
       {/* Tagline */}

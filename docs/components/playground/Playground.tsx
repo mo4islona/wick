@@ -41,7 +41,11 @@ export interface PlaygroundChartProps {
   barEntryAnimation: BarEntryAnim;
   lineEntryAnimation: LineEntryAnim;
   entryMs: number;
-  liveTracking: boolean;
+  smoothMs: number;
+  pulseMs: number;
+  reboundMs: number;
+  yAxisMs: number;
+  inputResponseMs: number;
   headerLayout: HeaderLayout;
   navigatorVisible: boolean;
   navigatorHeight: number;
@@ -121,7 +125,11 @@ function stateToChartProps<TExtra extends object>(
     barEntryAnimation: state.barEntryAnimation,
     lineEntryAnimation: state.lineEntryAnimation,
     entryMs: state.entryMs,
-    liveTracking: state.liveTracking,
+    smoothMs: state.smoothMs,
+    pulseMs: state.pulseMs,
+    reboundMs: state.reboundMs,
+    yAxisMs: state.yAxisMs,
+    inputResponseMs: state.inputResponseMs,
     headerLayout: state.headerLayout,
     navigatorVisible: state.navigatorVisible,
     navigatorHeight: state.navigatorHeight,
@@ -388,7 +396,8 @@ function buildBuiltinSections({
     animRows.push(
       {
         key: 'entryMs',
-        label: 'Duration',
+        label: 'Entry duration',
+        hint: 'Per-point entrance. 0 disables.',
         render: (v, onChange) => (
           <Slider
             value={v as number}
@@ -401,10 +410,83 @@ function buildBuiltinSections({
         ),
       } as RowSpec,
       {
-        key: 'liveTracking',
-        label: 'Live tracking',
-        hint: 'Auto-scroll to newest',
-        render: (v, onChange) => <Toggle checked={v as boolean} onChange={onChange as (v: boolean) => void} />,
+        key: 'smoothMs',
+        label: 'Live updates',
+        hint: 'Eases the displayed last value on updateData ticks. 0 snaps.',
+        render: (v, onChange) => (
+          <Slider
+            value={v as number}
+            min={0}
+            max={500}
+            step={10}
+            suffix="ms"
+            onChange={onChange as (v: number) => void}
+          />
+        ),
+      } as RowSpec,
+    );
+    if (showLine) {
+      animRows.push({
+        key: 'pulseMs',
+        label: 'Line pulse',
+        hint: 'Halo cycle period at the line tail. 0 disables.',
+        render: (v, onChange) => (
+          <Slider
+            value={v as number}
+            min={0}
+            max={2000}
+            step={50}
+            suffix="ms"
+            onChange={onChange as (v: number) => void}
+          />
+        ),
+      } as RowSpec);
+    }
+    animRows.push(
+      {
+        key: 'yAxisMs',
+        label: 'Y axis ease',
+        hint: 'Y range chase on data updates. 0 snaps every frame.',
+        render: (v, onChange) => (
+          <Slider
+            value={v as number}
+            min={0}
+            max={400}
+            step={10}
+            suffix="ms"
+            onChange={onChange as (v: number) => void}
+          />
+        ),
+      } as RowSpec,
+      {
+        key: 'reboundMs',
+        label: 'Rebound',
+        hint: 'Post-gesture snap-back duration. 0 snaps.',
+        render: (v, onChange) => (
+          <Slider
+            value={v as number}
+            min={0}
+            max={1000}
+            step={50}
+            suffix="ms"
+            onChange={onChange as (v: number) => void}
+          />
+        ),
+      } as RowSpec,
+      {
+        key: 'inputResponseMs',
+        label: 'Input ease',
+        hint: 'Per-event ease applied to pan/zoom. 0 = instant.',
+        render: (v, onChange) => (
+          <Slider
+            value={v as number}
+            min={0}
+            max={200}
+            step={10}
+            suffix="ms"
+            onChange={onChange as (v: number) => void}
+          />
+        ),
       } as RowSpec,
     );
 

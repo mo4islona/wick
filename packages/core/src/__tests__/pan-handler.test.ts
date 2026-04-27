@@ -63,7 +63,9 @@ describe('PanHandler', () => {
     handler.handleMouseMove(mouse('mousemove', { clientX: 250 }));
 
     expect(timeScale.pixelDeltaToTimeDelta).toHaveBeenCalledWith(-50);
-    expect(viewport.pan).toHaveBeenCalledWith(-50 * 100, 800);
+    // Trailing 0 is the default `inputResponseMs` for the handler when the
+    // chart hasn't opted into input animation.
+    expect(viewport.pan).toHaveBeenCalledWith(-50 * 100, 800, 0);
   });
 
   it('mousemove without an active drag is a no-op', () => {

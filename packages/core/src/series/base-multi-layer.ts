@@ -1,11 +1,18 @@
-import { DEFAULT_ENTER_MS, DEFAULT_SMOOTH_MS, MAX_FRAME_DT_S } from '../animation-constants';
+import { Animator, easeOutCubic } from '../animation';
+import { DEFAULT_ENTER_MS, DEFAULT_SMOOTH_MS } from '../animation-constants';
 import { TimeSeriesStore } from '../data/store';
 import type { TimePoint, TimePointInput } from '../types';
-import { smoothToward } from '../utils/math';
 import { normalizeTime, normalizeTimePointArray } from '../utils/time';
-import { computeEntranceProgress, resolveMs, valueDiffers } from './shared-animation';
+import { computeEntranceProgress, resolveMs } from './shared-animation';
 import { renderedStackPercentTop, renderedStackTop, sumStack } from './stack-math';
 import type { SeriesRenderer } from './types';
+
+/** Per-frame anchor cap: long-idle gaps (backgrounded tab) advance at most
+ * this much on the resume frame, to avoid the displayed value snapping to
+ * the new target. */
+const FRAME_CAP_MS = 16;
+
+const numLerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /**
  * Shape of the options that {@link BaseMultiLayerSeries} reads directly from
@@ -35,19 +42,38 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
   implements SeriesRenderer
 {
   protected readonly stores: TimeSeriesStore<TData>[];
-  /** Per-layer smoothed last value (tracks store.last().value under live updates). */
-  protected displayedLastValues: Array<number | null>;
-  /** Per-layer `time` of the point seeded into {@link displayedLastValues}. */
-  protected lastSeededTimes: number[];
+  /**
+   * Per-layer animator that smooths the displayed last-value toward the actual
+   * `store.last().value` so high-frequency `updateLastPoint` ticks read as a
+   * smooth slide rather than a jump. New points (different `time`) snap
+   * instantly — no cross-point interpolation. `null` per layer until the
+   * first render seeds it. */
+  #liveTrackAnimators: Array<Animator<number> | null>;
+  /** Per-layer `time` of the point currently held by the layer's animator. */
+  #lastSeededTimes: number[];
+  /** Render timestamp of the previous frame, used as the animator's setTarget
+   * anchor; clamped to {@link FRAME_CAP_MS} so a long backgrounded-tab gap
+   * does not snap the displayed value on resume. */
+  #lastRenderTime = 0;
   /** Per-layer entrance animations keyed by the point's `time`. */
   protected entries: Array<Map<number, TEntry>>;
-  /** Last render timestamp for frame-rate-independent smoothing. */
-  protected lastRenderTime = 0;
+
+  /** Per-layer smoothed last value. Read by tests via cast — exposed as a
+   * derived view of the live-track animators' `current`. `null` for layers
+   * whose animator has not been seeded yet (no data). */
+  protected get displayedLastValues(): Array<number | null> {
+    return this.#liveTrackAnimators.map((a) => a?.current ?? null);
+  }
+
+  /** Read-only view used by {@link effectiveValue} to gate the substitution. */
+  protected get lastSeededTimes(): readonly number[] {
+    return this.#lastSeededTimes;
+  }
 
   constructor(layerCount: number) {
     this.stores = Array.from({ length: layerCount }, () => new TimeSeriesStore<TData>());
-    this.displayedLastValues = new Array(layerCount).fill(null);
-    this.lastSeededTimes = new Array(layerCount).fill(Number.NaN);
+    this.#liveTrackAnimators = new Array(layerCount).fill(null);
+    this.#lastSeededTimes = new Array(layerCount).fill(Number.NaN);
     this.entries = Array.from({ length: layerCount }, () => new Map());
   }
 
@@ -145,9 +171,11 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
   dispose(): void {
     for (const s of this.stores) s.removeAllListeners();
     for (const m of this.entries) m.clear();
-    this.displayedLastValues = this.displayedLastValues.map(() => null);
-    this.lastSeededTimes = this.lastSeededTimes.map(() => Number.NaN);
-    this.lastRenderTime = 0;
+    for (let li = 0; li < this.#liveTrackAnimators.length; li++) {
+      this.#liveTrackAnimators[li] = null;
+      this.#lastSeededTimes[li] = Number.NaN;
+    }
+    this.#lastRenderTime = 0;
   }
 
   /**
@@ -158,16 +186,12 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
     for (const m of this.entries) m.clear();
   }
 
-  /** True while any entrance is active OR any layer's displayed-last hasn't converged. */
+  /** True while any entrance is active OR any layer's live-track animator is mid-flight. */
   get needsAnimation(): boolean {
     for (const m of this.entries) if (m.size > 0) return true;
 
-    for (let li = 0; li < this.stores.length; li++) {
-      const displayed = this.displayedLastValues[li];
-      const actualLast = this.stores[li].last();
-      if (displayed == null || !actualLast) continue;
-      if (this.lastSeededTimes[li] !== actualLast.time) continue;
-      if (valueDiffers(displayed, actualLast.value)) return true;
+    for (const a of this.#liveTrackAnimators) {
+      if (a?.animating) return true;
     }
 
     return false;
@@ -177,36 +201,48 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
   /**
    * Advance smoothed last-value per layer. Seeds directly on first render or
-   * when the last point's time changes; otherwise exponentially chases the
-   * target value. Must run at the top of every render pass (and drawOverlay)
-   * so snapshots see fresh state regardless of which pass ticks first.
+   * when the last point's time changes; otherwise retargets the layer's
+   * {@link Animator} toward the actual value. Must run at the top of every
+   * render pass (and drawOverlay) so snapshots see fresh state regardless of
+   * which pass ticks first.
    */
   protected advanceLiveTracking(now: number): void {
-    if (now === this.lastRenderTime) return;
-
-    const dt = this.lastRenderTime ? Math.min(MAX_FRAME_DT_S, (now - this.lastRenderTime) / 1000) : 0;
-    this.lastRenderTime = now;
+    if (now === this.#lastRenderTime) return;
 
     const smoothMs = resolveMs(this.getCommonOptions().smoothMs, DEFAULT_SMOOTH_MS);
-    const rate = smoothMs > 0 ? 1000 / smoothMs : 0;
+
+    // Anchor `setTarget` on the previous frame so the first tick at the new
+    // `now` shows non-zero progress. Clamp to one frame so a long backgrounded-
+    // tab gap doesn't let the animator advance past ~half the curve on resume.
+    const dt = this.#lastRenderTime ? Math.min(now - this.#lastRenderTime, FRAME_CAP_MS) : 0;
+    const anchorNow = now - dt;
+
     for (let li = 0; li < this.stores.length; li++) {
       const actualLast = this.stores[li].last();
       if (!actualLast) {
-        this.displayedLastValues[li] = null;
-        this.lastSeededTimes[li] = Number.NaN;
+        this.#liveTrackAnimators[li] = null;
+        this.#lastSeededTimes[li] = Number.NaN;
         continue;
       }
 
-      const displayed = this.displayedLastValues[li];
-      const isNewPoint = this.lastSeededTimes[li] !== actualLast.time;
-      if (displayed === null || isNewPoint || rate <= 0) {
-        this.displayedLastValues[li] = actualLast.value;
-        this.lastSeededTimes[li] = actualLast.time;
+      const isNewPoint = this.#lastSeededTimes[li] !== actualLast.time;
+      const animator = this.#liveTrackAnimators[li];
+      if (animator === null || isNewPoint || smoothMs <= 0) {
+        this.#liveTrackAnimators[li] = new Animator<number>({
+          initial: actualLast.value,
+          duration: smoothMs > 0 ? smoothMs : 0,
+          easing: easeOutCubic,
+          lerp: numLerp,
+        });
+        this.#lastSeededTimes[li] = actualLast.time;
         continue;
       }
 
-      this.displayedLastValues[li] = smoothToward(displayed, actualLast.value, rate, dt);
+      animator.setTarget(actualLast.value, { duration: smoothMs, now: anchorNow });
+      animator.tick(now);
     }
+
+    this.#lastRenderTime = now;
   }
 
   protected entranceProgress(layerIndex: number, time: number, now: number): number {
@@ -217,8 +253,9 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
   /** The effective Y-value to render for (layer, time) — substitutes smoothed value for the live last point. */
   protected effectiveValue(layerIndex: number, time: number, rawValue: number): number {
-    const displayed = this.displayedLastValues[layerIndex];
-    if (displayed == null || this.lastSeededTimes[layerIndex] !== time) return rawValue;
+    if (this.#lastSeededTimes[layerIndex] !== time) return rawValue;
+    const displayed = this.#liveTrackAnimators[layerIndex]?.current;
+    if (displayed === undefined) return rawValue;
 
     return displayed;
   }

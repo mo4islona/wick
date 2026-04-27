@@ -20,6 +20,7 @@ import {
 import { Cell } from '../components/Cell';
 import type { PropValue } from '../components/CodePreview';
 import {
+  buildAnimationsProp,
   buildCartesianContainerProps,
   buildCommonSeriesOptions,
   buildNavigatorComponent,
@@ -65,6 +66,7 @@ function SingleBarChart(props: PlaygroundChartProps & BarSettings) {
       gradient={props.gradient}
       headerLayout={props.headerLayout}
       perf={props.perfHudVisible}
+      animations={buildAnimationsProp(props)}
     >
       <Title sub="Up/Down">Single</Title>
       {props.infoBarVisible && <InfoBar />}
@@ -78,8 +80,6 @@ function SingleBarChart(props: PlaygroundChartProps & BarSettings) {
           barWidthRatio: BAR_WIDTH_MAP[props.barWidth],
           stacking: 'off',
           entryAnimation: props.barEntryAnimation,
-          entryMs: props.entryMs,
-          smoothMs: props.liveTracking ? undefined : 0,
         }}
       />
       {props.tooltipVisible && <Tooltip />}
@@ -112,6 +112,7 @@ function MultiBarChart(props: PlaygroundChartProps & BarSettings & { title: stri
       gradient={props.gradient}
       headerLayout={props.headerLayout}
       perf={props.perfHudVisible}
+      animations={buildAnimationsProp(props)}
     >
       <Title sub={`${LAYER_COUNT} layers`}>{props.title}</Title>
       {props.infoBarVisible && <InfoBar />}
@@ -122,8 +123,6 @@ function MultiBarChart(props: PlaygroundChartProps & BarSettings & { title: stri
           barWidthRatio: BAR_WIDTH_MAP[props.barWidth],
           stacking: props.stacking,
           entryAnimation: props.barEntryAnimation,
-          entryMs: props.entryMs,
-          smoothMs: props.liveTracking ? undefined : 0,
         }}
       />
       {props.tooltipVisible && <Tooltip />}

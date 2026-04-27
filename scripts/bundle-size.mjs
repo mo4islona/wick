@@ -1,19 +1,22 @@
 #!/usr/bin/env node
-// Bundle-size check for @wick-charts/react consumer scenarios.
+// Bundle-size check.
 //
-// Builds each scenario as a synthetic ESM entrypoint through esbuild with
-// production-like settings (minify, tree-shake, browser target) and reports
-// raw + gzipped sizes. React/ReactDOM are treated as external peers so the
-// numbers reflect only the library's footprint.
+// Two layers of measurement:
+//   1. React tree-shake scenarios — synthetic ESM entrypoints consumed by
+//      esbuild (minify, tree-shake, browser target). Reports what a real
+//      consumer pays after bundling. React/ReactDOM external.
+//   2. Per-package dist — raw size of every framework's built `index.js`
+//      (core / react / vue / svelte). The Vue and Svelte ports can't be
+//      tree-shaken via esbuild scenarios because their components are
+//      compiled SFCs — measuring the shipped dist is the honest comparison.
 //
-// Requires the React package dist to exist — run `pnpm build` first, or pass
-// `--build` to have this script run it for you.
+// All sizes are reported raw + gzip (level 9) + brotli (default quality).
 
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 
 import { build } from 'esbuild';
 
@@ -91,10 +94,24 @@ async function measure(scenario) {
   });
 
   const output = result.outputFiles[0].contents;
-  const raw = output.byteLength;
-  const gzip = gzipSync(output, { level: 9 }).byteLength;
-  return { raw, gzip };
+  return measureBytes(output);
 }
+
+function measureBytes(bytes) {
+  const buf = bytes instanceof Buffer ? bytes : Buffer.from(bytes);
+  return {
+    raw: buf.byteLength,
+    gzip: gzipSync(buf, { level: 9 }).byteLength,
+    brotli: brotliCompressSync(buf).byteLength,
+  };
+}
+
+const PACKAGES = [
+  { name: '@wick-charts/core', file: resolve(ROOT, 'packages/core/dist/index.js') },
+  { name: '@wick-charts/react', file: resolve(ROOT, 'packages/react/dist/index.js') },
+  { name: '@wick-charts/vue', file: resolve(ROOT, 'packages/vue/dist/index.js') },
+  { name: '@wick-charts/svelte', file: resolve(ROOT, 'packages/svelte/dist/index.js') },
+];
 
 function fmt(bytes) {
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} kB`;
@@ -109,30 +126,49 @@ function padLeft(s, w) {
   return ' '.repeat(Math.max(0, w - s.length)) + s;
 }
 
+function printTable(title, rows) {
+  if (rows.length === 0) return;
+  const nameW = Math.max(8, ...rows.map((r) => r.name.length));
+  const rawW = Math.max(7, ...rows.map((r) => fmt(r.raw).length));
+  const gzipW = Math.max(8, ...rows.map((r) => fmt(r.gzip).length));
+  const brW = Math.max(7, ...rows.map((r) => fmt(r.brotli).length));
+
+  const header = `${padRight(title, nameW)}  ${padLeft('raw', rawW)}  ${padLeft('gzip', gzipW)}  ${padLeft('brotli', brW)}`;
+  console.log(header);
+  console.log('-'.repeat(header.length));
+  for (const r of rows) {
+    console.log(
+      `${padRight(r.name, nameW)}  ${padLeft(fmt(r.raw), rawW)}  ${padLeft(fmt(r.gzip), gzipW)}  ${padLeft(fmt(r.brotli), brW)}`,
+    );
+  }
+}
+
 async function main() {
   ensureBuilt();
   mkdirSync(TMP, { recursive: true });
 
-  const rows = [];
+  const reactRows = [];
   for (const scenario of SCENARIOS) {
-    const { raw, gzip } = await measure(scenario);
-    rows.push({ name: scenario.name, raw, gzip });
+    const sizes = await measure(scenario);
+    reactRows.push({ name: scenario.name, ...sizes });
   }
 
-  const nameW = Math.max(8, ...rows.map((r) => r.name.length));
-  const rawW = Math.max(7, ...rows.map((r) => fmt(r.raw).length));
-  const gzipW = Math.max(8, ...rows.map((r) => fmt(r.gzip).length));
+  const packageRows = [];
+  for (const pkg of PACKAGES) {
+    if (!existsSync(pkg.file)) continue;
+    const bytes = readFileSync(pkg.file);
+    packageRows.push({ name: pkg.name, ...measureBytes(bytes) });
+  }
 
-  const header = `${padRight('scenario', nameW)}  ${padLeft('raw', rawW)}  ${padLeft('gzip', gzipW)}`;
-  console.log(header);
-  console.log('-'.repeat(header.length));
-  for (const r of rows) {
-    console.log(`${padRight(r.name, nameW)}  ${padLeft(fmt(r.raw), rawW)}  ${padLeft(fmt(r.gzip), gzipW)}`);
+  printTable('react scenario', reactRows);
+  if (packageRows.length > 0) {
+    console.log();
+    printTable('package dist', packageRows);
   }
 
   if (process.argv.includes('--json')) {
     console.log();
-    console.log(JSON.stringify(rows, null, 2));
+    console.log(JSON.stringify({ scenarios: reactRows, packages: packageRows }, null, 2));
   }
 
   rmSync(TMP, { recursive: true, force: true });

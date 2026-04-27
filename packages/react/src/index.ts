@@ -9,6 +9,7 @@
  */
 
 export type {
+  AnimationsConfig,
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
