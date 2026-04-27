@@ -3,9 +3,12 @@ name: PR
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: pr-${{ github.ref }}
@@ -28,7 +31,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm test:coverage
+      - uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+          use_oidc: true
       - run: pnpm build
       # Cross-framework prop-set parity guard. Kept as its own step (rather
       # than a `pretest` hook) so a local `pnpm test` doesn't fail on

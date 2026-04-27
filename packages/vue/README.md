@@ -2,6 +2,9 @@
 
 <!-- Generated from README.tmpl.md — edit the template, not this file. -->
 
+[![codecov](https://codecov.io/gh/mo4islona/wick-charts/branch/main/graph/badge.svg)](https://codecov.io/gh/mo4islona/wick-charts) [![license](https://img.shields.io/github/license/mo4islona/wick-charts.svg)](./LICENSE)
+[![npm @wick-charts/vue](https://img.shields.io/npm/v/@wick-charts/vue.svg?label=%40wick-charts%2Fvue)](https://www.npmjs.com/package/@wick-charts/vue)
+
 High-performance timeseries charts for **React**, **Vue**, and **Svelte**. Canvas-rendered, tree-shakeable, zero runtime dependencies.
 
 [Live Demo](https://mo4islona.github.io/wick-charts/) · [Docs](https://mo4islona.github.io/wick-charts/#/api/chart-container)

@@ -42,6 +42,19 @@ export default defineConfig({
         inline: [/@testing-library\/svelte/],
       },
     },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'lcov'],
+      reportsDirectory: './coverage',
+      include: ['packages/*/src/**/*.{ts,tsx,vue,svelte}'],
+      exclude: [
+        'packages/*/src/**/__tests__/**',
+        'packages/*/src/**/*.test.{ts,tsx}',
+        'packages/*/src/**/*.bench.ts',
+        'packages/*/src/**/types.ts',
+        'packages/*/dist/**',
+      ],
+    },
   },
   resolve: {
     alias: {

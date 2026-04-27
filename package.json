@@ -17,6 +17,7 @@
     "lint:fix": "biome check --fix .",
     "format": "biome format --write .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "bench": "vitest bench --run",
     "size": "node scripts/bundle-size.mjs",
