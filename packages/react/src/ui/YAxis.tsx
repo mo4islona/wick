@@ -4,6 +4,7 @@ import { resolveAxisFontSize, resolveAxisTextColor, type ValueFormatter } from '
 
 import { useChartInstance } from '../context';
 import { useYRange } from '../store-bridge';
+import { AXIS_LABEL_CLEANUP_MS, AXIS_LABEL_FADE_CSS } from './axisFade';
 
 interface TrackedTick {
   opacity: number;
@@ -74,8 +75,9 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
     }
   }
 
+  // Cleanup buffer matches the shared AXIS_LABEL_CLEANUP_MS — see axisFade.ts.
   for (const [p, entry] of map) {
-    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > 600) {
+    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > AXIS_LABEL_CLEANUP_MS) {
       map.delete(p);
     }
   }
@@ -109,7 +111,7 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
               fontVariantNumeric: 'tabular-nums',
               userSelect: 'none',
               opacity: entry.opacity,
-              transition: 'opacity 0.3s ease',
+              transition: AXIS_LABEL_FADE_CSS,
               willChange: 'opacity',
             }}
           >

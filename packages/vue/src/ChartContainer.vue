@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  type AnimationsConfig,
   type AxisConfig,
   ChartInstance,
   type ChartOptions,
@@ -48,6 +49,19 @@ const props = withDefaults(
      * - `'inline'`: flex siblings above the canvas — the canvas (and grid) shift down.
      */
     headerLayout?: 'overlay' | 'inline';
+    /**
+     * Chart-level animation configuration. See `AnimationsConfig` for the full shape.
+     *
+     * Two layers — chart-level (this prop) sets defaults for every series; per-series
+     * options on `<LineSeries>`/`<CandlestickSeries>`/`<BarSeries>` override that
+     * default for that one series.
+     *
+     * Shorthands: `true` / omitted — built-in defaults; `false` — disables every
+     * animation category; `{ points: false }` / `{ viewport: false }` disables a
+     * category. Updating this prop calls `chart.setAnimations(...)` so the new
+     * durations take effect on the next animation / render.
+     */
+    animations?: boolean | AnimationsConfig;
     /**
      * Enable runtime performance instrumentation. Off by default. Read at mount only;
      * later changes are ignored.
@@ -138,6 +152,7 @@ onMounted(async () => {
   if (props.interactive !== undefined) options.interactive = props.interactive;
   if (props.grid !== undefined) options.grid = props.grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;
+  if (props.animations !== undefined) options.animations = props.animations;
   chart.value = new ChartInstance(containerRef.value, options);
 
   await nextTick();
@@ -184,6 +199,17 @@ watch(
   () => props.grid?.visible,
   () => {
     if (chart.value && props.grid !== undefined) chart.value.setGrid(props.grid);
+  },
+);
+
+// Stringify the animations config so callers can pass a fresh object identity
+// without thrashing animator state when nothing has actually changed.
+watch(
+  () => JSON.stringify(props.animations),
+  () => {
+    if (chart.value && props.animations !== undefined) {
+      chart.value.setAnimations(props.animations);
+    }
   },
 );
 

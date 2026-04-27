@@ -12,7 +12,21 @@ export class ZoomHandler {
   constructor(
     private viewport: Viewport,
     private timeScale: TimeScale,
+    /** Per-event ease duration for the visual side of zoom commits. `0` keeps
+     * the legacy instant-apply behaviour. */
+    private inputResponseMs = 0,
   ) {}
+
+  /** Update the input-response duration without recreating the handler. */
+  setInputResponseMs(ms: number): void {
+    this.inputResponseMs = Math.max(0, ms);
+  }
+
+  /** Read the current input-response duration. Used by sibling gesture paths
+   * (touch pinch) so there is one source of truth for the value. */
+  getInputResponseMs(): number {
+    return this.inputResponseMs;
+  }
 
   handleWheel(e: WheelEvent): void {
     e.preventDefault();
@@ -28,7 +42,7 @@ export class ZoomHandler {
     const x = Math.min(e.offsetX, chartWidth);
     const cursorTime = this.timeScale.xToTime(x);
 
-    this.viewport.zoomAt(cursorTime, factor, chartWidth);
+    this.viewport.zoomAt(cursorTime, factor, chartWidth, this.inputResponseMs);
 
     // Debounce: each new wheel tick resets the rebound timer; it fires once the
     // user has been idle for WHEEL_IDLE_REBOUND_MS. Rebound is a no-op when the

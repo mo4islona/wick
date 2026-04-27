@@ -1,3 +1,4 @@
+import { ANIM, Animator, easeOutCubic } from './animation';
 import { DEFAULT_REBOUND_MS } from './animation-constants';
 import { EventEmitter } from './events';
 import type { VisibleRange, YRange } from './types';
@@ -74,13 +75,30 @@ const AUTOSCROLL_MIN_DELTA_BARS = 0.5;
 /** Minimum pending shift in pixels (whichever is smaller vs bars-based). */
 const AUTOSCROLL_MIN_DELTA_PX = 4;
 
+/** Lerp two `VisibleRange` values for the range animator. */
+const rangeLerp = (a: VisibleRange, b: VisibleRange, t: number): VisibleRange => ({
+  from: lerp(a.from, b.from, t),
+  to: lerp(a.to, b.to, t),
+});
+
+/** Structural equality for the range animator's no-op short-circuits. */
+const rangeEquals = (a: VisibleRange, b: VisibleRange): boolean => a.from === b.from && a.to === b.to;
+
 /**
  * Manages the visible time range and Y range of the chart.
  *
- * User-initiated pan/zoom applies range updates instantly — smoothing on input
- * events feels laggy in practice. The `animateTo` / `tick` path is reserved for
- * API-driven transitions (`fitToData`, `scrollToEnd`) and post-gesture rebound
- * (`startRebound`), where a short cubic ease-out reads as intentional motion.
+ * The visible range goes through {@link Animator}: every transition (programmatic
+ * scroll, fit, rebound) hands a target to the animator, which interpolates over
+ * frames. Pan/zoom user input still applies *instantly* on the logical state —
+ * input animation is layered on later (see {@link logicalRange} below).
+ *
+ * Logical vs visual state. {@link visualRange} (= `animator.current`) is what
+ * is drawn this frame; {@link logicalRange} (= `animator.target`) is the
+ * latest committed position used by gesture math, soft-bound checks, autoscroll
+ * decisions, and `edgeReached` classification. Reading the animated mid-tween
+ * `visualRange` for those decisions would break rubber-band physics. The
+ * existing public {@link visibleRange} alias resolves to visual so external
+ * consumers and snapshot tests behave as before.
  *
  * Viewport boundaries are "soft": pan and zoom may push past them with
  * progressive rubber-band resistance. When the gesture ends, {@link startRebound}
@@ -88,7 +106,7 @@ const AUTOSCROLL_MIN_DELTA_PX = 4;
  * side that was pulled past — chart hosts use that signal to fetch more data.
  */
 export class Viewport extends EventEmitter<ViewportEvents> {
-  private _visibleRange: VisibleRange = { from: 0, to: 0 };
+  readonly #rangeAnimator: Animator<VisibleRange>;
   private _yRange: YRange = { min: 0, max: 0 };
   private _autoScroll = true;
   private padding: ResolvedPadding;
@@ -104,14 +122,6 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    */
   private _prevDataEnd: number | null = null;
 
-  // Animation state — no own rAF, ticked by the render loop. Used by API-driven
-  // transitions (fitToData, scrollToEnd) and post-gesture rebound.
-  private _animating = false;
-  private animStartTime = 0;
-  private animDuration = 0;
-  private animFrom: VisibleRange = { from: 0, to: 0 };
-  private animTo: VisibleRange = { from: 0, to: 0 };
-
   /** Cached chart width — needed for rebound pixel-padding resolution
    * when startRebound is called from an event handler that doesn't pass width. */
   private _lastChartWidth = 0;
@@ -125,6 +135,14 @@ export class Viewport extends EventEmitter<ViewportEvents> {
       left: padding?.left ?? DEFAULT_PADDING.left,
     };
     this.reboundMs = reboundMs ?? DEFAULT_REBOUND_MS;
+
+    this.#rangeAnimator = new Animator<VisibleRange>({
+      initial: { from: 0, to: 0 },
+      duration: ANIM.streamTick,
+      easing: easeOutCubic,
+      lerp: rangeLerp,
+      equals: rangeEquals,
+    });
   }
 
   /**
@@ -149,8 +167,25 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     return (pad / chartWidth) * range;
   }
 
+  /** What is currently drawn this frame. Equals `logicalRange` when no animation
+   * is in flight. Read by render code, scale projections, label placement,
+   * snapshot tests — anything that asks "what's on screen?". */
+  get visualRange(): VisibleRange {
+    return this.#rangeAnimator.current;
+  }
+
+  /** Latest committed target position. Reads this for math: pan rubber-band,
+   * zoom overshoot resistance, soft-bound clamping, autoscroll-on-tail-visible,
+   * `edgeReached` payload. Mid-tween `visualRange` would break those decisions. */
+  get logicalRange(): VisibleRange {
+    return this.#rangeAnimator.target;
+  }
+
+  /** Public alias for {@link visualRange}. Kept for backward compatibility —
+   * all existing consumers expect "what's visible right now", which is the
+   * animated current value. */
   get visibleRange(): VisibleRange {
-    return this._visibleRange;
+    return this.#rangeAnimator.current;
   }
 
   get yRange(): YRange {
@@ -162,7 +197,7 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   }
 
   get animating(): boolean {
-    return this._animating;
+    return this.#rangeAnimator.animating;
   }
 
   /** First data timestamp registered via {@link setDataStart}, or `null` before any data has arrived. */
@@ -204,8 +239,65 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     this.#dataEnd = time;
   }
 
-  private cancelAnimation(): void {
-    this._animating = false;
+  /**
+   * Snap the animator's target to its own current value, halting any in-flight
+   * animation at the visually-displayed position. Used by user-input handlers
+   * (pan, zoom) so gesture math reads `logicalRange === visualRange` — the
+   * user's reference frame is what they see, not the destination of a
+   * programmatic animation they can't perceive yet.
+   */
+  private cancelPendingAnimation(): void {
+    if (this.#rangeAnimator.animating) {
+      this.#rangeAnimator.snap(this.#rangeAnimator.current);
+      this.emit('change');
+    }
+  }
+
+  /**
+   * Validate-and-snap the animator. Used by direct-apply call sites (pan,
+   * zoom, setRange, fit-without-animation). Cancels any in-flight animation
+   * by definition (Animator.snap), so the caller doesn't need a separate
+   * cancel step. Emits `change` once.
+   *
+   * Silently no-ops on invalid input (`to <= from`, fewer than 2 bars) so
+   * callers can lob in a range before the data interval stabilises.
+   */
+  private applyLogical(from: number, to: number): void {
+    if (to <= from) return;
+    const range = to - from;
+    if (range / this.dataInterval < 2) return;
+
+    this.#rangeAnimator.snap({ from, to });
+    this.emit('change');
+  }
+
+  /**
+   * Validate-and-retarget the animator with a duration. Used by animated
+   * call sites (scrollToEnd, fitToData(animated), startRebound, eased pan/
+   * zoom).
+   *
+   * Emits `change` once on retarget so the host's render loop wakes up and
+   * schedules the next frame — without it, no tick would run and the visual
+   * would never advance toward the new target. Subsequent per-frame `change`
+   * events fire from {@link tick} as `current` interpolates.
+   */
+  private retargetLogical(from: number, to: number, duration: number, now?: number): void {
+    if (to <= from) return;
+    const range = to - from;
+    if (range / this.dataInterval < 2) return;
+
+    this.#rangeAnimator.setTarget({ from, to }, { duration, now });
+    this.emit('change');
+  }
+
+  /** Called by the render loop before each frame. Returns true if still animating. */
+  tick(now: number): boolean {
+    if (!this.#rangeAnimator.animating) return false;
+
+    const stillAnimating = this.#rangeAnimator.tick(now);
+    this.emit('change');
+
+    return stillAnimating;
   }
 
   /** Compute the left/right soft bound for the given pan-time range and chart width.
@@ -228,6 +320,34 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   /** Minimum visible range (zoom-in ceiling). Expressed as 10 bars. */
   private get softMinRange(): number {
     return 10 * this.dataInterval;
+  }
+
+  /**
+   * "Warm-up" predicate for streaming charts: returns `true` while the
+   * viewport's left edge is still at its natural fit-to-data anchor
+   * (`dataStart − leftPad`). While `true`, `Chart.onDataChanged` re-fits on
+   * each new tick — the right edge expands to absorb fresh data, so the
+   * line keeps growing rightward without sliding old points off the left.
+   * Once `fitToData` hits its `maxBars` cap, the left edge advances away
+   * from the natural anchor, this flips to `false`, and `scrollToEnd`'s
+   * pan-aware tail-tracking takes over.
+   *
+   * Reads {@link logicalRange} so the math operates on the latest committed
+   * target, not a mid-tween animated position.
+   */
+  dataFitsCurrentViewport(chartWidth = 0): boolean {
+    if (this.#dataStart === null || this.#dataEnd === null) return false;
+    const { from, to } = this.logicalRange;
+    const range = to - from;
+    if (range <= 0) return false;
+    if (chartWidth > 0) this._lastChartWidth = chartWidth;
+    const width = chartWidth > 0 ? chartWidth : this._lastChartWidth;
+    const pl = this.resolveHPad(this.padding.left, range, width);
+
+    const naturalLeft = this.#dataStart - pl;
+    const tolerance = this.dataInterval * 0.5;
+
+    return Math.abs(from - naturalLeft) <= tolerance;
   }
 
   /** Maximum visible range (zoom-out floor). When interval-based horizontal padding is
@@ -253,14 +373,14 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * Imperatively set the visible time range (public API — called by
    * `ChartInstance.setVisibleRange`).
    *
-   * Cancels any in-flight animation and applies the range immediately.
-   * Auto-scroll policy mirrors pan: if the incoming range still contains
-   * the last data point, streaming ticks keep tracking the tail; otherwise
-   * the user is opting out of auto-scroll until they call `fitContent` or
-   * scroll back to the tail.
+   * Snaps the animator: cancels any in-flight animation and applies the range
+   * immediately. Auto-scroll policy mirrors pan: if the incoming range still
+   * contains the last data point, streaming ticks keep tracking the tail;
+   * otherwise the user is opting out of auto-scroll until they call `fitContent`
+   * or scroll back to the tail.
    *
    * Silently no-ops on invalid input (non-finite bounds, to <= from, or
-   * fewer than 2 bars visible) — mirrors `applyRange`'s validation contract
+   * fewer than 2 bars visible) — mirrors `applyLogical`'s validation contract
    * so callers can lob in a range before the data interval stabilises.
    * Validation runs up-front so a rejected call never mutates auto-scroll
    * or cancels in-flight animations.
@@ -271,56 +391,9 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     if (to <= from) return;
     if ((to - from) / this.dataInterval < 2) return;
 
-    this.cancelAnimation();
     const lastVisible = this.#dataEnd !== null && this.#dataEnd >= from && this.#dataEnd <= to;
     this._autoScroll = lastVisible;
-    this.applyRange(from, to);
-  }
-
-  /** Validate and apply a new visible range. Rejects invalid widths only. Soft-bound
-   * enforcement happens at the caller (pan/zoomAt) via rubber-band resistance. */
-  private applyRange(from: number, to: number): void {
-    if (to <= from) return;
-
-    const range = to - from;
-    const bars = range / this.dataInterval;
-    if (bars < 2) return;
-
-    this._visibleRange = { from, to };
-    this.emit('change');
-  }
-
-  /** Start animation — will be advanced by tick() calls from the render loop */
-  animateTo(from: number, to: number, duration = 400): void {
-    this.animFrom = { ...this._visibleRange };
-    this.animTo = { from, to };
-    this.animDuration = duration;
-    this.animStartTime = performance.now();
-    this._animating = true;
-  }
-
-  /** Called by the render loop before each frame. Returns true if still animating. */
-  tick(now: number): boolean {
-    if (!this._animating) return false;
-
-    const elapsed = now - this.animStartTime;
-    const t = Math.min(1, elapsed / this.animDuration);
-    // Cubic ease-out for a smooth deceleration
-    const ease = 1 - (1 - t) ** 3;
-
-    const curFrom = lerp(this.animFrom.from, this.animTo.from, ease);
-    const curTo = lerp(this.animFrom.to, this.animTo.to, ease);
-
-    if (curTo > curFrom) {
-      // Use applyRange for consistent clamping
-      this.applyRange(curFrom, curTo);
-    }
-
-    if (t >= 1) {
-      this._animating = false;
-    }
-
-    return this._animating;
+    this.applyLogical(from, to);
   }
 
   /** Set the Y-axis range. Adds pixel-based padding unless a side has a fixed (explicit) bound. */
@@ -350,12 +423,25 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    *   (user moved away intentionally) and scrollToEnd/fitToData (chart
    *   resumes following). Zoom is a scale change, not a move — so a wheel
    *   zoom while auto-scroll is active must keep auto-scroll active.
+   *
+   * Reads {@link logicalRange} for math; commits via {@link applyLogical}
+   * (snap) or {@link retargetLogical} (eased) depending on `durationMs`.
+   * `durationMs > 0` enables input animation: logical state advances
+   * synchronously so back-to-back wheel events keep computing against the
+   * latest target, while the visual range eases through one shared animator.
    */
-  zoomAt(centerTime: number, factor: number, chartWidth = this._lastChartWidth): void {
-    this.cancelAnimation();
+  zoomAt(centerTime: number, factor: number, chartWidth = this._lastChartWidth, durationMs = 0): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    const { from, to } = this._visibleRange;
+    // User input takes over from any in-flight programmatic animation: commit
+    // the current visual position as the new logical baseline so gesture math
+    // operates on what the user sees, not on the destination of an animation
+    // they can't perceive yet. Without this, zooming during a warm-up fit or
+    // a scrollToEnd ease produces a visible jump from mid-tween to target
+    // before the zoom is applied.
+    this.cancelPendingAnimation();
+
+    const { from, to } = this.logicalRange;
     const range = to - from;
     if (range <= 0) return;
 
@@ -418,7 +504,11 @@ export class Viewport extends EventEmitter<ViewportEvents> {
       }
     }
 
-    this.applyRange(newFrom, newTo);
+    if (durationMs > 0) {
+      this.retargetLogical(newFrom, newTo, durationMs);
+    } else {
+      this.applyLogical(newFrom, newTo);
+    }
     this.emit('interact');
   }
 
@@ -427,12 +517,17 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * applies rubber-band resistance: the more the user pulls past, the smaller
    * each subsequent pixel of drag translates into actual range shift. Total
    * overshoot is capped at `PAN_MAX_OVERSHOOT_FRACTION` of the visible range.
+   *
+   * Reads {@link logicalRange} for math; commits via {@link applyLogical}
+   * (snap) or {@link retargetLogical} (eased) depending on `durationMs`.
    */
-  pan(timeDelta: number, chartWidth = 0): void {
-    this.cancelAnimation();
+  pan(timeDelta: number, chartWidth = 0, durationMs = 0): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    const { from, to } = this._visibleRange;
+    // Same takeover rule as zoomAt — see the comment there.
+    this.cancelPendingAnimation();
+
+    const { from, to } = this.logicalRange;
     const range = to - from;
     if (range <= 0) return;
 
@@ -477,7 +572,11 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     // fits / scrolls back.
     const lastVisible = this.#dataEnd !== null && this.#dataEnd >= newFrom && this.#dataEnd <= newTo;
     this._autoScroll = lastVisible;
-    this.applyRange(newFrom, newTo);
+    if (durationMs > 0) {
+      this.retargetLogical(newFrom, newTo, durationMs);
+    } else {
+      this.applyLogical(newFrom, newTo);
+    }
     this.emit('interact');
   }
 
@@ -486,9 +585,12 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * No-op when already inside bounds. When the rebound corrects a meaningful
    * overshoot (> 10% of range) the side and overshoot magnitude are emitted
    * via `edgeReached` — hosts hook this to trigger history prefetch.
+   *
+   * Reads {@link logicalRange} for math; commits via {@link retargetLogical}
+   * (or {@link applyLogical} when `reboundMs <= 0`).
    */
   startRebound(chartWidth = this._lastChartWidth): void {
-    const { from, to } = this._visibleRange;
+    const { from, to } = this.logicalRange;
     const range = to - from;
     if (range <= 0) return;
 
@@ -543,9 +645,9 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     }
 
     if (this.reboundMs <= 0) {
-      this.applyRange(targetFrom, targetTo);
+      this.applyLogical(targetFrom, targetTo);
     } else {
-      this.animateTo(targetFrom, targetTo, this.reboundMs);
+      this.retargetLogical(targetFrom, targetTo, this.reboundMs);
     }
 
     if (edgeSide !== null) {
@@ -557,8 +659,16 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     }
   }
 
-  /** Fit the viewport to show data from first to last timestamp, with optional animation. */
-  fitToData(firstTime: number, lastTime: number, chartWidth = 0, animated = false): void {
+  /**
+   * Fit the viewport to show data from first to last timestamp, with optional
+   * animation. `animated=false` snaps; `animated=true` retargets — duration
+   * defaults to `ANIM.fit` (intentional reflow), pass `durationMs` to
+   * override (e.g. streaming warm-up uses `ANIM.streamTick` so per-tick
+   * re-fits don't accumulate). The animation is skipped when the viewport
+   * is uninitialised — first load always snaps so the data appears at its
+   * natural extent.
+   */
+  fitToData(firstTime: number, lastTime: number, chartWidth = 0, animated = false, durationMs?: number): void {
     this._autoScroll = true;
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
@@ -585,28 +695,32 @@ export class Viewport extends EventEmitter<ViewportEvents> {
       targetFrom = targetTo - maxRange;
     }
 
-    if (animated && this._visibleRange.from !== 0 && this._visibleRange.to !== 0) {
-      this.animateTo(targetFrom, targetTo, 450);
+    const { from: curFrom, to: curTo } = this.logicalRange;
+    const uninitialised = curFrom === 0 && curTo === 0;
+    if (animated && !uninitialised) {
+      this.retargetLogical(targetFrom, targetTo, durationMs ?? ANIM.fit);
     } else {
-      this.applyRange(targetFrom, targetTo);
+      this.applyLogical(targetFrom, targetTo);
     }
   }
 
   /**
    * Keep the right edge pinned to the latest data (real-time auto-scroll).
    *
-   * Streaming feeds can fire many ticks per second. Restarting the ease-out on
-   * every tick produces a jittery one-pixel shimmy instead of a smooth slide.
-   * Strategy:
-   *   - If an animation is in flight and the new target differs from the
-   *     current `animTo` by less than one threshold, let it finish.
-   *   - If it differs by more, retarget without resetting `animStartTime` so
-   *     the ease-out continues from its current progress.
-   *   - If idle and the pending shift is below threshold, do nothing.
+   * Streaming feeds can fire many ticks per second. The sub-threshold filter
+   * below early-returns on tiny shifts so high-frequency ticks don't restart
+   * the ease on every frame; the `_prevDataEnd`-based offset preservation
+   * keeps a user pan stable across streaming ticks; both must survive the
+   * migration verbatim. Only the underlying interpolation engine swapped to
+   * {@link Animator} — call-site logic is unchanged.
+   *
+   * Reads {@link logicalRange} so the offset/threshold math operates on the
+   * latest committed target, not the mid-tween animated `current`.
    */
   scrollToEnd(lastTime: number, chartWidth = 0): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
-    const range = this._visibleRange.to - this._visibleRange.from;
+    const { from: lFrom, to: lTo } = this.logicalRange;
+    const range = lTo - lFrom;
     if (range <= 0) return;
     const pr = this.resolveHPad(this.padding.right, range, chartWidth);
 
@@ -617,12 +731,9 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     //
     // Panned case (user scrolled while the tail was still visible, autoScroll
     // stayed true per task #12): the offset between the current right edge
-    // and `_prevDataEnd` is carried forward, so sequential streaming ticks
-    // slide the viewport without snapping the pan back every frame.
-    //
-    // Anchor on `animTo.to` when mid-animation so rapid back-to-back ticks
-    // compute the offset against the intended target, not the partway
-    // position — otherwise the viewport would drift behind the tail.
+    // (logical — animator target) and `_prevDataEnd` is carried forward, so
+    // sequential streaming ticks slide the viewport without snapping the pan
+    // back every frame.
     //
     // Clamp the preserved offset to `[0, pr]`. The lower bound matters when
     // the user panned/zoomed so far right that `dataEnd` landed left of the
@@ -631,7 +742,7 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     // across ticks reads as "pulse drifting off screen" as new data arrives.
     // In both cases, pulling back toward the natural tail-track position is
     // the right next step.
-    const anchorTo = this._animating ? this.animTo.to : this._visibleRange.to;
+    const anchorTo = lTo;
     const rawOffset = this._prevDataEnd !== null ? anchorTo - this._prevDataEnd : pr;
     const offset = Math.max(0, Math.min(pr, rawOffset));
     const targetTo = lastTime + offset;
@@ -643,37 +754,27 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     const pxThreshold = chartWidth > 0 ? (AUTOSCROLL_MIN_DELTA_PX / chartWidth) * range : barsThreshold;
     const threshold = Math.min(barsThreshold, pxThreshold);
 
-    // `_prevDataEnd` is folded forward only when the call actually retargets
-    // the animation. Sub-threshold streaming ticks (updateLast bursts) early-
-    // return below; advancing `_prevDataEnd` on those paths would drift it
-    // ahead of the fixed animation target and eventually make `rawOffset`
-    // negative — clamping to 0 and snapping the viewport to bare `dataEnd`,
-    // silently discarding any preserved pan offset.
-    if (this._animating) {
-      // Retarget in flight — don't reset animStartTime unless the delta is large
-      // enough to be worth perceiving as a new animation beat.
-      const retargetDelta = Math.abs(targetTo - this.animTo.to);
-      if (retargetDelta < threshold) return; // let current animation finish
-      this.animFrom = { ...this._visibleRange };
-      this.animTo = { from: targetFrom, to: targetTo };
-      this._prevDataEnd = this.#dataEnd;
-      // Keep animStartTime + animDuration as-is so the ease-out continues from
-      // its current progress rather than snapping to fresh-start.
-    } else {
-      const pending = Math.abs(targetTo - this._visibleRange.to);
-      if (pending < threshold) return; // sub-pixel drift, not worth animating
-      this.animateTo(targetFrom, targetTo, 150);
-      this._prevDataEnd = this.#dataEnd;
-    }
+    // Sub-threshold streaming ticks (updateLast bursts) early-return; advancing
+    // `_prevDataEnd` on those paths would drift it ahead of a fixed animation
+    // target and eventually make `rawOffset` negative — clamping to 0 and
+    // snapping the viewport to bare `dataEnd`, silently discarding any
+    // preserved pan offset. The threshold check is on the delta between the
+    // proposed target and the current logical position (target). This catches
+    // sub-pixel drift whether or not we are mid-animation.
+    const pending = Math.abs(targetTo - lTo);
+    if (pending < threshold) return;
+
+    this.retargetLogical(targetFrom, targetTo, ANIM.streamTick);
+    this._prevDataEnd = this.#dataEnd;
   }
 
   /** Return the number of data bars (candles/points) currently visible. */
   getVisibleBarsCount(): number {
-    return (this._visibleRange.to - this._visibleRange.from) / this.dataInterval;
+    const { from, to } = this.#rangeAnimator.current;
+    return (to - from) / this.dataInterval;
   }
 
   destroy(): void {
-    this.cancelAnimation();
     this.removeAllListeners();
   }
 }

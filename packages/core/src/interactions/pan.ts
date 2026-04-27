@@ -9,7 +9,17 @@ export class PanHandler {
     private viewport: Viewport,
     private timeScale: TimeScale,
     private canvas: HTMLCanvasElement,
+    /**
+     * Per-event ease duration for the visual side of pan commits. `0` keeps
+     * the legacy instant-apply behaviour. See `ChartOptions.animations.viewport.inputResponseMs`.
+     */
+    private inputResponseMs = 0,
   ) {}
+
+  /** Update the input-response duration without recreating the handler. */
+  setInputResponseMs(ms: number): void {
+    this.inputResponseMs = Math.max(0, ms);
+  }
 
   handleMouseDown(e: MouseEvent): void {
     if (e.button !== 0) return;
@@ -23,7 +33,7 @@ export class PanHandler {
     const deltaX = e.clientX - this.lastX;
     this.lastX = e.clientX;
     const timeDelta = this.timeScale.pixelDeltaToTimeDelta(-deltaX);
-    this.viewport.pan(timeDelta, this.timeScale.getMediaWidth());
+    this.viewport.pan(timeDelta, this.timeScale.getMediaWidth(), this.inputResponseMs);
   }
 
   handleMouseUp(): void {

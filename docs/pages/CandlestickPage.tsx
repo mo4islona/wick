@@ -16,6 +16,7 @@ import {
 import { Cell } from '../components/Cell';
 import type { PropValue } from '../components/CodePreview';
 import {
+  buildAnimationsProp,
   buildCartesianContainerProps,
   buildCommonSeriesOptions,
   buildNavigatorComponent,
@@ -56,12 +57,11 @@ function CandleChart({
   navigatorHeight,
   perfHudVisible,
   candleEntryAnimation,
-  entryMs,
-  liveTracking,
   headerLayout,
   startDelay,
   title,
   sub,
+  ...rest
 }: PlaygroundChartProps & CandleSettings & { data: OHLCData[]; startDelay: number; title: string; sub: string }) {
   // speed=5: virtual interval is 5s so each candle forms with visible intra
   // wobble, but wall-clock gives us one new bar per second — dense enough
@@ -69,20 +69,31 @@ function CandleChart({
   const { data: d } = useOHLCStream(data, { startDelay, interval: DEMO_INTERVAL, speed: 5 });
   const display = streaming ? d : data;
   const sid = 'candle';
+  const animations = buildAnimationsProp({
+    ...rest,
+    candleEntryAnimation,
+    headerLayout,
+    streaming,
+    gradient,
+    perfHudVisible,
+    navigatorVisible,
+    navigatorHeight,
+    theme,
+    axis,
+  } as PlaygroundChartProps);
 
   return (
-    <ChartContainer theme={theme} axis={axis} gradient={gradient} headerLayout={headerLayout} perf={perfHudVisible}>
+    <ChartContainer
+      theme={theme}
+      axis={axis}
+      gradient={gradient}
+      headerLayout={headerLayout}
+      perf={perfHudVisible}
+      animations={animations}
+    >
       <Title sub={sub}>{title}</Title>
       {infoBarVisible && <InfoBar />}
-      <CandlestickSeries
-        id={sid}
-        data={display}
-        options={{
-          entryAnimation: candleEntryAnimation,
-          entryMs,
-          smoothMs: liveTracking ? undefined : 0,
-        }}
-      />
+      <CandlestickSeries id={sid} data={display} options={{ entryAnimation: candleEntryAnimation }} />
       {yLabelVisible && <YLabel seriesId={sid} />}
       {tooltipVisible && <Tooltip />}
       {crosshairVisible && <Crosshair />}

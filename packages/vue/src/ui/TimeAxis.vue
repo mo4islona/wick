@@ -101,7 +101,7 @@ const tickData = computed(() => {
         userSelect: 'none',
         whiteSpace: 'nowrap',
         opacity: entry.opacity,
-        transition: 'opacity 0.3s ease',
+        transition: 'opacity 0.25s ease',
         willChange: 'opacity',
       }"
     >

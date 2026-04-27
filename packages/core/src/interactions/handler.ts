@@ -19,14 +19,23 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
   private yScale: YScale;
   private viewport: Viewport;
 
-  constructor(canvas: HTMLCanvasElement, viewport: Viewport, timeScale: TimeScale, yScale: YScale) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    viewport: Viewport,
+    timeScale: TimeScale,
+    yScale: YScale,
+    /** Per-event ease applied to the visual side of pan/zoom commits. `0`
+     * collapses to instant apply. Pulled from
+     * `ChartOptions.animations.viewport.inputResponseMs`. */
+    inputResponseMs = 0,
+  ) {
     super();
     this.canvas = canvas;
     this.viewport = viewport;
     this.timeScale = timeScale;
     this.yScale = yScale;
-    this.zoom = new ZoomHandler(viewport, timeScale);
-    this.pan = new PanHandler(viewport, timeScale, canvas);
+    this.zoom = new ZoomHandler(viewport, timeScale, inputResponseMs);
+    this.pan = new PanHandler(viewport, timeScale, canvas, inputResponseMs);
 
     canvas.style.cursor = 'crosshair';
     canvas.style.touchAction = 'none';
@@ -111,7 +120,9 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
       if (this.lastTouchDist > 0) {
         const factor = this.lastTouchDist / dist;
         const centerTime = this.timeScale.xToTime(center - rect.left);
-        this.viewport.zoomAt(centerTime, factor, this.timeScale.getMediaWidth());
+        // Touch pinch-zoom shares the per-event ease with wheel zoom — one
+        // source of truth, even though pinch bypasses `zoom.handleWheel`.
+        this.viewport.zoomAt(centerTime, factor, this.timeScale.getMediaWidth(), this.zoom.getInputResponseMs());
       }
 
       this.lastTouchDist = dist;
@@ -133,6 +144,14 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
       this.emit('crosshairMove', null);
     }
   };
+
+  /** Update the per-event ease duration applied to pan/zoom commits. Both
+   * the wheel/drag handler and the touch-pinch path (which reads via
+   * `ZoomHandler.getInputResponseMs`) get the new value. */
+  setInputResponseMs(ms: number): void {
+    this.pan.setInputResponseMs(ms);
+    this.zoom.setInputResponseMs(ms);
+  }
 
   private emitCrosshair(offsetX: number, offsetY: number): void {
     const time = this.timeScale.xToTime(offsetX);

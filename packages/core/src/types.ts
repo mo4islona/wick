@@ -141,12 +141,24 @@ export interface CandlestickSeriesOptions {
   /** @deprecated Use {@link entryAnimation} instead. */
   enterAnimation?: CandlestickEntryAnimation;
   /**
-   * Entrance animation duration in milliseconds. `false` or `0` disables the
-   * per-candle entrance (equivalent to `entryAnimation: 'none'`). Omit to
-   * inherit from {@link AnimationsConfig.points}.`entryMs` (default 400).
+   * Per-candle entrance duration in milliseconds. Default: `250`.
    *
-   * When `animations.points.entryMs` is `false` at the chart level, the
-   * entrance is forced off regardless of this field.
+   * ```
+   * // Override for one series:
+   * <CandlestickSeries options={{ entryMs: 600 }} data={data} />
+   *
+   * // Or set the default for every series at once:
+   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   *   <CandlestickSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
+   * animation, two names for historical reasons.
+   *
+   * `false` or `0` disables the entrance (equivalent to
+   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
+   * hard disable that wins over this field.
    *
    * @see CandlestickSeriesOptions.entryAnimation
    */
@@ -154,13 +166,22 @@ export interface CandlestickSeriesOptions {
   /** @deprecated Use {@link entryMs} instead. */
   enterMs?: number | false;
   /**
-   * Exponential-smoothing time constant (ms) for live-tracking the last
-   * candle's O/H/L/C under `updateLastPoint`. `0` or `false` snaps directly
-   * to the target (no smoothing). Omit to inherit from
-   * {@link AnimationsConfig.points}.`smoothMs` (default 70 ms).
+   * How long the displayed OHLC takes to catch up to the actual last value
+   * on every `updateLastPoint`. Default: `250` ms.
    *
-   * When `animations.points.smoothMs` is `false` at the chart level, smoothing
-   * is forced off regardless of this field.
+   * ```
+   * // Per-series override:
+   * <CandlestickSeries options={{ smoothMs: 100 }} data={data} />
+   *
+   * // Chart-level default:
+   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   *   <CandlestickSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * `0` or `false` snaps the displayed value to the target on every tick
+   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * disable that wins over this field.
    */
   smoothMs?: number | false;
 }
@@ -194,11 +215,23 @@ export interface LineSeriesOptions {
    */
   pulse: boolean;
   /**
-   * Pulse cycle period in milliseconds. `false`/`0` disables the halo (both
-   * the drawing and the associated animation loop). Omit to inherit from
-   * {@link AnimationsConfig.points}.`pulseMs` (default 600 ms). When
-   * `animations.points.pulseMs` is `false` at the chart level the pulse is
-   * forced off regardless of this field.
+   * Period of one halo pulse cycle in milliseconds. Continuous loop, not a
+   * one-shot — short values pulse fast, long values pulse slowly. Default:
+   * `600` (≈ 1.7 Hz, a calm "breathing" rhythm).
+   *
+   * ```
+   * // Per-series override:
+   * <LineSeries options={{ pulseMs: 1200 }} data={data} />
+   *
+   * // Chart-level default:
+   * <ChartContainer animations={{ points: { pulseMs: 1200 } }}>
+   *   <LineSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * `false` or `0` turns the halo off entirely (drawing and animation loop).
+   * A chart-level `animations.points: false` is a hard disable that wins
+   * over this field.
    */
   pulseMs?: number | false;
   /** Stacking mode. Default: 'off'. */
@@ -214,12 +247,24 @@ export interface LineSeriesOptions {
   /** @deprecated Use {@link entryAnimation} instead. */
   enterAnimation?: LineEntryAnimation;
   /**
-   * Entrance animation duration in milliseconds. `false` or `0` disables the
-   * per-point entrance (equivalent to `entryAnimation: 'none'`). Omit to
-   * inherit from {@link AnimationsConfig.points}.`entryMs` (default 400).
+   * Per-point entrance duration in milliseconds. Default: `250`.
    *
-   * When `animations.points.entryMs` is `false` at the chart level, the
-   * entrance is forced off regardless of this field.
+   * ```
+   * // Override for one series:
+   * <LineSeries options={{ entryMs: 600 }} data={data} />
+   *
+   * // Or set the default for every series at once:
+   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   *   <LineSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
+   * animation, two names for historical reasons.
+   *
+   * `false` or `0` disables the entrance (equivalent to
+   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
+   * hard disable that wins over this field.
    *
    * @see LineSeriesOptions.entryAnimation
    */
@@ -227,13 +272,22 @@ export interface LineSeriesOptions {
   /** @deprecated Use {@link entryMs} instead. */
   enterMs?: number | false;
   /**
-   * Exponential-smoothing time constant (ms) for live-tracking the last
-   * point's value under `updateLastPoint`. `0` or `false` snaps directly to
-   * the target (no smoothing). Omit to inherit from
-   * {@link AnimationsConfig.points}.`smoothMs` (default 70 ms).
+   * How long the displayed last value takes to catch up to the actual one
+   * on every `updateLastPoint`. Default: `250` ms.
    *
-   * When `animations.points.smoothMs` is `false` at the chart level, smoothing
-   * is forced off regardless of this field.
+   * ```
+   * // Per-series override:
+   * <LineSeries options={{ smoothMs: 100 }} data={data} />
+   *
+   * // Chart-level default:
+   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   *   <LineSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * `0` or `false` snaps the displayed value to the target on every tick
+   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * disable that wins over this field.
    */
   smoothMs?: number | false;
 }
@@ -278,12 +332,24 @@ export interface BarSeriesOptions {
   /** @deprecated Use {@link entryAnimation} instead. */
   enterAnimation?: BarEntryAnimation;
   /**
-   * Entrance animation duration in milliseconds. `false` or `0` disables the
-   * per-bar entrance (equivalent to `entryAnimation: 'none'`). Omit to inherit
-   * from {@link AnimationsConfig.points}.`entryMs` (default 400).
+   * Per-bar entrance duration in milliseconds. Default: `250`.
    *
-   * When `animations.points.entryMs` is `false` at the chart level, the
-   * entrance is forced off regardless of this field.
+   * ```
+   * // Override for one series:
+   * <BarSeries options={{ entryMs: 600 }} data={data} />
+   *
+   * // Or set the default for every series at once:
+   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   *   <BarSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
+   * animation, two names for historical reasons.
+   *
+   * `false` or `0` disables the entrance (equivalent to
+   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
+   * hard disable that wins over this field.
    *
    * @see BarSeriesOptions.entryAnimation
    */
@@ -291,13 +357,22 @@ export interface BarSeriesOptions {
   /** @deprecated Use {@link entryMs} instead. */
   enterMs?: number | false;
   /**
-   * Exponential-smoothing time constant (ms) for live-tracking the last
-   * bar's value under `updateLastPoint`. `0` or `false` snaps directly to the
-   * target (no smoothing). Omit to inherit from
-   * {@link AnimationsConfig.points}.`smoothMs` (default 70 ms).
+   * How long the displayed bar value takes to catch up to the actual one
+   * on every `updateLastPoint`. Default: `250` ms.
    *
-   * When `animations.points.smoothMs` is `false` at the chart level, smoothing
-   * is forced off regardless of this field.
+   * ```
+   * // Per-series override:
+   * <BarSeries options={{ smoothMs: 100 }} data={data} />
+   *
+   * // Chart-level default:
+   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   *   <BarSeries data={data} />
+   * </ChartContainer>
+   * ```
+   *
+   * `0` or `false` snaps the displayed value to the target on every tick
+   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * disable that wins over this field.
    */
   smoothMs?: number | false;
 }

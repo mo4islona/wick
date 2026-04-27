@@ -33,12 +33,23 @@ export interface CommonState {
   xAxisHeight: number;
   minBound: string;
   maxBound: string;
-  // Animations
+  // Animations — points category
   candleEntryAnimation: CandleEntryAnim;
   barEntryAnimation: BarEntryAnim;
   lineEntryAnimation: LineEntryAnim;
+  /** Per-point entrance duration (ms). 0 disables. */
   entryMs: number;
-  liveTracking: boolean;
+  /** Last-value chase time-constant on `updateData` ticks (ms). 0 snaps. */
+  smoothMs: number;
+  /** Pulse cycle period for the line halo (ms). 0 disables. */
+  pulseMs: number;
+  // Animations — viewport category
+  /** Post-gesture rebound duration (ms). 0 snaps. */
+  reboundMs: number;
+  /** Y-range chase scale (ms). 0 snaps. */
+  yAxisMs: number;
+  /** Per-event ease for pan/zoom commits (ms). 0 = instant apply (default). */
+  inputResponseMs: number;
   // Navigator
   navigatorVisible: boolean;
   navigatorHeight: number;
@@ -60,8 +71,15 @@ export const COMMON_DEFAULTS: CommonState = {
   candleEntryAnimation: 'unfold',
   barEntryAnimation: 'fade-grow',
   lineEntryAnimation: 'grow',
-  entryMs: 400,
-  liveTracking: true,
+  // Coordinated defaults — entrance, smoothing, Y chase, rebound all share
+  // 250 ms so streaming ticks settle in lockstep across X, Y, and last-bar
+  // live-track. Pulse stays at its own period; input ease stays opt-in (0).
+  entryMs: 250,
+  smoothMs: 250,
+  pulseMs: 600,
+  reboundMs: 250,
+  yAxisMs: 250,
+  inputResponseMs: 0,
   navigatorVisible: false,
   navigatorHeight: 60,
 };

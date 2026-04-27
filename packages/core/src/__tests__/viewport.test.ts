@@ -316,9 +316,10 @@ describe('Viewport', () => {
     const animStart = performance.now();
 
     // Retarget with sub-threshold delta — should NOT kick animStartTime.
-    // We detect this by confirming the animation still finishes in roughly 150ms from the ORIGINAL start.
+    // We detect this by confirming the animation still finishes in roughly
+    // ANIM.streamTick (250 ms) from the ORIGINAL start.
     v.scrollToEnd(20_000_000 + INTERVAL * 0.1, 800);
-    v.tick(animStart + 160);
+    v.tick(animStart + 260);
     expect(v.animating).toBe(false);
   });
 

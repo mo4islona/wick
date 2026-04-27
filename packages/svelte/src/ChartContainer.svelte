@@ -1,5 +1,12 @@
 <script lang="ts">
-import { type AxisConfig, ChartInstance, type ChartOptions, type ChartTheme, darkTheme } from '@wick-charts/core';
+import {
+  type AnimationsConfig,
+  type AxisConfig,
+  ChartInstance,
+  type ChartOptions,
+  type ChartTheme,
+  darkTheme,
+} from '@wick-charts/core';
 import { onDestroy, onMount, tick } from 'svelte';
 
 import {
@@ -36,6 +43,19 @@ export let grid: { visible: boolean } | undefined = undefined;
  * - `'inline'`: flex siblings above the canvas — the canvas (and grid) shift down.
  */
 export let headerLayout: 'overlay' | 'inline' = 'overlay';
+/**
+ * Chart-level animation configuration. See `AnimationsConfig` for the full shape.
+ *
+ * Two layers — chart-level (this prop) sets defaults for every series; per-series
+ * options on `<LineSeries>`/`<CandlestickSeries>`/`<BarSeries>` override that
+ * default for that one series.
+ *
+ * Shorthands: `true` / omitted — built-in defaults; `false` — disables every
+ * animation category; `{ points: false }` / `{ viewport: false }` disables a
+ * category. Updating this prop calls `chart.setAnimations(...)` so the new
+ * durations take effect on the next animation / render.
+ */
+export let animations: boolean | AnimationsConfig | undefined = undefined;
 /**
  * Enable runtime performance instrumentation. Off by default. Read at mount only;
  * later changes are ignored.
@@ -118,6 +138,7 @@ onMount(() => {
   if (interactive !== undefined) options.interactive = interactive;
   if (grid !== undefined) options.grid = grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;
+  if (animations !== undefined) options.animations = animations;
   instance = new ChartInstance(containerEl, options);
   chartStore.set(instance);
 
@@ -163,6 +184,14 @@ $: if (instance && axis) {
 
 $: if (instance && grid !== undefined) {
   instance.setGrid(grid);
+}
+
+// Stringify the animations config so consumers can pass a fresh object identity
+// without thrashing animator state when nothing has actually changed.
+$: animationsKey = JSON.stringify(animations);
+$: if (instance && animations !== undefined) {
+  void animationsKey;
+  instance.setAnimations(animations);
 }
 
 // Re-apply padding on any input that affects it — including `headerExtra`,

@@ -4,6 +4,7 @@ import { formatTime, resolveAxisFontSize, resolveAxisTextColor } from '@wick-cha
 
 import { useChartInstance } from '../context';
 import { useVisibleRange } from '../store-bridge';
+import { AXIS_LABEL_CLEANUP_MS, AXIS_LABEL_FADE_CSS } from './axisFade';
 
 interface TrackedTick {
   opacity: number;
@@ -61,9 +62,11 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
     }
   }
 
-  // Clean up ticks that have finished fading (400ms CSS transition + buffer)
+  // Clean up ticks that have finished fading. Buffer = AXIS_LABEL_FADE_MS + 250
+  // (one transition + a frame margin) so the DOM node sticks around past the
+  // visible fade.
   for (const [t, entry] of map) {
-    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > 600) {
+    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > AXIS_LABEL_CLEANUP_MS) {
       map.delete(t);
     }
   }
@@ -99,7 +102,7 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
               userSelect: 'none',
               whiteSpace: 'nowrap',
               opacity: entry.opacity,
-              transition: 'opacity 0.3s ease',
+              transition: AXIS_LABEL_FADE_CSS,
               willChange: 'opacity',
             }}
           >

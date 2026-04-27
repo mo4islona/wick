@@ -1,14 +1,32 @@
-import { DEFAULT_ENTER_MS, DEFAULT_SMOOTH_MS, MAX_FRAME_DT_S } from '../animation-constants';
+import { Animator, easeOutCubic as easeOutCubicAnim } from '../animation';
+import { DEFAULT_ENTER_MS, DEFAULT_SMOOTH_MS } from '../animation-constants';
 import { decimateOHLCData } from '../data/decimation';
 import type { TimeSeriesStore } from '../data/store';
 import { resolveCandlestickBodyColor } from '../theme/resolve';
 import type { ChartTheme } from '../theme/types';
 import type { CandlestickSeriesOptions, OHLCData, OHLCInput } from '../types';
 import { hexToRgba } from '../utils/color';
-import { clamp, easeOutCubic, lerp, smoothToward } from '../utils/math';
+import { clamp, easeOutCubic, lerp } from '../utils/math';
 import { normalizeOHLCArray, normalizeTime } from '../utils/time';
-import { resolveMs, valueDiffers } from './shared-animation';
+import { resolveMs } from './shared-animation';
 import type { SeriesRenderContext, SeriesRenderer } from './types';
+
+const ohlcLerp = (a: OHLCData, b: OHLCData, t: number): OHLCData => ({
+  time: b.time,
+  open: a.open + (b.open - a.open) * t,
+  high: a.high + (b.high - a.high) * t,
+  low: a.low + (b.low - a.low) * t,
+  close: a.close + (b.close - a.close) * t,
+  volume: a.volume === undefined || b.volume === undefined ? b.volume : a.volume + (b.volume - a.volume) * t,
+});
+
+const ohlcEquals = (a: OHLCData, b: OHLCData): boolean =>
+  a.time === b.time &&
+  a.open === b.open &&
+  a.high === b.high &&
+  a.low === b.low &&
+  a.close === b.close &&
+  a.volume === b.volume;
 
 const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
   up: { body: '#26a69a', wick: '#26a69a' },
@@ -37,14 +55,27 @@ function normalizeCandlestickOptions(input?: Partial<CandlestickSeriesOptions>):
 export class CandlestickRenderer implements SeriesRenderer {
   readonly store: TimeSeriesStore<OHLCData>;
   private options: CandlestickSeriesOptions;
-  /** Smoothed OHLC of the live last candle. Null until first render. */
-  private displayedLast: OHLCData | null = null;
-  /** `time` of the candle currently seeded into {@link displayedLast}. Detects new-candle transitions. */
-  private lastSeededTime = Number.NaN;
-  /** Last render timestamp for frame-rate-independent smoothing. */
-  private lastRenderTime = 0;
+  /**
+   * Animates the displayed OHLC of the **live last candle** toward the
+   * actual `store.last()` so high-frequency `updateLastPoint` ticks read as a
+   * smooth slide rather than a jump. New candles (different `time`) snap
+   * instantly — there is no cross-candle interpolation. `null` until the
+   * first render seeds it. */
+  #liveTrackAnimator: Animator<OHLCData> | null = null;
+  /** `time` of the candle currently held by {@link #liveTrackAnimator}. Detects new-candle transitions. */
+  #lastSeededTime = Number.NaN;
+  /** Render timestamp of the previous frame; used as the animator's setTarget
+   * anchor so the first frame after an update shows non-zero progress, and
+   * clamped to one frame (16 ms) so a long backgrounded-tab gap doesn't cause
+   * the displayed value to snap to the new target on resume. */
+  #lastRenderTime = 0;
   /** Per-candle entrance animations. Keyed by candle `time`; entries are deleted once progress reaches 1. */
   private entries: Map<number, { startTime: number }> = new Map();
+
+  /** Smoothed OHLC of the live last candle. Null until first render. */
+  get displayedLast(): OHLCData | null {
+    return this.#liveTrackAnimator?.current ?? null;
+  }
 
   constructor(store: TimeSeriesStore<OHLCData>, options?: Partial<CandlestickSeriesOptions>) {
     this.store = store;
@@ -113,9 +144,9 @@ export class CandlestickRenderer implements SeriesRenderer {
 
   dispose(): void {
     this.store.removeAllListeners();
-    this.displayedLast = null;
-    this.lastSeededTime = Number.NaN;
-    this.lastRenderTime = 0;
+    this.#liveTrackAnimator = null;
+    this.#lastSeededTime = Number.NaN;
+    this.#lastRenderTime = 0;
     this.entries.clear();
   }
 
@@ -137,26 +168,9 @@ export class CandlestickRenderer implements SeriesRenderer {
   /** True while any entrance animation is active or the displayed last candle hasn't converged. */
   get needsAnimation(): boolean {
     if (this.entries.size > 0) return true;
-    if (!this.displayedLast) return false;
-    const actualLast = this.store.last();
-    if (!actualLast) return false;
-    if (actualLast.time !== this.displayedLast.time) return false;
-    if (
-      valueDiffers(this.displayedLast.open, actualLast.open) ||
-      valueDiffers(this.displayedLast.high, actualLast.high) ||
-      valueDiffers(this.displayedLast.low, actualLast.low) ||
-      valueDiffers(this.displayedLast.close, actualLast.close)
-    ) {
-      return true;
-    }
-    // Volume is smoothed alongside OHLC — without it here, a volume-only
-    // updateLastPoint would stop requesting frames after the first step and
-    // freeze the volume bar mid-slide.
-    const displayedVolume = this.displayedLast.volume;
-    const actualVolume = actualLast.volume;
-    if (displayedVolume === undefined || actualVolume === undefined) return false;
+    if (this.#liveTrackAnimator?.animating) return true;
 
-    return valueDiffers(displayedVolume, actualVolume);
+    return false;
   }
 
   /**
@@ -179,44 +193,62 @@ export class CandlestickRenderer implements SeriesRenderer {
   }
 
   /**
-   * Advance the smoothed last-candle state. Seeds directly on first render or when
-   * the last candle's `time` changes (new candle); otherwise exponentially chases
-   * the target OHLC so live `updateLastPoint` ticks interpolate instead of jumping.
+   * Advance the smoothed last-candle state. Seeds directly on first render or
+   * when the last candle's `time` changes (new candle); otherwise retargets
+   * the {@link liveTrackAnimator} toward the actual OHLC so back-to-back
+   * `updateLastPoint` ticks interpolate instead of jumping.
+   *
+   * The animator advances `current` to `now` internally on each `setTarget`
+   * call (preserving visual continuity), then `tick(now)` advances the same
+   * frame's render. Because the animator has a finite `smoothMs` duration,
+   * after `smoothMs` ms with no new updates the displayed value converges to
+   * exactly the actual last value — `needsAnimation` flips to `false` and
+   * the render loop stops scheduling frames.
    */
   private advanceLiveTracking(now: number): void {
-    const dt = this.lastRenderTime ? Math.min(MAX_FRAME_DT_S, (now - this.lastRenderTime) / 1000) : 0;
-    this.lastRenderTime = now;
-
     const actualLast = this.store.last();
     if (!actualLast) {
-      this.displayedLast = null;
-      this.lastSeededTime = Number.NaN;
+      this.#liveTrackAnimator = null;
+      this.#lastSeededTime = Number.NaN;
       return;
     }
 
-    const isNewCandle = this.lastSeededTime !== actualLast.time;
-    // Convert the public `smoothMs` time-constant back to the internal 1/s
-    // decay rate used by `smoothToward`. `0` / `false` disables smoothing.
+    const isNewCandle = this.#lastSeededTime !== actualLast.time;
     const smoothMs = resolveMs(this.options.smoothMs, DEFAULT_SMOOTH_MS);
-    const rate = smoothMs > 0 ? 1000 / smoothMs : 0;
-    // rate <= 0 explicitly disables smoothing: always display the target as-is.
-    if (this.displayedLast === null || isNewCandle || rate <= 0) {
-      this.displayedLast = { ...actualLast };
-      this.lastSeededTime = actualLast.time;
+
+    // Seed directly when there is nothing to interpolate from, when a new
+    // candle just arrived (no cross-candle smoothing — different `time` means
+    // different identity), or when smoothing is disabled.
+    if (this.#liveTrackAnimator === null || isNewCandle || smoothMs <= 0) {
+      this.#liveTrackAnimator = new Animator<OHLCData>({
+        initial: { ...actualLast },
+        duration: smoothMs > 0 ? smoothMs : 0,
+        easing: easeOutCubicAnim,
+        lerp: ohlcLerp,
+        equals: ohlcEquals,
+      });
+      this.#lastSeededTime = actualLast.time;
+      this.#lastRenderTime = now;
       return;
     }
 
-    const prev = this.displayedLast;
-    const prevVolume = prev.volume ?? 0;
-    const targetVolume = actualLast.volume ?? 0;
-    this.displayedLast = {
-      time: actualLast.time,
-      open: smoothToward(prev.open, actualLast.open, rate, dt),
-      high: smoothToward(prev.high, actualLast.high, rate, dt),
-      low: smoothToward(prev.low, actualLast.low, rate, dt),
-      close: smoothToward(prev.close, actualLast.close, rate, dt),
-      volume: actualLast.volume === undefined ? undefined : smoothToward(prevVolume, targetVolume, rate, dt),
-    };
+    // Same candle, animated retarget toward the latest OHLC.
+    //
+    // Anchor `setTarget` on the previous frame so the first tick at the new
+    // `now` shows non-zero progress, matching the frame-rate-driven smoothing
+    // that the legacy `smoothToward` exhibited. Clamp the gap to one typical
+    // frame (16 ms) so a long idle (backgrounded tab) does not let the
+    // animator advance past ~50% of the curve on the resume frame — the
+    // visual effect we want is "smooth catch-up over the next few frames",
+    // not "almost-snap on resume". Note this clamp is tighter than the
+    // legacy `MAX_FRAME_DT_S` (50 ms) because the new ease-out cubic curve
+    // is much steeper than the old exponential decay at the same elapsed.
+    const FRAME_CAP_MS = 16;
+    const dt = Math.min(now - this.#lastRenderTime, FRAME_CAP_MS);
+    const anchorNow = now - dt;
+    this.#liveTrackAnimator.setTarget(actualLast, { duration: smoothMs, now: anchorNow });
+    this.#liveTrackAnimator.tick(now);
+    this.#lastRenderTime = now;
   }
 
   render(ctx: SeriesRenderContext): void {

@@ -18,6 +18,7 @@ import {
 import { Cell } from '../components/Cell';
 import type { PropValue } from '../components/CodePreview';
 import {
+  buildAnimationsProp,
   buildCartesianContainerProps,
   buildCommonSeriesOptions,
   buildNavigatorComponent,
@@ -97,6 +98,7 @@ function SingleChart(props: PlaygroundChartProps & LineSettings & { allData: Lin
       gradient={props.gradient}
       headerLayout={props.headerLayout}
       perf={props.perfHudVisible}
+      animations={buildAnimationsProp(props)}
     >
       <Title sub={props.areaVisible ? 'area' : 'line'}>Single</Title>
       {props.infoBarVisible && <InfoBar sort={props.tooltipSort} />}
@@ -108,8 +110,6 @@ function SingleChart(props: PlaygroundChartProps & LineSettings & { allData: Lin
           strokeWidth: props.strokeWidth,
           pulse: props.streaming,
           entryAnimation: props.lineEntryAnimation,
-          entryMs: props.entryMs,
-          smoothMs: props.liveTracking ? undefined : 0,
         }}
       />
       {props.tooltipVisible && renderTooltip(props)}
@@ -160,6 +160,7 @@ function MultiChart(props: PlaygroundChartProps & LineSettings & { allData: Line
       gradient={props.gradient}
       headerLayout={props.headerLayout}
       perf={props.perfHudVisible}
+      animations={buildAnimationsProp(props)}
     >
       <Title sub={`${MULTI_COUNT} series`}>{props.title}</Title>
       {props.infoBarVisible && <InfoBar sort={props.tooltipSort} />}
@@ -172,8 +173,6 @@ function MultiChart(props: PlaygroundChartProps & LineSettings & { allData: Line
           pulse: props.streaming,
           stacking: props.stacking,
           entryAnimation: props.lineEntryAnimation,
-          entryMs: props.entryMs,
-          smoothMs: props.liveTracking ? undefined : 0,
         }}
       />
       {props.tooltipVisible && renderTooltip(props)}

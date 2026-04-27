@@ -11,7 +11,13 @@ import {
   useState,
 } from 'react';
 
-import { type AxisConfig, ChartInstance, type ChartOptions, type ChartTheme } from '@wick-charts/core';
+import {
+  type AnimationsConfig,
+  type AxisConfig,
+  ChartInstance,
+  type ChartOptions,
+  type ChartTheme,
+} from '@wick-charts/core';
 
 type PerfOption = NonNullable<ChartOptions['perf']>;
 
@@ -74,6 +80,36 @@ export interface ChartContainerProps {
    *   the title. The chart background still spans the full container.
    */
   headerLayout?: 'overlay' | 'inline';
+  /**
+   * Chart-level animation configuration. See {@link AnimationsConfig} for the
+   * full shape.
+   *
+   * Two layers — remember which is which:
+   *
+   * - **Chart-level (this prop)** — `animations.points.{enterMs, smoothMs,
+   *   pulseMs}` and `animations.viewport.{reboundMs, yAxisMs,
+   *   inputResponseMs}`. Acts as the default for every series.
+   * - **Per-series** — `<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`
+   *   (and the analogous CandlestickSeries / BarSeries options). Overrides
+   *   the chart-level default for that one series. Note the spelling:
+   *   `entryMs` per-series, `enterMs` chart-level — historical artefact,
+   *   both refer to the same animation.
+   *
+   * Resolution: per-series option wins over chart-level numeric value.
+   * Chart-level wins only when its category is explicitly `false` — that's
+   * a hard disable that overrides per-series too.
+   *
+   * Shorthands:
+   * - `true` / omitted — built-in defaults (every settling animation 250 ms,
+   *   pulse cycle 600 ms, input ease 0 / off).
+   * - `false` — disables every animation category.
+   * - `{ points: false }` / `{ viewport: false }` — disables a category.
+   *
+   * Runtime updates: changing this prop after mount calls
+   * `chart.setAnimations(...)` so the new durations take effect on the next
+   * animation / render.
+   */
+  animations?: boolean | AnimationsConfig;
   /**
    * Enable runtime performance instrumentation. Off by default.
    *
@@ -183,6 +219,7 @@ export function ChartContainer({
   grid,
   headerLayout = 'overlay',
   perf,
+  animations,
   style,
   className,
 }: ChartContainerProps) {
@@ -208,6 +245,7 @@ export function ChartContainer({
     if (interactive !== undefined) options.interactive = interactive;
     if (grid !== undefined) options.grid = grid;
     if (perfRef.current !== undefined) options.perf = perfRef.current;
+    if (animations !== undefined) options.animations = animations;
     chartRef.current = new ChartInstance(containerRef.current, options);
 
     // Note: the init path above already propagated `grid` into the chart. The
@@ -240,6 +278,16 @@ export function ChartContainer({
       chartRef.current.setAxis(axis);
     }
   }, [axis?.y?.width, axis?.y?.min, axis?.y?.max, axis?.y?.visible, axis?.x?.height, axis?.x?.visible]);
+
+  useEffect(() => {
+    if (chartRef.current && animations !== undefined) {
+      chartRef.current.setAnimations(animations);
+    }
+    // Dep array is the JSON shape of the config — covers both the boolean
+    // shorthand and the full object. Cheap to stringify (the object is tiny)
+    // and lets callers pass a fresh reference each render without thrashing
+    // animator state when nothing has actually changed.
+  }, [JSON.stringify(animations)]);
 
   // Top-overlay height (title + info bar) — measured below. Declared here so
   // the padding effect can fold it into `padding.top`.
