@@ -66,8 +66,9 @@ export type {
 export interface PlaygroundProps<TExtra extends object = Record<string, never>> {
   id: string;
   theme: ChartTheme;
-  /** Flat extra state merged on top of CommonState. */
-  extraDefaults?: TExtra;
+  /** Flat extra state merged on top of CommonState. Pass a function to make
+   * defaults responsive to the viewport (e.g. hide InfoBar on mobile). */
+  extraDefaults?: TExtra | ((mobile: boolean) => TExtra);
   /** Sections contributed by the page. Use `extend: 'display'` to append into a built-in. */
   sections?: SectionSpec[];
   charts: (props: PlaygroundChartProps & TExtra) => ReactNode;
@@ -618,10 +619,13 @@ export function Playground<TExtra extends object = Record<string, never>>({
   showPerfHud = true,
   animationKinds = ['candle', 'bar', 'line'],
 }: PlaygroundProps<TExtra>) {
-  const fullDefaults = useMemo(
-    () => ({ ...COMMON_DEFAULTS, ...(extraDefaults as object) }) as CommonState & TExtra,
-    [extraDefaults],
-  );
+  const mobile = useIsMobile();
+
+  const fullDefaults = useMemo(() => {
+    const resolved = typeof extraDefaults === 'function' ? extraDefaults(mobile) : extraDefaults;
+
+    return { ...COMMON_DEFAULTS, ...(resolved as object) } as CommonState & TExtra;
+  }, [extraDefaults, mobile]);
 
   const { state, setMany, reset, activeCount } = useSettings<CommonState & TExtra>({
     id,
@@ -641,7 +645,6 @@ export function Playground<TExtra extends object = Record<string, never>>({
 
   const { pct, containerRef, onMouseDown } = usePanelWidth();
   const { pct: codePct, rightRef, onMouseDown: onCodeDragDown } = useCodeHeight();
-  const mobile = useIsMobile();
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
 
   const surfaceVars = useMemo(() => themeSurfaceVars(theme), [theme]);

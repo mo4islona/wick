@@ -66,11 +66,12 @@ type Mode = 'pretty' | 'raw';
 
 function CandlestickPreview({ theme }: { theme: ChartTheme }) {
   const sid = 'candle-v2';
+  const mobile = useIsMobile();
 
   return (
     <ChartContainer theme={theme} interactive={false}>
       <Title sub="custom theme">Candlestick</Title>
-      <InfoBar />
+      {!mobile && <InfoBar />}
       <CandlestickSeries id={sid} data={ohlcData} />
       <YLabel seriesId={sid} />
       <Tooltip />
@@ -109,11 +110,12 @@ function PiePreview({ theme }: { theme: ChartTheme }) {
 function LinePreview({ theme, seriesCount }: { theme: ChartTheme; seriesCount: number }) {
   const n = Math.max(1, seriesCount);
   const data = useMemo(() => Array.from({ length: n }, (_, i) => LINE_POOL[i % LINE_POOL.length]), [n]);
+  const mobile = useIsMobile();
 
   return (
     <ChartContainer theme={theme} interactive={false}>
       <Title sub={`${data.length} series`}>Line</Title>
-      <InfoBar />
+      {!mobile && <InfoBar />}
       <LineSeries
         id="line-v2"
         data={data}

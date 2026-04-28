@@ -373,7 +373,7 @@ export function LinePage({ theme }: { theme: ChartTheme }) {
       id="line"
       theme={theme}
       animationKinds={['line']}
-      extraDefaults={{
+      extraDefaults={(mobile) => ({
         dataMode: 'wave',
         areaVisible: false,
         strokeWidth: 1,
@@ -382,10 +382,10 @@ export function LinePage({ theme }: { theme: ChartTheme }) {
         tooltipCustom: false,
         legendPos: 'bottom',
         legendMode: 'toggle',
-        infoBarVisible: true,
+        infoBarVisible: !mobile,
         tooltipVisible: true,
         crosshairVisible: true,
-      }}
+      })}
       sections={[DEMO_EXTRA, DISPLAY_EXTRA, SERIES_SECTION, TOOLTIP_SECTION, LEGEND_SECTION]}
       charts={(props) => {
         const single = [makeData(props.dataMode, 300, 0)];

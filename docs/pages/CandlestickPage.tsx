@@ -25,9 +25,11 @@ import { ICONS } from '../components/playground/icons';
 import { Playground, type PlaygroundChartProps } from '../components/playground/Playground';
 import { Toggle } from '../components/playground/primitives';
 import type { RowSpec, SectionSpec } from '../components/playground/sections';
+import { useMemo } from 'react';
+
 import { generateOHLCData } from '../data';
 import { DEMO_INTERVAL } from '../data/demo';
-import { useOHLCStream } from '../hooks';
+import { useIsMobile, useOHLCStream } from '../hooks';
 
 interface CandleSettings {
   yLabelVisible: boolean;
@@ -38,10 +40,11 @@ interface CandleSettings {
 
 // Different zoom across charts — close-up on the first, mid-range on the
 // second, full history on the third, so the user sees three levels of
-// detail at once.
-const steadyData = generateOHLCData(300, 42000, DEMO_INTERVAL).slice(-50);
-const volatileData = generateOHLCData(300, 100, DEMO_INTERVAL).slice(-120);
-const trendingData = generateOHLCData(300, 1500, DEMO_INTERVAL);
+// detail at once. Generate the full buffers once at module level and slice
+// per-viewport inside the page component.
+const steadyDataFull = generateOHLCData(300, 42000, DEMO_INTERVAL);
+const volatileDataFull = generateOHLCData(300, 100, DEMO_INTERVAL);
+const trendingDataFull = generateOHLCData(300, 1500, DEMO_INTERVAL);
 
 function CandleChart({
   theme,
@@ -145,16 +148,29 @@ const DISPLAY_EXTRA: SectionSpec = {
 };
 
 export function CandlestickPage({ theme }: { theme: ChartTheme }) {
+  const mobile = useIsMobile();
+  const { steadyData, volatileData, trendingData } = useMemo(() => {
+    const steady = mobile ? 20 : 50;
+    const volatile = mobile ? 60 : 120;
+    const trending = mobile ? 150 : 300;
+
+    return {
+      steadyData: steadyDataFull.slice(-steady),
+      volatileData: volatileDataFull.slice(-volatile),
+      trendingData: trendingDataFull.slice(-trending),
+    };
+  }, [mobile]);
+
   return (
     <Playground<CandleSettings>
       id="candlestick"
       theme={theme}
-      extraDefaults={{
+      extraDefaults={(m) => ({
         yLabelVisible: true,
         tooltipVisible: true,
-        infoBarVisible: true,
+        infoBarVisible: !m,
         crosshairVisible: true,
-      }}
+      })}
       gridTemplate="1fr 1fr 1fr"
       animationKinds={['candle']}
       sections={[{ ...DISPLAY_EXTRA, icon: ICONS.display }]}
@@ -162,7 +178,7 @@ export function CandlestickPage({ theme }: { theme: ChartTheme }) {
         <>
           <Cell theme={props.theme}>
             <CandleChart
-              key={`s-${props.streaming}-${props.perfHudVisible}`}
+              key={`s-${props.streaming}-${props.perfHudVisible}-${mobile}`}
               {...props}
               data={steadyData}
               startDelay={300}
@@ -172,7 +188,7 @@ export function CandlestickPage({ theme }: { theme: ChartTheme }) {
           </Cell>
           <Cell theme={props.theme}>
             <CandleChart
-              key={`v-${props.streaming}-${props.perfHudVisible}`}
+              key={`v-${props.streaming}-${props.perfHudVisible}-${mobile}`}
               {...props}
               data={volatileData}
               startDelay={400}
@@ -182,7 +198,7 @@ export function CandlestickPage({ theme }: { theme: ChartTheme }) {
           </Cell>
           <Cell theme={props.theme}>
             <CandleChart
-              key={`t-${props.streaming}-${props.perfHudVisible}`}
+              key={`t-${props.streaming}-${props.perfHudVisible}-${mobile}`}
               {...props}
               data={trendingData}
               startDelay={500}

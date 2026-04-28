@@ -205,13 +205,13 @@ export function BarPage({ theme }: { theme: ChartTheme }) {
     <Playground<BarSettings>
       id="bar"
       theme={theme}
-      extraDefaults={{
+      extraDefaults={(mobile) => ({
         stacking: 'normal',
         barWidth: 'normal',
-        infoBarVisible: true,
+        infoBarVisible: !mobile,
         tooltipVisible: true,
         crosshairVisible: true,
-      }}
+      })}
       animationKinds={['bar']}
       sections={[DISPLAY_EXTRA, SERIES_SECTION]}
       charts={(props) => {

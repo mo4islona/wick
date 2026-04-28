@@ -40,7 +40,9 @@ const MAX_POINTS = 300;
 
 // Candle chart zooms in to the most recent N bars on mount — imperative API
 // call, so the buffer stays at MAX_POINTS and the user can pan back for history.
-const INITIAL_CANDLE_BARS = 80;
+// Kept low so each candle reads cleanly and the body/wick proportions stand
+// out — the headline chart is meant to showcase candle rendering quality.
+const INITIAL_CANDLE_BARS = 35;
 
 // The speed slider is a developer-only escape hatch; hidden unless `debug`
 // appears in the URL. Docs uses hash routing, so the flag may live in
@@ -80,10 +82,11 @@ function InitialCandleZoom({ bars, ready }: { bars: number; ready: boolean }) {
 function CandleChart({ theme, speed }: StreamProps) {
   const { data } = useOHLCStream(ohlcBTC, { interval: DEMO_INTERVAL, speed, maxPoints: MAX_POINTS });
   const sid = 'candle';
+  const mobile = useIsMobile();
   return (
     <ChartContainer theme={theme}>
       <Title sub="Live Candlestick">BTC/USD</Title>
-      <InfoBar />
+      {!mobile && <InfoBar />}
       <CandlestickSeries id={sid} data={data} />
       <InitialCandleZoom bars={INITIAL_CANDLE_BARS} ready={data.length > 0} />
       <YLabel seriesId={sid} />
@@ -104,10 +107,11 @@ function AreaBandsChart({ theme, speed }: StreamProps) {
     speed,
     maxPoints: MAX_POINTS,
   });
+  const mobile = useIsMobile();
   return (
     <ChartContainer theme={theme}>
       <Title sub="Live Area + Bands">ETH/USD</Title>
-      <InfoBar />
+      {!mobile && <InfoBar />}
       <LineSeries data={[datasets[0]]} options={{ area: { visible: true }, strokeWidth: 1 }} />
       <LineSeries
         data={[datasets[1]]}

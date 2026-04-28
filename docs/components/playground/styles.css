@@ -1181,11 +1181,11 @@
   .wick-playground .pg-mobile-fab {
     position: fixed;
     right: 14px;
-    bottom: 14px;
-    height: 42px;
-    padding: 0 16px;
-    gap: 8px;
-    border-radius: 21px;
+    top: 56px;
+    height: 34px;
+    padding: 0 12px;
+    gap: 6px;
+    border-radius: 17px;
     border: 1px solid var(--line);
     background: var(--bg-2);
     color: var(--fg-1);
@@ -1194,7 +1194,7 @@
     justify-content: center;
     cursor: pointer;
     z-index: 150;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
     font-family: inherit;
     font-size: 13px;
     font-weight: 500;
