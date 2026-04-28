@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   detectInterval,
+  formatTime,
   niceTimeIntervals,
   normalizeOHLCArray,
   normalizeTime,
@@ -11,6 +12,7 @@ import {
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
+const YEAR = 365 * DAY;
 
 describe('detectInterval', () => {
   it('detects 60s interval', () => {
@@ -108,5 +110,41 @@ describe('niceTimeIntervals', () => {
   it('returns day intervals for daily data', () => {
     const intervals = niceTimeIntervals(DAY);
     expect(intervals[0]).toBe(DAY);
+  });
+
+  it('exposes multi-year tiers so 150-year spans can decimate to readable tick counts', () => {
+    // 5y candles spanning 150y => 30 candles. With only 1y as the largest
+    // tick interval, the axis paints ~30 labels and they collide.
+    // Need at least one bucket >= 5*YEAR to space them out.
+    const intervals = niceTimeIntervals(5 * YEAR);
+    const max = Math.max(...intervals);
+    expect(max).toBeGreaterThanOrEqual(5 * YEAR);
+  });
+});
+
+describe('formatTime', () => {
+  // 2018-12-31 UTC — chosen so locale tz drift can't bump it across a year
+  // boundary in a way that would invalidate the assertion.
+  const ts = Date.UTC(2018, 5, 15);
+
+  it('formats yearly intervals as a year, not a month', () => {
+    const out = formatTime(ts, YEAR);
+
+    expect(out).toMatch(/2018/);
+    // Specifically must NOT be "Dec" / "Jun" / etc. — that's the bug
+    // ("Dec Dec Dec…" repeats across yearly axis).
+    expect(out).not.toMatch(/^[A-Z][a-z]{2} \d+$/);
+  });
+
+  it('formats multi-year intervals as a year', () => {
+    const out = formatTime(ts, 5 * YEAR);
+
+    expect(out).toMatch(/2018/);
+    expect(out).not.toMatch(/^[A-Z][a-z]{2} \d+$/);
+  });
+
+  it('still formats month/day for sub-year day-scale intervals', () => {
+    const out = formatTime(ts, DAY);
+    expect(out).toMatch(/^[A-Z][a-z]{2} \d+$/);
   });
 });

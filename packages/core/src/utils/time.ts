@@ -3,6 +3,7 @@ import type { OHLCData, OHLCInput, TimePoint, TimePointInput, TimeValue } from '
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
+const YEAR = 365 * DAY;
 
 /** Convert a {@link TimeValue} (number ms or Date) to a millisecond timestamp. */
 export function normalizeTime(t: TimeValue): number {
@@ -37,6 +38,9 @@ export function detectInterval(times: number[]): number {
 
 export function formatTime(timestamp: number, interval: number): string {
   const d = new Date(timestamp);
+  if (interval >= YEAR) {
+    return d.toLocaleDateString('en-US', { year: 'numeric' });
+  }
   if (interval >= DAY) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
@@ -60,12 +64,15 @@ export function niceTimeIntervals(interval: number): number[] {
   const sub_minute = [1_000, 5_000, 10_000, 15_000, 30_000];
   const sub_hour = [MINUTE, 5 * MINUTE, 10 * MINUTE, 15 * MINUTE, 30 * MINUTE];
   const sub_day = [HOUR, 2 * HOUR, 4 * HOUR, 6 * HOUR, 12 * HOUR];
-  const days = [DAY, 7 * DAY, 30 * DAY, 90 * DAY, 365 * DAY];
+  const days = [DAY, 7 * DAY, 30 * DAY, 90 * DAY];
+  const years = [YEAR, 2 * YEAR, 5 * YEAR, 10 * YEAR, 25 * YEAR, 50 * YEAR, 100 * YEAR];
 
   // Always include all larger interval tiers so zoomed-out views
   // can escalate beyond the data interval's native granularity
-  if (interval < MINUTE) return [...sub_minute, ...sub_hour, ...sub_day, ...days];
-  if (interval < HOUR) return [...sub_hour, ...sub_day, ...days];
-  if (interval < DAY) return [...sub_day, ...days];
-  return days;
+  if (interval < MINUTE) return [...sub_minute, ...sub_hour, ...sub_day, ...days, ...years];
+  if (interval < HOUR) return [...sub_hour, ...sub_day, ...days, ...years];
+  if (interval < DAY) return [...sub_day, ...days, ...years];
+  if (interval < YEAR) return [...days, ...years];
+
+  return years;
 }
