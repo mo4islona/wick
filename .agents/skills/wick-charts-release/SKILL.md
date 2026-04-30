@@ -76,7 +76,7 @@ Print the release URL: `https://github.com/mo4islona/wick-charts/releases/tag/vX
 
 See [release-template.md](release-template.md). Rules:
 
-- **Title line**: `## <emoji> <Headline>` — one phrase, no version (the GitHub UI shows the tag).
+- **Title line**: `## <Headline>` — one phrase, no version (the GitHub UI shows the tag). No emoji.
 - **Lead paragraph**: 1–3 sentences. What changed for the user, not the implementation.
 - **Sections**: `### Highlights` is required. Add area sections (`### Viewport`, `### API`, `### Playground`, etc.) only for minor/major releases. Patch releases stay flat.
 - **Tests/internal**: only mention if the user-facing impact is "we now have confidence in X" — otherwise skip.

@@ -7,7 +7,7 @@ Two shapes — pick by version delta.
 Flat bullet list, no area sections.
 
 ```markdown
-## 🐛 <Headline>
+## <Headline>
 
 <1-2 sentence lead — what the user notices.>
 
@@ -23,7 +23,7 @@ Flat bullet list, no area sections.
 Sectioned. Use only the sections that apply.
 
 ```markdown
-## ✨ <Headline>
+## <Headline>
 
 <1-3 sentence lead — what changed for the user, not the implementation.>
 
@@ -56,17 +56,9 @@ Sectioned. Use only the sections that apply.
 **Full Changelog**: https://github.com/mo4islona/wick-charts/compare/vPREV...vNEW
 ```
 
-## Headline emoji conventions
-
-- ✨ feature work, new architecture
-- 🐛 bug-fix-only release
-- 🎨 themes / visual changes
-- ⚡ performance
-- 📚 docs-only
-- 🔧 tooling / build / infra
-
 ## Style rules
 
+- **No emoji** — neither in the title nor in section headers or bullets.
 - **No version in the title** — GitHub renders the tag separately.
 - **Lead with user-visible impact**, not internal mechanism. "Streaming no longer pops the navigator" beats "Replaced exponential chase with Animator".
 - **Bold the lede of each highlight bullet** so the page scans in 5 seconds.
