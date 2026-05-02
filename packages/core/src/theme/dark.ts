@@ -1,6 +1,13 @@
 import { autoGradient } from './create';
 import type { ChartTheme } from './types';
 
+/**
+ * @deprecated Use a named preset instead — `catppuccin.theme` is the new
+ * default dark palette, and `dracula`, `nightOwl`, `oneDarkPro`, `gruvbox`,
+ * `monokaiPro`, `materialPalenight`, or `panda` cover the rest of the
+ * dark spectrum. `darkTheme` is kept as an alias for the previous default
+ * and will be removed in a future major release.
+ */
 export const darkTheme: ChartTheme = {
   background: '#131722',
   chartGradient: ['#1a1f2e', '#101318'] as [string, string],

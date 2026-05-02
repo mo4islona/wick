@@ -7,7 +7,7 @@ import {
   InfoBar,
   LineSeries,
   Tooltip,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/svelte';
 
 /**
@@ -33,7 +33,7 @@ export let barData: TimePoint[][] = [[]];
 export let lineData: TimePoint[][] = [[]];
 </script>
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   {#if variant === 'ordered-legend'}
     <InfoBar />
     <CandlestickSeries data={candlestickData} />

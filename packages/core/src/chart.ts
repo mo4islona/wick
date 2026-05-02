@@ -26,7 +26,7 @@ import { CandlestickRenderer } from './series/candlestick';
 import { LineRenderer } from './series/line';
 import { PieRenderer } from './series/pie';
 import type { HoverInfo, SeriesRenderer, SliceInfo } from './series/types';
-import { darkTheme } from './theme/dark';
+import { catppuccin } from './theme/themes/catppuccin';
 import type { ChartTheme } from './theme/types';
 import type {
   AxisBound,
@@ -462,7 +462,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#axis = options.axis;
       this.#yBounds = { min: options.axis.y?.min, max: options.axis.y?.max };
     }
-    this.#theme = options?.theme ?? darkTheme;
+    this.#theme = options?.theme ?? catppuccin.theme;
     this.#grid = options?.grid?.visible !== false;
     this.#animationsConfig = resolveAnimationsConfig(options?.animations);
     this.#onEdgeReached = options?.onEdgeReached;

@@ -497,7 +497,7 @@ export function PiePage({ theme }: { theme: ChartTheme }) {
         </>
       )}
       codeConfig={(s) => ({
-        theme: 'darkTheme',
+        theme: 'catppuccin.theme',
         components: [
           {
             component: 'PieSeries',

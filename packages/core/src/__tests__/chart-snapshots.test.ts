@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ChartInstance } from '../chart';
 import { buildHoverSnapshots, buildLastSnapshots } from '../snapshots';
-import { lightTheme } from '../theme/light';
+import { githubLight } from '../theme/themes/github-light';
 
 function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   const container = document.createElement('div');
@@ -133,7 +133,7 @@ describe('buildLastSnapshots', () => {
 
     chart.setSeriesVisible(id, true);
     const afterShow = buildLastSnapshots(chart, { cacheKey: 'infobar' });
-    chart.setTheme(lightTheme);
+    chart.setTheme(githubLight.theme);
     const afterTheme = buildLastSnapshots(chart, { cacheKey: 'infobar' });
     expect(afterTheme).not.toBe(afterShow);
 

@@ -109,7 +109,8 @@ describe('<Crosshair>', () => {
     expect(yLabel.style.color).toBe(theme.crosshair.labelTextColor);
     // happy-dom re-quotes font-family tokens — assert presence of the first
     // family name rather than comparing whole strings byte-for-byte.
-    expect(yLabel.style.fontFamily).toContain('Inter');
+    const firstFamily = theme.typography.fontFamily.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+    expect(yLabel.style.fontFamily).toContain(firstFamily);
     expect(yLabel.style.fontSize).toBe(`${theme.axis.fontSize}px`);
     expect(yLabel.style.pointerEvents).toBe('none');
     expect(yLabel.style.zIndex).toBe('2');

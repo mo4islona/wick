@@ -10,7 +10,7 @@ import {
   TimeAxis,
   Title,
   YAxis,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/svelte';
 
 /**
@@ -45,59 +45,59 @@ export let yLabelCount: number | undefined = undefined;
 </script>
 
 {#if variant === 'gradient-off'}
-  <ChartContainer theme={darkTheme} gradient={false}>
+  <ChartContainer theme={catppuccin.theme} gradient={false}>
     <CandlestickSeries data={candlestickData} />
   </ChartContainer>
 {:else if variant === 'header-overlay'}
-  <ChartContainer theme={darkTheme} headerLayout="overlay">
+  <ChartContainer theme={catppuccin.theme} headerLayout="overlay">
     <Title>BTC<svelte:fragment slot="sub">Live</svelte:fragment></Title>
     <InfoBar />
     <CandlestickSeries data={candlestickData} />
   </ChartContainer>
 {:else if variant === 'header-inline'}
-  <ChartContainer theme={darkTheme} headerLayout="inline">
+  <ChartContainer theme={catppuccin.theme} headerLayout="inline">
     <Title>BTC<svelte:fragment slot="sub">Live</svelte:fragment></Title>
     <InfoBar />
     <CandlestickSeries data={candlestickData} />
   </ChartContainer>
 {:else if variant === 'padded'}
-  <ChartContainer theme={darkTheme} padding={{ top: 20 }} headerLayout="inline">
+  <ChartContainer theme={catppuccin.theme} padding={{ top: 20 }} headerLayout="inline">
     <Title>BTC</Title>
     <InfoBar />
     <CandlestickSeries data={candlestickData} />
   </ChartContainer>
 {:else if variant === 'time-axis-density'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <TimeAxis {labelCount} {minLabelSpacing} />
   </ChartContainer>
 {:else if variant === 'time-axis-default'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <TimeAxis />
   </ChartContainer>
 {:else if variant === 'y-axis-density'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <YAxis labelCount={yLabelCount} />
   </ChartContainer>
 {:else if variant === 'pie-legend-bottom'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <PieSeries id="pie" data={pieData} />
     <PieLegend seriesId="pie" position="bottom" />
   </ChartContainer>
 {:else if variant === 'pie-legend-right'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <PieSeries id="pie" data={pieData} />
     <PieLegend seriesId="pie" position="right" />
   </ChartContainer>
 {:else if variant === 'pie-legend-overlay'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <PieSeries id="pie" data={pieData} />
     <PieLegend seriesId="pie" position="overlay" />
   </ChartContainer>
 {:else if variant === 'title-sub-slot'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <Title>
       BTC/USD
@@ -107,12 +107,12 @@ export let yLabelCount: number | undefined = undefined;
     </Title>
   </ChartContainer>
 {:else if variant === 'title-sub-prop'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <Title sub="Live">BTC</Title>
   </ChartContainer>
 {:else if variant === 'title-sub-both'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <Title sub="PROP-VALUE">
       BTC
@@ -122,7 +122,7 @@ export let yLabelCount: number | undefined = undefined;
     </Title>
   </ChartContainer>
 {:else if variant === 'title-no-sub'}
-  <ChartContainer theme={darkTheme}>
+  <ChartContainer theme={catppuccin.theme}>
     <CandlestickSeries data={candlestickData} />
     <Title>BTC</Title>
   </ChartContainer>

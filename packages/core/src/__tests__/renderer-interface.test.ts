@@ -6,7 +6,7 @@ import { CandlestickRenderer } from '../series/candlestick';
 import { LineRenderer } from '../series/line';
 import { PieRenderer } from '../series/pie';
 import type { SeriesRenderer } from '../series/types';
-import { darkTheme } from '../theme/dark';
+import { catppuccin } from '../theme/themes/catppuccin';
 import type { OHLCData } from '../types';
 
 /** Sanity-check: every concrete renderer implements the required SeriesRenderer members. */
@@ -161,10 +161,10 @@ describe('SeriesRenderer interface', () => {
   it('applyTheme is a no-op for pie (theme resolved at render time)', () => {
     const r = new PieRenderer({ innerRadiusRatio: 0.5 });
     r.setData([{ label: 'A', value: 10 }]);
-    const before = r.getSliceInfo!(darkTheme);
-    // darkTheme is the default; applying the same theme shouldn't change outputs.
-    r.applyTheme(darkTheme, darkTheme);
-    const after = r.getSliceInfo!(darkTheme);
+    const before = r.getSliceInfo!(catppuccin.theme);
+    // catppuccin.theme is the default; applying the same theme shouldn't change outputs.
+    r.applyTheme(catppuccin.theme, catppuccin.theme);
+    const after = r.getSliceInfo!(catppuccin.theme);
     expect(after).toEqual(before);
   });
 
@@ -172,8 +172,8 @@ describe('SeriesRenderer interface', () => {
   type LineInternal = { options: { strokeWidth: number; colors: string[] } };
 
   it('LineRenderer.applyTheme syncs strokeWidth when it still matches the previous theme default', () => {
-    const prev = { ...darkTheme, line: { ...darkTheme.line, width: 1 } };
-    const next = { ...darkTheme, line: { ...darkTheme.line, width: 4 } };
+    const prev = { ...catppuccin.theme, line: { ...catppuccin.theme.line, width: 1 } };
+    const next = { ...catppuccin.theme, line: { ...catppuccin.theme.line, width: 4 } };
 
     const r = new LineRenderer(1, { strokeWidth: 1 });
     r.applyTheme(next, prev);
@@ -182,8 +182,8 @@ describe('SeriesRenderer interface', () => {
   });
 
   it('LineRenderer.applyTheme preserves a user-pinned strokeWidth (does not match prev default)', () => {
-    const prev = { ...darkTheme, line: { ...darkTheme.line, width: 1 } };
-    const next = { ...darkTheme, line: { ...darkTheme.line, width: 4 } };
+    const prev = { ...catppuccin.theme, line: { ...catppuccin.theme.line, width: 1 } };
+    const next = { ...catppuccin.theme, line: { ...catppuccin.theme.line, width: 4 } };
 
     const r = new LineRenderer(1, { strokeWidth: 8 });
     r.applyTheme(next, prev);
@@ -192,8 +192,8 @@ describe('SeriesRenderer interface', () => {
   });
 
   it('LineRenderer.applyTheme syncs single-layer color when it still matches the previous theme default', () => {
-    const prev = { ...darkTheme, line: { ...darkTheme.line, color: '#111111' } };
-    const next = { ...darkTheme, line: { ...darkTheme.line, color: '#222222' } };
+    const prev = { ...catppuccin.theme, line: { ...catppuccin.theme.line, color: '#111111' } };
+    const next = { ...catppuccin.theme, line: { ...catppuccin.theme.line, color: '#222222' } };
 
     const r = new LineRenderer(1, { colors: ['#111111'] });
     r.applyTheme(next, prev);
@@ -202,8 +202,8 @@ describe('SeriesRenderer interface', () => {
   });
 
   it('LineRenderer.applyTheme preserves a user-pinned color (does not match prev default)', () => {
-    const prev = { ...darkTheme, line: { ...darkTheme.line, color: '#111111' } };
-    const next = { ...darkTheme, line: { ...darkTheme.line, color: '#222222' } };
+    const prev = { ...catppuccin.theme, line: { ...catppuccin.theme.line, color: '#111111' } };
+    const next = { ...catppuccin.theme, line: { ...catppuccin.theme.line, color: '#222222' } };
 
     const r = new LineRenderer(1, { colors: ['#abcdef'] });
     r.applyTheme(next, prev);

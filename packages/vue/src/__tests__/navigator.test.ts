@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { CandlestickSeries, ChartContainer, Navigator, darkTheme } from '@wick-charts/vue';
+import { CandlestickSeries, ChartContainer, Navigator, catppuccin } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
 
@@ -35,7 +35,7 @@ describe('<Navigator> (vue)', () => {
     const Parent = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: candlestickData }),
             h(Navigator, { data: lineData }),
           ]);
@@ -61,7 +61,7 @@ describe('<Navigator> (vue)', () => {
     const Parent = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: candlestickData }),
             h(Navigator, { data: lineData, height: 40 }),
           ]);

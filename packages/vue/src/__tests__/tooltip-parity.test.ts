@@ -7,7 +7,7 @@ import {
   LineSeries,
   Title,
   Tooltip,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
@@ -102,7 +102,7 @@ describe('Vue <Tooltip> / <InfoBar> parity', () => {
       components: { ChartContainer, CandlestickSeries, InfoBar },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [h(InfoBar), h(CandlestickSeries, { data: candlestickData })]);
+          h(ChartContainer, { theme: catppuccin.theme }, () => [h(InfoBar), h(CandlestickSeries, { data: candlestickData })]);
       },
     });
 
@@ -123,7 +123,7 @@ describe('Vue <Tooltip> / <InfoBar> parity', () => {
     const App = defineComponent({
       components: { ChartContainer, BarSeries, InfoBar },
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(InfoBar), h(BarSeries, { data: twoLayerBars })]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(InfoBar), h(BarSeries, { data: twoLayerBars })]);
       },
     });
 
@@ -159,7 +159,7 @@ describe('Vue <Tooltip> / <InfoBar> parity', () => {
       components: { ChartContainer, CandlestickSeries, InfoBar },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(InfoBar),
             h(CandlestickSeries, {
               data: [
@@ -188,7 +188,7 @@ describe('Vue <Tooltip> / <InfoBar> parity', () => {
       components: { ChartContainer, LineSeries, InfoBar },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(InfoBar, {
               format: (v: number, field: string) => `<${field}:${v}>`,
             }),
@@ -223,7 +223,7 @@ describe('Vue <Tooltip> / <InfoBar> parity', () => {
       components: { ChartContainer, CandlestickSeries, Tooltip },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [h(Tooltip), h(CandlestickSeries, { data: candlestickData })]);
+          h(ChartContainer, { theme: catppuccin.theme }, () => [h(Tooltip), h(CandlestickSeries, { data: candlestickData })]);
       },
     });
 

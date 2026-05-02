@@ -6,7 +6,7 @@ import { type ChartCodeConfig, generateCode } from '../components/CodePreview';
 // grid.visible, area.visible, entryAnimation, InfoBar,
 // strokeWidth, and stroke{width} for pie.
 const CONFIG: ChartCodeConfig = {
-  theme: 'darkTheme',
+  theme: 'catppuccin.theme',
   containerProps: {
     grid: { visible: true },
   },
@@ -49,7 +49,7 @@ describe('generateCode', () => {
 
     expect(code).toContain("from '@wick-charts/react'");
     expect(code).toContain('<ChartContainer');
-    expect(code).toContain('theme={darkTheme}');
+    expect(code).toContain('theme={catppuccin.theme}');
     expect(code).toContain('grid={{ visible: true }}');
     expect(code).toContain('<LineSeries');
     expect(code).toContain('area: { visible: true }');
@@ -66,7 +66,7 @@ describe('generateCode', () => {
     expect(code).toContain('<script setup>');
     expect(code).toContain("from '@wick-charts/vue'");
     expect(code).toContain('<template>');
-    expect(code).toContain(':theme="darkTheme"');
+    expect(code).toContain(':theme="catppuccin.theme"');
     expect(code).toContain(':grid=');
     expect(code).toContain('<InfoBar');
     expect(code).toContain('strokeWidth');

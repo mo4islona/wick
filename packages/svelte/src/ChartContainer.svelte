@@ -5,7 +5,7 @@ import {
   ChartInstance,
   type ChartOptions,
   type ChartTheme,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/core';
 import { onDestroy, onMount, tick } from 'svelte';
 
@@ -21,7 +21,7 @@ import {
 
 type PerfOption = NonNullable<ChartOptions['perf']>;
 
-export let theme: ChartTheme = darkTheme;
+export let theme: ChartTheme = catppuccin.theme;
 export let axis: AxisConfig | undefined = undefined;
 /**
  * Viewport padding. `top`/`bottom` are in pixels. `left`/`right` accept either pixels (`50`)

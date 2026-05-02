@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChartInstance } from '../chart';
-import { lightTheme } from '../theme/light';
+import { githubLight } from '../theme/themes/github-light';
 
 function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   const container = document.createElement('div');
@@ -106,7 +106,7 @@ describe('ChartInstance overlayVersion + overlayChange', () => {
     const listener = vi.fn();
     chart.on('overlayChange', listener);
 
-    chart.setTheme(lightTheme);
+    chart.setTheme(githubLight.theme);
     expect(chart.getOverlayVersion()).toBeGreaterThan(before);
     expect(listener).toHaveBeenCalled();
   });

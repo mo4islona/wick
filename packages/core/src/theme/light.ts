@@ -1,6 +1,13 @@
 import { autoGradient } from './create';
 import type { ChartTheme } from './types';
 
+/**
+ * @deprecated Use a named light preset instead — `quietLight`, `githubLight`,
+ * `solarizedLight`, `minimalLight`, `peachCream`, `sandDune`, `lightPink`,
+ * `lavenderMist`, `mintBreeze`, `rosePineDawn`, or `handwritten`. `lightTheme`
+ * is kept as an alias for the previous default and will be removed in a
+ * future major release.
+ */
 export const lightTheme: ChartTheme = {
   background: '#ffffff',
   chartGradient: ['#ffffff', '#f5f6f8'] as [string, string],

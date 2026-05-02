@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { OHLCInput, SeriesSnapshot, TimePoint } from '@wick-charts/core';
-import { CandlestickSeries, ChartContainer, InfoBar, LineSeries, Tooltip, darkTheme } from '@wick-charts/svelte';
+import { CandlestickSeries, ChartContainer, InfoBar, LineSeries, Tooltip, catppuccin } from '@wick-charts/svelte';
 
 export let variant: 'infobar-slot' | 'infobar-default' | 'tooltip-slot' = 'infobar-slot';
 export let candlestickData: OHLCInput[] = [];
@@ -10,7 +10,7 @@ export let onBarSlot: ((ctx: { snapshots: readonly SeriesSnapshot[]; isHover: bo
 export let tooltipSlotInvocations = { count: 0 };
 </script>
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   {#if variant === 'infobar-slot'}
     <InfoBar let:snapshots let:isHover>
       {(onBarSlot?.({ snapshots, isHover }), '')}

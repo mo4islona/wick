@@ -66,8 +66,6 @@ const VAR_REF_NAMES = new Set([
   'layers[0]',
   'sid',
   'series',
-  'darkTheme',
-  'lightTheme',
 ]);
 
 function isVarRef(v: PropValue): boolean {
@@ -157,7 +155,11 @@ function openChartContainer(themeAttr: string, containerPairs: string[]): string
 export function generateCode(config: ChartCodeConfig, fw: Framework): string {
   const imports = new Set<string>(['ChartContainer']);
   for (const child of config.components) imports.add(child.component);
-  if (config.theme) imports.add(config.theme);
+  // Theme expressions can be a bare identifier (`catppuccin`) or a dotted
+  // accessor (`catppuccin.theme` — what {@link createTheme} presets need to
+  // hand the underlying ChartTheme to ChartContainer). Only the import root
+  // belongs in the import list.
+  if (config.theme) imports.add(config.theme.split('.')[0]);
 
   const importList = Array.from(imports).sort();
   const pkg = PACKAGES[fw];

@@ -5,7 +5,7 @@ import {
   ChartContainer,
   LineSeries,
   Tooltip,
-  darkTheme,
+  catppuccin,
   useChartInstance,
 } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -117,7 +117,7 @@ describe('Vue <Tooltip>', () => {
     const Probe = probeFor(captured);
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [h(Probe), h(LineSeries, { data: lineData }), h(Tooltip)]),
+        h(ChartContainer, { theme: catppuccin.theme }, () => [h(Probe), h(LineSeries, { data: lineData }), h(Tooltip)]),
     });
 
     const wrapper = mount(App, { attachTo: host });
@@ -135,7 +135,7 @@ describe('Vue <Tooltip>', () => {
     const Probe = probeFor(captured);
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: candlestickData }),
           h(Tooltip),
@@ -165,7 +165,7 @@ describe('Vue <Tooltip>', () => {
     const Probe = probeFor(captured);
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(LineSeries, { id: 'l', data: lineData }),
           h(Tooltip),
@@ -193,7 +193,7 @@ describe('Vue <Tooltip>', () => {
     let lastTime = -1;
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(LineSeries, { id: 'l', data: lineData }),
           h(
@@ -231,7 +231,7 @@ describe('Vue <Tooltip>', () => {
     const Probe = probeFor(captured);
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(LineSeries, { id: 'l', data: lineData }),
           h(Tooltip),
@@ -263,7 +263,7 @@ describe('Vue <Tooltip>', () => {
     const Probe = probeFor(captured);
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(LineSeries, { id: 'l', data: lineData }),
           h(Tooltip),

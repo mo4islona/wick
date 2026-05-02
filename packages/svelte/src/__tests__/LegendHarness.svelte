@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { LegendItem, TimePoint } from '@wick-charts/core';
-import { BarSeries, ChartContainer, Legend, LineSeries, darkTheme } from '@wick-charts/svelte';
+import { BarSeries, ChartContainer, Legend, LineSeries, catppuccin } from '@wick-charts/svelte';
 
 /**
  * Variants exercise the Legend parity behaviors:
@@ -22,7 +22,7 @@ function capture(items: readonly LegendItem[]) {
 }
 </script>
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   {#if variant === 'ordered-line'}
     <Legend />
     <LineSeries data={lineData} />

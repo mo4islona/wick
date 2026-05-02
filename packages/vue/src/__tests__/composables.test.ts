@@ -7,7 +7,7 @@ import {
   LineSeries,
   type VisibleRange,
   type YRange,
-  darkTheme,
+  catppuccin,
   useChartInstance,
   useCrosshairPosition,
   useLastYValue,
@@ -111,7 +111,7 @@ describe('Vue composables', () => {
     // chart-event listeners before the series's `onMounted` fires `setSeriesData`
     // — otherwise the initial `dataUpdate` event happens before subscription.
     const App = defineComponent({
-      setup: () => () => h(ChartContainer, { theme: darkTheme }, () => [h(Probe), h(LineSeries, { data: lineData })]),
+      setup: () => () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(Probe), h(LineSeries, { data: lineData })]),
     });
 
     const wrapper = mount(App, { attachTo: host });
@@ -147,7 +147,7 @@ describe('Vue composables', () => {
     // chart-event listeners before the series's `onMounted` fires `setSeriesData`
     // — otherwise the initial `dataUpdate` event happens before subscription.
     const App = defineComponent({
-      setup: () => () => h(ChartContainer, { theme: darkTheme }, () => [h(Probe), h(LineSeries, { data: lineData })]),
+      setup: () => () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(Probe), h(LineSeries, { data: lineData })]),
     });
 
     const wrapper = mount(App, { attachTo: host });
@@ -173,7 +173,7 @@ describe('Vue composables', () => {
     });
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [h(Probe), h(LineSeries, { id: 'line-id', data: lineData })]),
+        h(ChartContainer, { theme: catppuccin.theme }, () => [h(Probe), h(LineSeries, { id: 'line-id', data: lineData })]),
     });
 
     const wrapper = mount(App, { attachTo: host });
@@ -211,7 +211,7 @@ describe('Vue composables', () => {
     });
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs-id', data: candlestickData }),
         ]),
@@ -244,7 +244,7 @@ describe('Vue composables', () => {
       },
     });
     const App = defineComponent({
-      setup: () => () => h(ChartContainer, { theme: darkTheme }, () => [h(Probe), h(LineSeries, { data: lineData })]),
+      setup: () => () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(Probe), h(LineSeries, { data: lineData })]),
     });
 
     const wrapper = mount(App, { attachTo: host });
@@ -279,7 +279,7 @@ describe('Vue composables', () => {
     });
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [h(Probe), h(LineSeries, { id: 'line-id', data: lineData })]),
+        h(ChartContainer, { theme: catppuccin.theme }, () => [h(Probe), h(LineSeries, { id: 'line-id', data: lineData })]),
     });
 
     const wrapper = mount(App, { attachTo: host });

@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { OHLCInput, PieSliceData, TimePoint } from '@wick-charts/core';
-import { BarSeries, CandlestickSeries, ChartContainer, LineSeries, PieSeries, darkTheme } from '@wick-charts/svelte';
+import { BarSeries, CandlestickSeries, ChartContainer, LineSeries, PieSeries, catppuccin } from '@wick-charts/svelte';
 
 export let variant: 'candlestick' | 'line' | 'bar' | 'pie' | 'empty' = 'empty';
 export let candlestickData: OHLCInput[] = [];
@@ -9,7 +9,7 @@ export let barData: TimePoint[][] = [[]];
 export let pieData: PieSliceData[] = [];
 </script>
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   {#if variant === 'candlestick'}
     <CandlestickSeries data={candlestickData} />
   {:else if variant === 'line'}

@@ -5,7 +5,7 @@ import {
   ChartInstance,
   type ChartOptions,
   type ChartTheme,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/core';
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue';
 
@@ -69,7 +69,7 @@ const props = withDefaults(
     perf?: PerfOption;
   }>(),
   {
-    theme: () => darkTheme,
+    theme: () => catppuccin.theme,
     gradient: true,
     headerLayout: 'overlay',
   },

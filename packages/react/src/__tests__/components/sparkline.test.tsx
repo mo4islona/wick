@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react';
-import { Sparkline, darkTheme } from '@wick-charts/react';
+import { Sparkline, catppuccin } from '@wick-charts/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { flushAllRaf, installRaf, uninstallRaf } from '../helpers/raf';
@@ -71,7 +71,7 @@ describe('Sparkline', () => {
 
   it('renders a canvas and records draw calls for line variant', () => {
     act(() => {
-      render(<Sparkline data={data} theme={darkTheme} />, { container: host });
+      render(<Sparkline data={data} theme={catppuccin.theme} />, { container: host });
     });
     act(() => flushAllRaf());
 
@@ -89,7 +89,7 @@ describe('Sparkline', () => {
 
   it('renders bar variant with fillRect calls', () => {
     act(() => {
-      render(<Sparkline data={data} theme={darkTheme} variant="bar" />, { container: host });
+      render(<Sparkline data={data} theme={catppuccin.theme} variant="bar" />, { container: host });
     });
     act(() => flushAllRaf());
 
@@ -101,7 +101,7 @@ describe('Sparkline', () => {
 
   it('applies custom color to the stroked line', () => {
     act(() => {
-      render(<Sparkline data={data} theme={darkTheme} color="#ff00aa" />, { container: host });
+      render(<Sparkline data={data} theme={catppuccin.theme} color="#ff00aa" />, { container: host });
     });
     act(() => flushAllRaf());
 
@@ -117,7 +117,7 @@ describe('Sparkline', () => {
 
   it('renders value label when valuePosition is not "none"', () => {
     act(() => {
-      render(<Sparkline data={data} theme={darkTheme} label="BTC" valuePosition="right" />, { container: host });
+      render(<Sparkline data={data} theme={catppuccin.theme} label="BTC" valuePosition="right" />, { container: host });
     });
     act(() => flushAllRaf());
 
@@ -127,7 +127,7 @@ describe('Sparkline', () => {
 
   it('omits value block entirely when valuePosition="none"', () => {
     act(() => {
-      render(<Sparkline data={data} theme={darkTheme} label="BTC" valuePosition="none" />, { container: host });
+      render(<Sparkline data={data} theme={catppuccin.theme} label="BTC" valuePosition="none" />, { container: host });
     });
     act(() => flushAllRaf());
 

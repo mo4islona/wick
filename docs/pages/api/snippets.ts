@@ -64,7 +64,7 @@ export const SNIPPETS: Record<string, ComponentSnippet> = {
 
   // ── container ────────────────────────────────────────────────
   ChartContainer: {
-    required: [{ name: 'theme', valueExpr: 'darkTheme' }],
+    required: [{ name: 'theme', valueExpr: 'catppuccin.theme' }],
     slot: {
       ctxBindings: [],
       bodyExample: {

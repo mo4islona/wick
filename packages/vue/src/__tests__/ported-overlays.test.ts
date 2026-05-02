@@ -9,7 +9,7 @@ import {
   TimeAxis,
   Title,
   YAxis,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
@@ -95,7 +95,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(TimeAxis, { labelCount: 7, minLabelSpacing: 50 }),
           ]);
@@ -115,7 +115,7 @@ describe('Vue overlays — ported props', () => {
     const spy = vi.spyOn(ChartInstance.prototype, 'setTimeAxisLabelDensity');
     const App = defineComponent({
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(CandlestickSeries, { data: ohlc }), h(TimeAxis)]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(CandlestickSeries, { data: ohlc }), h(TimeAxis)]);
       },
     });
     const wrapper = mount(App, { attachTo: host });
@@ -133,7 +133,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(YAxis, { labelCount: 5, minLabelSpacing: 30 }),
           ]);
@@ -154,7 +154,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(YAxis, { labelCount: 5 }),
           ]);
@@ -177,7 +177,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(PieSeries, { data: pieData }),
             h(PieLegend, { position: 'bottom' }),
           ]);
@@ -199,7 +199,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(PieSeries, { data: pieData }),
             h(PieLegend, { position: 'right' }),
           ]);
@@ -221,7 +221,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(PieSeries, { data: pieData }),
             h(PieLegend, { position: 'overlay' }),
           ]);
@@ -243,7 +243,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(Title, null, {
               default: () => 'BTC/USD',
@@ -271,7 +271,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(Title, { sub: 'Live' }, () => 'BTC'),
           ]);
@@ -294,7 +294,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(
               Title,
@@ -322,7 +322,7 @@ describe('Vue overlays — ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(Title, null, () => 'BTC'),
           ]);

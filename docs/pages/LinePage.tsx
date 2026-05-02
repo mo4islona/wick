@@ -427,7 +427,7 @@ export function LinePage({ theme }: { theme: ChartTheme }) {
         const xVisible = s.axis?.x?.visible !== false;
 
         return {
-          theme: 'darkTheme',
+          theme: 'catppuccin.theme',
           containerProps: Object.keys(containerProps).length > 0 ? containerProps : undefined,
           components: [
             {

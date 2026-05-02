@@ -7,7 +7,7 @@ import {
   Legend,
   LineSeries,
   Title,
-  darkTheme,
+  catppuccin,
   useChartInstance,
 } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -95,7 +95,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme, gradient: false }, () => [h(CandlestickSeries, { data: ohlc })]);
+          h(ChartContainer, { theme: catppuccin.theme, gradient: false }, () => [h(CandlestickSeries, { data: ohlc })]);
       },
     });
     const wrapper = mount(App, { attachTo: host });
@@ -109,7 +109,7 @@ describe('Vue <ChartContainer> ported props', () => {
   it('gradient=true (default) keeps the linear-gradient background', async () => {
     const App = defineComponent({
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(CandlestickSeries, { data: ohlc })]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(CandlestickSeries, { data: ohlc })]);
       },
     });
     const wrapper = mount(App, { attachTo: host });
@@ -139,7 +139,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme, interactive: false }, () => [
+          h(ChartContainer, { theme: catppuccin.theme, interactive: false }, () => [
             h(CandlestickSeries, { data: ohlc }),
             h(Probe),
           ]);
@@ -178,7 +178,7 @@ describe('Vue <ChartContainer> ported props', () => {
 
     const Baseline = defineComponent({
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(LineSeries, { data: lineData }), h(Probe)]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(LineSeries, { data: lineData }), h(Probe)]);
       },
     });
     const baseline = mount(Baseline, { attachTo: host });
@@ -193,7 +193,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const Padded = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme, padding: { top: 80, bottom: 80 } }, () => [
+          h(ChartContainer, { theme: catppuccin.theme, padding: { top: 80, bottom: 80 } }, () => [
             h(LineSeries, { data: lineData }),
             h(Probe),
           ]);
@@ -213,7 +213,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme, headerLayout: 'inline' }, () => [
+          h(ChartContainer, { theme: catppuccin.theme, headerLayout: 'inline' }, () => [
             h(Title, null, () => 'BTC'),
             h(InfoBar),
             h(CandlestickSeries, { data: ohlc }),
@@ -236,7 +236,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(Title, null, () => 'BTC'),
             h(InfoBar),
             h(CandlestickSeries, { data: ohlc }),
@@ -259,7 +259,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme, headerLayout: 'inline', padding: { top: 20 } }, () => [
+          h(ChartContainer, { theme: catppuccin.theme, headerLayout: 'inline', padding: { top: 20 } }, () => [
             h(Title, null, () => 'BTC'),
             h(InfoBar),
             h(CandlestickSeries, { data: ohlc }),
@@ -282,7 +282,7 @@ describe('Vue <ChartContainer> ported props', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(Title, null, () => 'BTC'),
             h(CandlestickSeries, { data: ohlc }),
             h(Legend, { position: 'right' }),

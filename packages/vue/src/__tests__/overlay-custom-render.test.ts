@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { CandlestickSeries, ChartContainer, InfoBar, LineSeries, Tooltip, darkTheme } from '@wick-charts/vue';
+import { CandlestickSeries, ChartContainer, InfoBar, LineSeries, Tooltip, catppuccin } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
 
@@ -85,7 +85,7 @@ describe('Vue overlay custom-render scoped slots', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(
               InfoBar,
               {},
@@ -116,7 +116,7 @@ describe('Vue overlay custom-render scoped slots', () => {
   it('<InfoBar> default UI rendered when no slot is provided', async () => {
     const App = defineComponent({
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(InfoBar), h(CandlestickSeries, { data: OHLC })]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(InfoBar), h(CandlestickSeries, { data: OHLC })]);
       },
     });
 
@@ -137,7 +137,7 @@ describe('Vue overlay custom-render scoped slots', () => {
     const App = defineComponent({
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(
               Tooltip,
               {},

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { BarSeries, ChartContainer, Legend, LineSeries, darkTheme } from '@wick-charts/vue';
+import { BarSeries, ChartContainer, Legend, LineSeries, catppuccin } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
 
@@ -89,7 +89,7 @@ describe('Vue <Legend> parity', () => {
     const App = defineComponent({
       components: { ChartContainer, LineSeries, Legend },
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(Legend), h(LineSeries, { data: twoLayerLine })]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(Legend), h(LineSeries, { data: twoLayerLine })]);
       },
     });
 
@@ -105,7 +105,7 @@ describe('Vue <Legend> parity', () => {
     const App = defineComponent({
       components: { ChartContainer, LineSeries, Legend },
       setup() {
-        return () => h(ChartContainer, { theme: darkTheme }, () => [h(LineSeries, { data: twoLayerLine }), h(Legend)]);
+        return () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(LineSeries, { data: twoLayerLine }), h(Legend)]);
       },
     });
 
@@ -136,7 +136,7 @@ describe('Vue <Legend> parity', () => {
       components: { ChartContainer, BarSeries, Legend },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(BarSeries, { data: threeLayerBars }),
             h(Legend, { mode: 'solo' }),
           ]);
@@ -172,7 +172,7 @@ describe('Vue <Legend> parity', () => {
       components: { ChartContainer, LineSeries, Legend },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(LineSeries, { data: twoLayerLine }),
             h(
               Legend,
@@ -212,7 +212,7 @@ describe('Vue <Legend> parity', () => {
       components: { ChartContainer, LineSeries, Legend },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(LineSeries, { data: twoLayerLine }),
             h(
               Legend,
@@ -246,7 +246,7 @@ describe('Vue <Legend> parity', () => {
       components: { ChartContainer, LineSeries, Legend },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(LineSeries, { data: twoLayerLine }),
             h(Legend, { position: 'right' }),
           ]);

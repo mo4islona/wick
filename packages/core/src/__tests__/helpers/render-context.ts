@@ -2,7 +2,7 @@ import type { BitmapCoordinateSpace } from '../../canvas-manager';
 import { TimeScale } from '../../scales/time-scale';
 import { YScale } from '../../scales/y-scale';
 import type { OverlayRenderContext, SeriesRenderContext } from '../../series/types';
-import { darkTheme } from '../../theme/dark';
+import { catppuccin } from '../../theme/themes/catppuccin';
 import type { ChartTheme } from '../../theme/types';
 import { type CanvasRecorder, createRecordingContext } from './recording-context';
 
@@ -18,7 +18,7 @@ export interface BuildContextOptions {
   pixelRatio?: number;
   /** Spacing between data points (ms-equivalent units). Defaults to 1. */
   dataInterval?: number;
-  /** Theme override. Defaults to darkTheme. */
+  /** Theme override. Defaults to catppuccin.theme. */
   theme?: ChartTheme;
   /** Top/bottom padding in CSS pixels. Defaults to {top:0, bottom:0}. */
   padding?: { top: number; bottom: number };
@@ -46,7 +46,7 @@ export function buildRenderContext(opts: BuildContextOptions = {}): BuiltRenderC
     mediaHeight = 400,
     pixelRatio = 1,
     dataInterval = 1,
-    theme = darkTheme,
+    theme = catppuccin.theme,
     padding = { top: 0, bottom: 0 },
   } = opts;
 

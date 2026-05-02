@@ -228,7 +228,7 @@ export function SparklinePage({ theme }: { theme: ChartTheme }) {
         return <SparklineGrid {...props} rows={rows} mobile={mobile} />;
       }}
       codeConfig={(s) => ({
-        theme: 'darkTheme',
+        theme: 'catppuccin.theme',
         components: [
           {
             component: 'Sparkline',

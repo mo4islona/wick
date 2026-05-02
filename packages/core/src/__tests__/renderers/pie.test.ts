@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PieRenderer } from '../../series/pie';
-import { darkTheme } from '../../theme/dark';
+import { catppuccin } from '../../theme/themes/catppuccin';
 import type { PieSliceData } from '../../types';
 import { buildRenderContext } from '../helpers/render-context';
 
@@ -309,7 +309,7 @@ describe('PieRenderer.getSliceInfo / getHoverInfo', () => {
   it('getSliceInfo returns percentages that sum to 100', () => {
     const r = new PieRenderer();
     r.setData(SLICES);
-    const info = r.getSliceInfo(darkTheme);
+    const info = r.getSliceInfo(catppuccin.theme);
     expect(info).not.toBeNull();
     const total = info!.reduce((s, e) => s + e.percent, 0);
     expect(total).toBeCloseTo(100);
@@ -319,10 +319,10 @@ describe('PieRenderer.getSliceInfo / getHoverInfo', () => {
   it('getHoverInfo returns null when nothing hovered, and the slice when set', () => {
     const r = new PieRenderer();
     r.setData(SLICES);
-    expect(r.getHoverInfo(darkTheme)).toBeNull();
+    expect(r.getHoverInfo(catppuccin.theme)).toBeNull();
 
     r.setHoverIndex(1);
-    const info = r.getHoverInfo(darkTheme);
+    const info = r.getHoverInfo(catppuccin.theme);
     expect(info?.label).toBe('B');
     expect(info?.value).toBe(30);
     expect(info?.percent).toBeCloseTo(30);
@@ -330,6 +330,6 @@ describe('PieRenderer.getSliceInfo / getHoverInfo', () => {
 
   it('getSliceInfo returns null on empty data', () => {
     const r = new PieRenderer();
-    expect(r.getSliceInfo(darkTheme)).toBeNull();
+    expect(r.getSliceInfo(catppuccin.theme)).toBeNull();
   });
 });

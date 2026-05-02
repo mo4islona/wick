@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PieRenderer } from '../series/pie';
-import { darkTheme } from '../theme/dark';
+import { catppuccin } from '../theme/themes/catppuccin';
 
 describe('PieRenderer — hover + slice info', () => {
   const slices = [
@@ -50,31 +50,31 @@ describe('PieRenderer — hover + slice info', () => {
   it('getHoverInfo returns null when nothing is hovered', () => {
     const r = new PieRenderer();
     r.setData(slices);
-    expect(r.getHoverInfo(darkTheme)).toBeNull();
+    expect(r.getHoverInfo(catppuccin.theme)).toBeNull();
   });
 
   it('getHoverInfo returns the hovered slice with percent and palette color', () => {
     const r = new PieRenderer();
     r.setData(slices);
     r.setHoverIndex(2);
-    const info = r.getHoverInfo(darkTheme);
+    const info = r.getHoverInfo(catppuccin.theme);
     expect(info).not.toBeNull();
     expect(info!.label).toBe('C');
     expect(info!.value).toBe(50);
     // 50 / (25 + 25 + 50) = 50%
     expect(info!.percent).toBeCloseTo(50, 5);
-    expect(info!.color).toBe(darkTheme.seriesColors[2 % darkTheme.seriesColors.length]);
+    expect(info!.color).toBe(catppuccin.theme.seriesColors[2 % catppuccin.theme.seriesColors.length]);
   });
 
   it('getSliceInfo returns every slice with computed percentages and colors', () => {
     const r = new PieRenderer();
     r.setData(slices);
-    const infos = r.getSliceInfo(darkTheme);
+    const infos = r.getSliceInfo(catppuccin.theme);
     expect(infos).not.toBeNull();
     expect(infos!.map((i) => i.label)).toEqual(['A', 'B', 'C']);
     expect(infos!.map((i) => Math.round(i.percent))).toEqual([25, 25, 50]);
-    expect(infos![0].color).toBe(darkTheme.seriesColors[0]);
-    expect(infos![1].color).toBe(darkTheme.seriesColors[1]);
+    expect(infos![0].color).toBe(catppuccin.theme.seriesColors[0]);
+    expect(infos![1].color).toBe(catppuccin.theme.seriesColors[1]);
   });
 
   it('getSliceInfo respects slice.color overrides', () => {
@@ -83,14 +83,14 @@ describe('PieRenderer — hover + slice info', () => {
       { label: 'A', value: 10, color: '#ff00ff' },
       { label: 'B', value: 20 },
     ]);
-    const infos = r.getSliceInfo(darkTheme);
+    const infos = r.getSliceInfo(catppuccin.theme);
     expect(infos![0].color).toBe('#ff00ff');
     // Second slice falls back to palette[1].
-    expect(infos![1].color).toBe(darkTheme.seriesColors[1]);
+    expect(infos![1].color).toBe(catppuccin.theme.seriesColors[1]);
   });
 
   it('getSliceInfo returns null when data is empty', () => {
     const r = new PieRenderer();
-    expect(r.getSliceInfo(darkTheme)).toBeNull();
+    expect(r.getSliceInfo(catppuccin.theme)).toBeNull();
   });
 });

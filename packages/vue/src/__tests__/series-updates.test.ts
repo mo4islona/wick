@@ -5,7 +5,7 @@ import {
   CandlestickSeries,
   ChartContainer,
   PieSeries,
-  darkTheme,
+  catppuccin,
   useChartInstance,
 } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -95,7 +95,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: data.value }),
         ]),
@@ -132,7 +132,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: data.value }),
         ]),
@@ -162,7 +162,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: data.value }),
         ]),
@@ -190,7 +190,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: data.value }),
         ]),
@@ -222,7 +222,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: data.value }),
         ]),
@@ -257,7 +257,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(CandlestickSeries, { id: 'cs', data: seed, options: opts.value }),
         ]),
@@ -292,7 +292,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(BarSeries, { id: 'bar', data: data.value }),
         ]),
@@ -331,7 +331,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(PieSeries, { id: 'pie', data: data.value }),
         ]),
@@ -363,7 +363,7 @@ describe('Vue series watchers', () => {
 
     const App = defineComponent({
       setup: () => () =>
-        h(ChartContainer, { theme: darkTheme }, () => [
+        h(ChartContainer, { theme: catppuccin.theme }, () => [
           h(Probe),
           h(PieSeries, { id: 'pie', data: data.value }),
         ]),

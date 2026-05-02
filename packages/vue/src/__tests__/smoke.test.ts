@@ -5,7 +5,7 @@ import {
   ChartContainer,
   LineSeries,
   PieSeries,
-  darkTheme,
+  catppuccin,
 } from '@wick-charts/vue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, nextTick, ref } from 'vue';
@@ -103,7 +103,7 @@ describe('Vue wrapper smoke', () => {
       components: { ChartContainer, CandlestickSeries },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: candlestickData }),
           ]);
       },
@@ -126,7 +126,7 @@ describe('Vue wrapper smoke', () => {
       components: { ChartContainer, LineSeries },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [h(LineSeries, { data: lineData })]);
+          h(ChartContainer, { theme: catppuccin.theme }, () => [h(LineSeries, { data: lineData })]);
       },
     });
 
@@ -148,7 +148,7 @@ describe('Vue wrapper smoke', () => {
       components: { ChartContainer, BarSeries },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [h(BarSeries, { data: twoLayers })]);
+          h(ChartContainer, { theme: catppuccin.theme }, () => [h(BarSeries, { data: twoLayers })]);
       },
     });
 
@@ -166,7 +166,7 @@ describe('Vue wrapper smoke', () => {
       components: { ChartContainer, PieSeries },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [h(PieSeries, { data: pieData })]);
+          h(ChartContainer, { theme: catppuccin.theme }, () => [h(PieSeries, { data: pieData })]);
       },
     });
 
@@ -185,7 +185,7 @@ describe('Vue wrapper smoke', () => {
       components: { ChartContainer, LineSeries },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [h(LineSeries, { data: data.value })]);
+          h(ChartContainer, { theme: catppuccin.theme }, () => [h(LineSeries, { data: data.value })]);
       },
     });
 
@@ -214,7 +214,7 @@ describe('Vue wrapper smoke', () => {
       components: { ChartContainer, CandlestickSeries },
       setup() {
         return () =>
-          h(ChartContainer, { theme: darkTheme }, () => [
+          h(ChartContainer, { theme: catppuccin.theme }, () => [
             h(CandlestickSeries, { data: data.value }),
           ]);
       },
