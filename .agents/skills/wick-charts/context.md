@@ -14,7 +14,7 @@ Any descendant component can read from these. That's how built-in overlays (`Too
 `useThemeOptional()` returns `ChartTheme | null` — use when a component may render outside any provider.
 
 ```tsx
-import { ChartContainer, CandlestickSeries, useChartInstance, useTheme, darkTheme } from '@wick-charts/react';
+import { ChartContainer, CandlestickSeries, useChartInstance, useTheme, catppuccin } from '@wick-charts/react';
 
 function FitButton() {
   const chart = useChartInstance();
@@ -26,7 +26,7 @@ function FitButton() {
   );
 }
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   <CandlestickSeries data={ohlc} />
   <FitButton />
 </ChartContainer>

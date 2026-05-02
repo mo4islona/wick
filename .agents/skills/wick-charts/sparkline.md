@@ -59,9 +59,9 @@ interface SparklineProps {
 ### Minimal
 
 ```tsx
-import { Sparkline, darkTheme } from '@wick-charts/react';
+import { Sparkline, catppuccin } from '@wick-charts/react';
 
-<Sparkline data={priceHistory} theme={darkTheme} label="BTC/USD" />
+<Sparkline data={priceHistory} theme={catppuccin.theme} label="BTC/USD" />
 ```
 
 ### Bar variant with custom formatter
@@ -69,7 +69,7 @@ import { Sparkline, darkTheme } from '@wick-charts/react';
 ```tsx
 <Sparkline
   data={dailyVolume}
-  theme={darkTheme}
+  theme={catppuccin.theme}
   variant="bar"
   label="Volume"
   formatValue={(v) => `$${v.toFixed(0)}`}
@@ -81,7 +81,7 @@ import { Sparkline, darkTheme } from '@wick-charts/react';
 ### Chart-only (no label block)
 
 ```tsx
-<Sparkline data={series} theme={darkTheme} valuePosition="none" width={80} height={24} />
+<Sparkline data={series} theme={catppuccin.theme} valuePosition="none" width={80} height={24} />
 ```
 
 ### Static sublabel instead of change %
@@ -89,7 +89,7 @@ import { Sparkline, darkTheme } from '@wick-charts/react';
 ```tsx
 <Sparkline
   data={latency}
-  theme={darkTheme}
+  theme={catppuccin.theme}
   label="api-prod-1"
   sublabel="99.9% uptime"
 />
@@ -103,7 +103,7 @@ import { Sparkline, darkTheme } from '@wick-charts/react';
     <Sparkline
       key={m.id}
       data={m.series}
-      theme={darkTheme}
+      theme={catppuccin.theme}
       label={m.label}
       color={m.color}
       style={{ width: '100%' }}

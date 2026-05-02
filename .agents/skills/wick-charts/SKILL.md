@@ -34,7 +34,7 @@ Root component. Requires a defined width + height.
 
 ```tsx
 <ChartContainer
-  theme={darkTheme}
+  theme={catppuccin.theme}
   axis={{ y: { min: 0, max: 'auto' }, x: { visible: true } }}
   padding={{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }}
   gradient grid={{ visible: true }} interactive
@@ -79,9 +79,9 @@ Placed as children of `ChartContainer`.
 
 ## Themes
 
-Dark: `darkTheme`, `dracula`, `oneDarkPro`, `monokaiPro`, `nightOwl`, `materialPalenight`, `gruvbox`, `catppuccin`, `ayuMirage`, `panda`, `andromeda`, `highContrast`, `handwritten`.
+Dark: `catppuccin` (default), `dracula`, `oneDarkPro`, `monokaiPro`, `nightOwl`, `materialPalenight`, `gruvbox`, `ayuMirage`, `panda`, `andromeda`, `highContrast`, `handwritten`.
 
-Light: `lightTheme`, `githubLight`, `solarizedLight`, `rosePineDawn`, `quietLight`, `lavenderMist`, `mintBreeze`, `sandDune`, `peachCream`, `minimalLight`, `lightPink`.
+Light: `githubLight`, `solarizedLight`, `rosePineDawn`, `quietLight`, `lavenderMist`, `mintBreeze`, `sandDune`, `peachCream`, `minimalLight`, `lightPink`.
 
 Each theme is a named export (tree-shakable). Custom:
 
@@ -122,7 +122,7 @@ Pass a stable `id` prop to the series. Reuse it on overlays that target a *speci
 ```tsx
 const candleId = 'btc-ohlc';
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   <Title sub="BTC · 1h">BTC/USD</Title>
   <InfoBar />
   <CandlestickSeries id={candleId} data={ohlc} />

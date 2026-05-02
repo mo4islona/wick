@@ -59,7 +59,7 @@ import { describe, expect, it } from 'vitest';
 import { createFakeCanvas } from '../helpers/fake-canvas';
 import { createRecordingContext } from '../helpers/recording-context';
 import { <SeriesName>Renderer } from '../../series/<series>';
-import { darkTheme } from '../../theme/dark';
+import { catppuccin } from '../../theme/dark';
 
 describe('<SeriesName>Renderer', () => {
   it('draws one body per candle', () => {
@@ -198,7 +198,7 @@ describe('<Component>', () => {
 
 ```ts
 import { mount } from '@vue/test-utils';
-import { ChartContainer, CandlestickSeries, darkTheme } from '@wick-charts/vue';
+import { ChartContainer, CandlestickSeries, catppuccin } from '@wick-charts/vue';
 import { defineComponent, h, nextTick, ref } from 'vue';
 
 import { flushAllRaf, installRaf, uninstallRaf } from '../../../react/src/__tests__/helpers/raf';
@@ -213,7 +213,7 @@ it('mounts and draws after data update', async () => {
 
   const data = ref<OHLCInput[]>([]);
   const App = defineComponent({
-    setup: () => () => h(ChartContainer, { theme: darkTheme }, () => [h(CandlestickSeries, { data: data.value })]),
+    setup: () => () => h(ChartContainer, { theme: catppuccin.theme }, () => [h(CandlestickSeries, { data: data.value })]),
   });
   const wrapper = mount(App, { attachTo: host });
   await settle(); // alternates nextTick() + flushAllRaf()

@@ -82,8 +82,15 @@ This enables efficient real-time streaming without manual optimization.
 
 ```tsx
 import {
-  ChartContainer, CandlestickSeries, Tooltip, Crosshair,
-  YAxis, TimeAxis, YLabel, autoGradient, darkTheme
+  ChartContainer,
+  CandlestickSeries,
+  Tooltip,
+  Crosshair,
+  YAxis,
+  TimeAxis,
+  YLabel,
+  autoGradient,
+  catppuccin,
 } from '@wick-charts/react';
 import type { OHLCData } from '@wick-charts/react';
 
@@ -91,7 +98,7 @@ const seriesId = 'btc-ohlc';
 
 function CandlestickChart({ data }: { data: OHLCData[] }) {
   return (
-    <ChartContainer theme={darkTheme} style={{ width: '100%', height: 400 }}>
+    <ChartContainer theme={catppuccin.theme} style={{ width: '100%', height: 400 }}>
       <CandlestickSeries
         id={seriesId}
         data={data}
@@ -143,8 +150,15 @@ function onNewCandle(candle: OHLCData) {
 ```vue
 <script setup lang="ts">
 import {
-  ChartContainer, CandlestickSeries, Tooltip, Crosshair,
-  YAxis, TimeAxis, YLabel, autoGradient, darkTheme
+  ChartContainer,
+  CandlestickSeries,
+  Tooltip,
+  Crosshair,
+  YAxis,
+  TimeAxis,
+  YLabel,
+  autoGradient,
+  catppuccin,
 } from '@wick-charts/vue';
 import type { OHLCData } from '@wick-charts/vue';
 
@@ -157,7 +171,7 @@ const options = {
 </script>
 
 <template>
-  <ChartContainer :theme="darkTheme" style="width: 100%; height: 400px">
+  <ChartContainer :theme="catppuccin.theme" style="width: 100%; height: 400px">
     <CandlestickSeries :id="seriesId" :data="props.data" :options="options" />
     <Tooltip />
     <Crosshair />
@@ -197,9 +211,16 @@ function onNewCandle(candle: OHLCData) {
 ```svelte
 <script>
   import {
-    ChartContainer, CandlestickSeries, Tooltip, Crosshair,
-    YAxis, TimeAxis, YLabel, autoGradient, darkTheme
-  } from '@wick-charts/svelte';
+    ChartContainer,
+    CandlestickSeries,
+    Tooltip,
+    Crosshair,
+    YAxis,
+    TimeAxis,
+    YLabel,
+    autoGradient,
+    catppuccin,
+} from '@wick-charts/svelte';
 
   export let data = [];
   const seriesId = 'btc-ohlc';
@@ -209,7 +230,7 @@ function onNewCandle(candle: OHLCData) {
   };
 </script>
 
-<ChartContainer theme={darkTheme} style="width:100%;height:400px">
+<ChartContainer theme={catppuccin.theme} style="width:100%;height:400px">
   <CandlestickSeries id={seriesId} {data} {options} />
   <Tooltip />
   <Crosshair />
@@ -294,7 +315,7 @@ Same shape in Vue (`v-slot="{ snapshots, time }"`) and Svelte (`let:snapshots le
 ```tsx
 const id = 'btc-ohlc';
 
-<ChartContainer theme={darkTheme}>
+<ChartContainer theme={catppuccin.theme}>
   <CandlestickSeries id={id} data={ohlcData} />
   <LineSeries
     data={[sma20]}
