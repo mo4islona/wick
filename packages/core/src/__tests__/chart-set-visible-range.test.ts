@@ -149,4 +149,67 @@ describe('ChartInstance.setVisibleRange', () => {
     // Can't show more than what exists — should cover the 30 bars (+padding).
     expect(visibleBars).toBeLessThan(40);
   });
+
+  it('idempotent — re-setting the current range emits no viewportChange', () => {
+    seedCandles(chart, 50);
+    const start = 1_000_000;
+    const range = { from: start + 10 * INTERVAL, to: start + 30 * INTERVAL };
+
+    chart.setVisibleRange(range);
+
+    // Now subscribe AFTER the initial set — we only want to observe whether
+    // a redundant setVisibleRange re-emits.
+    let emitCount = 0;
+    const onChange = () => {
+      emitCount += 1;
+    };
+    chart.on('viewportChange', onChange);
+
+    chart.setVisibleRange({ ...range });
+    chart.setVisibleRange({ from: range.from, to: range.to });
+
+    chart.off('viewportChange', onChange);
+
+    expect(emitCount).toBe(0);
+    expect(chart.getVisibleRange()).toEqual(range);
+  });
+
+  it('idempotent — two mutually-syncing charts terminate without a guard', () => {
+    // Regression: the multi-chart-sync demo previously needed a `last` ref
+    // to break the feedback loop because setVisibleRange always emitted
+    // viewportChange. With idempotency, the receiver's echo back to the
+    // sender is a no-op (sender already has that exact range), so naive
+    // bidirectional binding terminates on its own.
+    const { chart: chartB, container: containerB } = makeChart();
+    seedCandles(chart, 50);
+    seedCandles(chartB, 50);
+    const start = 1_000_000;
+
+    let emitsA = 0;
+    let emitsB = 0;
+    const onA = () => {
+      emitsA += 1;
+      chartB.setVisibleRange(chart.getVisibleRange());
+    };
+    const onB = () => {
+      emitsB += 1;
+      chart.setVisibleRange(chartB.getVisibleRange());
+    };
+
+    chart.on('viewportChange', onA);
+    chartB.on('viewportChange', onB);
+
+    chart.setVisibleRange({ from: start + 10 * INTERVAL, to: start + 30 * INTERVAL });
+
+    chart.off('viewportChange', onA);
+    chartB.off('viewportChange', onB);
+    chartB.destroy();
+    containerB.remove();
+
+    // A fires once for the initial user set, B fires once for the receiver
+    // applying it. The echoes (B → A → B → ...) are killed by idempotency.
+    expect(emitsA).toBe(1);
+    expect(emitsB).toBe(1);
+    expect(chart.getVisibleRange()).toEqual(chartB.getVisibleRange());
+  });
 });

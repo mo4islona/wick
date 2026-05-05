@@ -5,6 +5,7 @@ import {
   ChartInstance,
   type ChartOptions,
   type ChartTheme,
+  type EdgeReachedInfo,
   catppuccin,
 } from '@wick-charts/core';
 import { onDestroy, onMount, tick } from 'svelte';
@@ -61,6 +62,13 @@ export let animations: boolean | AnimationsConfig | undefined = undefined;
  * later changes are ignored.
  */
 export let perf: PerfOption | undefined = undefined;
+/**
+ * Fired after the user releases a pan/zoom gesture that pulled the viewport
+ * past a data edge by more than ~10% of the visible range. Hosts typically
+ * respond by prefetching more history. Captured at mount only; changing
+ * the prop identity later is ignored.
+ */
+export let onEdgeReached: ((info: EdgeReachedInfo) => void) | undefined = undefined;
 export let style: string = '';
 
 let containerEl: HTMLDivElement;
@@ -101,6 +109,8 @@ function applyPadding() {
 // Capture perf at mount only — mirror React's perfRef so a later change of
 // object identity doesn't recreate the chart.
 const perfAtMount = perf;
+// Same mount-only capture for the edge callback — the chart binds it once.
+const onEdgeReachedAtMount = onEdgeReached;
 
 // Wires up (or tears down) the header-height observer for the current
 // `headerLayout`. Called on mount AND whenever `headerLayout` flips at
@@ -138,6 +148,7 @@ onMount(() => {
   if (interactive !== undefined) options.interactive = interactive;
   if (grid !== undefined) options.grid = grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;
+  if (onEdgeReachedAtMount) options.onEdgeReached = onEdgeReachedAtMount;
   if (animations !== undefined) options.animations = animations;
   instance = new ChartInstance(containerEl, options);
   chartStore.set(instance);

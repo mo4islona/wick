@@ -955,6 +955,69 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     return this.#crosshairPos;
   }
 
+  /**
+   * Programmatically set or clear the crosshair. Same effect as the user
+   * hovering over `(timeToX(time), valueToY(y))` — emits `crosshairMove`,
+   * marks the overlay layer dirty, and lets `<Crosshair>` / `<Tooltip>`
+   * react via their normal store subscriptions.
+   *
+   * Pass `null` to clear (mirrors the pointer-leave path).
+   *
+   * `y` is optional. Resolution order when omitted:
+   *   1. **current crosshair's y** — preserves whatever the chart already
+   *      has (real cursor y, or a previously-synthesised value). This is
+   *      what makes the cross-chart broadcast pattern work: when an echo
+   *      arrives at the chart that originated the hover, the existing y
+   *      stays in place and the idempotency check below short-circuits the
+   *      loop. Without preservation, the echo would overwrite the source's
+   *      real cursor y with the midpoint default and the tooltip would
+   *      jitter between cursor and midpoint every mouse-move.
+   *   2. **midpoint of the current Y range** — fallback when there is no
+   *      current crosshair (first programmatic set on a chart that hasn't
+   *      been hovered yet).
+   *
+   * Idempotent: a call that produces the same `(time, y)` pair as the
+   * current crosshair is a no-op (no emit). Combined with the y-preservation
+   * above, this lets N charts broadcast their hover to each other without
+   * a feedback-loop guard.
+   */
+  setCrosshair(pos: { time: number; y?: number } | null): void {
+    if (pos === null) {
+      if (this.#crosshairPos === null) return;
+      this.#crosshairPos = null;
+      this.#overlayScheduler.markDirty();
+      this.emit('crosshairMove', null);
+      return;
+    }
+
+    const { time } = pos;
+    if (!Number.isFinite(time)) return;
+
+    const current = this.#crosshairPos;
+    let y: number;
+    if (pos.y !== undefined) {
+      y = pos.y;
+    } else if (current !== null) {
+      y = current.y;
+    } else {
+      const yRange = this.#viewport.yRange;
+      y = (yRange.min + yRange.max) / 2;
+    }
+
+    // Reject non-finite y same as time — `valueToY(NaN)` produces NaN
+    // pixel coords that break overlays anchoring to the crosshair.
+    if (!Number.isFinite(y)) return;
+
+    if (current !== null && current.time === time && current.y === y) return;
+
+    const mediaX = this.timeScale.timeToX(time);
+    const mediaY = this.yScale.valueToY(y);
+
+    this.#crosshairPos = { mediaX, mediaY, time, y };
+    this.#overlayScheduler.markDirty();
+    this.emit('crosshairMove', this.#crosshairPos);
+  }
+
   /** Get the last visible value and whether the absolute last point is on screen. */
   getLastValue(seriesId: string): { value: number; isLive: boolean } | null {
     const entry = this.#series.find((s) => s.id === seriesId);

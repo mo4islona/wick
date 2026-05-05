@@ -5,6 +5,7 @@ import {
   ChartInstance,
   type ChartOptions,
   type ChartTheme,
+  type EdgeReachedInfo,
   catppuccin,
 } from '@wick-charts/core';
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue';
@@ -67,6 +68,13 @@ const props = withDefaults(
      * later changes are ignored.
      */
     perf?: PerfOption;
+    /**
+     * Fired after the user releases a pan/zoom gesture that pulled the viewport
+     * past a data edge by more than ~10% of the visible range. Hosts typically
+     * respond by prefetching more history. Captured at mount only; changing
+     * the prop identity later is ignored.
+     */
+    onEdgeReached?: (info: EdgeReachedInfo) => void;
   }>(),
   {
     theme: () => catppuccin.theme,
@@ -82,6 +90,8 @@ const themeRef = shallowRef<ChartTheme>(props.theme);
 // Capture perf at mount only — mirrors React's perfRef so a new object
 // identity later doesn't recreate the chart.
 const perfAtMount = props.perf;
+// Same mount-only capture for the edge callback — the chart binds it once.
+const onEdgeReachedAtMount = props.onEdgeReached;
 
 const topOverlayRef = ref<HTMLElement | null>(null);
 const titleAnchor = ref<HTMLElement | null>(null);
@@ -152,6 +162,7 @@ onMounted(async () => {
   if (props.interactive !== undefined) options.interactive = props.interactive;
   if (props.grid !== undefined) options.grid = props.grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;
+  if (onEdgeReachedAtMount) options.onEdgeReached = onEdgeReachedAtMount;
   if (props.animations !== undefined) options.animations = props.animations;
   chart.value = new ChartInstance(containerRef.value, options);
 
@@ -231,9 +242,7 @@ const rootStyle = computed(() => {
   const t = themeRef.value;
   const [gtop, gbot] = t?.chartGradient ?? ['transparent', 'transparent'];
   const bg = t?.background ?? 'transparent';
-  const background = props.gradient
-    ? `linear-gradient(to bottom, ${gtop} 0%, ${bg} 70%, ${gbot} 100%)`
-    : bg;
+  const background = props.gradient ? `linear-gradient(to bottom, ${gtop} 0%, ${bg} 70%, ${gbot} 100%)` : bg;
 
   return (
     'position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; ' +

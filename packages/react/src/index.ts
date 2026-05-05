@@ -22,6 +22,9 @@ export type {
   ChartOptions,
   ChartTheme,
   CrosshairPosition,
+  EdgeReachedInfo,
+  EdgeSide,
+  EdgeState,
   HoverInfo,
   LegendItem,
   /** @deprecated Use {@link TimePoint} instead. */
@@ -80,6 +83,7 @@ export {
   gruvbox,
   handwritten,
   highContrast,
+  isDarkBg,
   lavenderMist,
   lightPink,
   lightTheme,
@@ -107,6 +111,8 @@ export { CandlestickSeries } from './CandlestickSeries';
 export { ChartContainer } from './ChartContainer';
 // React hooks
 export { useChartInstance } from './context';
+export type { EdgeLoaderProps, EdgeLoaderRenderArgs } from './EdgeLoader';
+export { EdgeLoader } from './EdgeLoader';
 export { LineSeries } from './LineSeries';
 export { PieSeries } from './PieSeries';
 export {

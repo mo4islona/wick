@@ -25,6 +25,7 @@ import { Cell } from '../components/Cell';
 import { CHECK_ICON, COPY_ICON } from '../components/playground/icons';
 import { themeSurfaceVars } from '../components/playground/themeSurface';
 import { useCodeHeight, usePanelWidth } from '../components/playground/useSettings';
+import { Splitter } from '../components/Splitter';
 import { JsonEditor } from '../components/theme-editor/JsonEditor';
 import { type JsonValue, normalizeThemeConfig } from '../components/theme-editor/themeJson';
 import { generateBarData, generateOHLCData, generateWaveData } from '../data';
@@ -317,9 +318,7 @@ export function ThemePage({
           </Cell>
         </div>
 
-        <button type="button" className="pg-drag" onMouseDown={onMouseDown} aria-label="Resize panel">
-          <div className="pg-drag-thumb" />
-        </button>
+        <Splitter theme={customTheme} onMouseDown={onMouseDown} />
 
         <div
           className="pg-right tev2-right"

@@ -386,12 +386,21 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * so callers can lob in a range before the data interval stabilises.
    * Validation runs up-front so a rejected call never mutates auto-scroll
    * or cancels in-flight animations.
+   *
+   * Idempotent: if the requested range matches the current visible range,
+   * returns without snapping the animator or emitting `change`. Lets two
+   * mutually-syncing charts terminate naturally — without this, each
+   * `setRange` echo retriggers `viewportChange` on the receiver, ping-ponging
+   * forever.
    */
   setRange(range: VisibleRange): void {
     const { from, to } = range;
     if (!Number.isFinite(from) || !Number.isFinite(to)) return;
     if (to <= from) return;
     if ((to - from) / this.dataInterval < 2) return;
+
+    const current = this.visibleRange;
+    if (current.from === from && current.to === to) return;
 
     const lastVisible = this.#dataEnd !== null && this.#dataEnd >= from && this.#dataEnd <= to;
     this._autoScroll = lastVisible;

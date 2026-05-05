@@ -9,6 +9,13 @@ export type Route =
   | 'charts/bar'
   | 'charts/pie'
   | 'charts/sparkline'
+  // TODO(advanced): only multi-chart-sync ships in this PR. Page files for
+  // 'advanced/load-on-scroll' and 'advanced/custom-overlay' live on disk
+  // (docs/pages/advanced/{load-on-scroll,custom-overlay}.tsx) and stay
+  // unwired here intentionally — they need polish before going live.
+  // Re-enable by adding the two route literals below and re-registering
+  // them in docs/pages/advanced/index.tsx.
+  | 'advanced/multi-chart-sync'
   | 'api/line-series'
   | 'api/bar-series'
   | 'api/candlestick-series'
@@ -93,6 +100,10 @@ const CHARTS: RouteEntry[] = [
   { route: 'charts/sparkline', label: 'Sparkline', title: 'Sparkline' },
 ];
 
+const ADVANCED: RouteEntry[] = [
+  { route: 'advanced/multi-chart-sync', label: 'Multi-chart Sync', title: 'Multi-chart Sync' },
+];
+
 // API entries own their own header (rendered by ApiPage), so the App-level
 // title is left blank to avoid the "PieLegend / PieLegend" duplication.
 // Split into two flat A→Z lists:
@@ -149,6 +160,7 @@ const STRESS: RouteEntry = { route: 'stress-test', label: 'Stress', title: 'Stre
 const BASE_SECTIONS: RouteSection[] = [
   { heading: null, items: [OVERVIEW, MIGRATION] },
   { heading: 'Charts', items: CHARTS },
+  { heading: 'Advanced', items: ADVANCED },
   {
     heading: 'API',
     subsections: [
@@ -166,7 +178,16 @@ export function getSections(dev: boolean): RouteSection[] {
   return [...BASE_SECTIONS, { heading: 'Internal', items: [STRESS] }];
 }
 
-const ALL_ENTRIES: RouteEntry[] = [OVERVIEW, MIGRATION, ...CHARTS, ...API, ...HOOKS, ...CUSTOMIZATION, STRESS];
+const ALL_ENTRIES: RouteEntry[] = [
+  OVERVIEW,
+  MIGRATION,
+  ...CHARTS,
+  ...ADVANCED,
+  ...API,
+  ...HOOKS,
+  ...CUSTOMIZATION,
+  STRESS,
+];
 
 const ROUTES_SET = new Set<string>(ALL_ENTRIES.map((e) => e.route));
 
