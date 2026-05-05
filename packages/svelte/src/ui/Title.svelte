@@ -29,7 +29,7 @@ $: anchor = $anchorStore;
       display:flex;
       align-items:baseline;
       gap:6px;
-      padding:6px 8px 4px;
+      padding:6px 8px 0;
       flex-shrink:0;
       font-family:{theme.typography.fontFamily};
       font-size:{theme.typography.fontSize}px;

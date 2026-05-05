@@ -59,7 +59,7 @@ if (!theme) {
         display: 'flex',
         alignItems: 'baseline',
         gap: '6px',
-        padding: '6px 8px 4px',
+        padding: '6px 8px 0',
         flexShrink: 0,
         fontFamily: theme.typography.fontFamily,
         fontSize: theme.typography.fontSize + 'px',
