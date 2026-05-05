@@ -5,6 +5,7 @@ import { SlidersHorizontal, X } from 'lucide-react';
 
 import { useIsMobile } from '../../hooks';
 import type { ChartCodeConfig } from '../CodePreview';
+import { Splitter } from '../Splitter';
 import { CodeTabs } from './CodeTabs';
 import { ICONS } from './icons';
 import { Panel } from './Panel';
@@ -725,9 +726,7 @@ export function Playground<TExtra extends object = Record<string, never>>({
           {charts(chartProps)}
         </div>
 
-        <button type="button" className="pg-drag" onMouseDown={onMouseDown} aria-label="Resize panel">
-          <div className="pg-drag-thumb" />
-        </button>
+        <Splitter theme={theme} onMouseDown={onMouseDown} />
 
         <div
           className="pg-right"
@@ -746,9 +745,7 @@ export function Playground<TExtra extends object = Record<string, never>>({
           />
           {codeConfigValue && (
             <>
-              <button type="button" className="pg-vdrag" onMouseDown={onCodeDragDown} aria-label="Resize code panel">
-                <div className="pg-vdrag-thumb" />
-              </button>
+              <Splitter theme={theme} orientation="horizontal" onMouseDown={onCodeDragDown} thumbLength={36} />
               <CodeTabs config={codeConfigValue} theme={theme} />
             </>
           )}

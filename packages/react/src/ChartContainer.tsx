@@ -17,6 +17,7 @@ import {
   ChartInstance,
   type ChartOptions,
   type ChartTheme,
+  type EdgeReachedInfo,
 } from '@wick-charts/core';
 
 type PerfOption = NonNullable<ChartOptions['perf']>;
@@ -120,6 +121,18 @@ export interface ChartContainerProps {
    * Only read at mount; changing this prop after the chart is created is ignored.
    */
   perf?: PerfOption;
+  /**
+   * Fired after the user releases a pan/zoom gesture that pulled the viewport
+   * past a data edge by more than ~10% of the visible range. Hosts typically
+   * respond by prefetching more history.
+   *
+   * For threshold-based prefetch (load *before* the user fully overshoots),
+   * use `<EdgeLoader>` instead — that component subscribes to `viewportChange`
+   * and arms when the visible range nears the data edge.
+   *
+   * Captured at mount only; changing the prop identity later is ignored.
+   */
+  onEdgeReached?: (info: EdgeReachedInfo) => void;
   /** Inline style for the chart's outer wrapper element. */
   style?: CSSProperties;
   /** Extra class for the chart's outer wrapper element. */
@@ -220,12 +233,15 @@ export function ChartContainer({
   headerLayout = 'overlay',
   perf,
   animations,
+  onEdgeReached,
   style,
   className,
 }: ChartContainerProps) {
   // Mount-only: capture the initial perf option in a ref so later renders with
   // a new object identity don't recreate the chart or remount the HUD.
   const perfRef = useRef(perf);
+  // Same mount-only capture for the edge callback — the chart binds it once.
+  const onEdgeReachedRef = useRef(onEdgeReached);
   const contextTheme = useThemeOptional();
   const resolvedTheme = theme ?? contextTheme ?? undefined;
 
@@ -246,6 +262,7 @@ export function ChartContainer({
     if (grid !== undefined) options.grid = grid;
     if (perfRef.current !== undefined) options.perf = perfRef.current;
     if (animations !== undefined) options.animations = animations;
+    if (onEdgeReachedRef.current) options.onEdgeReached = onEdgeReachedRef.current;
     chartRef.current = new ChartInstance(containerRef.current, options);
 
     // Note: the init path above already propagated `grid` into the chart. The

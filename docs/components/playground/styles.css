@@ -84,59 +84,6 @@
   background: var(--bg-3);
   border-radius: 3px;
 }
-.wick-playground .pg-drag {
-  width: 10px;
-  cursor: col-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-.wick-playground .pg-drag-thumb {
-  width: 2px;
-  height: 48px;
-  border-radius: 2px;
-  background: var(--fg-4);
-  opacity: 0.35;
-  transition:
-    opacity 160ms ease,
-    background 160ms ease;
-}
-.wick-playground .pg-drag:hover .pg-drag-thumb {
-  opacity: 0.8;
-  background: var(--fg-2);
-}
-
-/* Vertical drag handle between settings footer and code panel. */
-.wick-playground .pg-vdrag {
-  height: 6px;
-  width: 100%;
-  cursor: row-resize;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.wick-playground .pg-vdrag-thumb {
-  height: 2px;
-  width: 36px;
-  border-radius: 2px;
-  background: var(--fg-4);
-  opacity: 0.35;
-  transition:
-    opacity 160ms ease,
-    background 160ms ease;
-}
-.wick-playground .pg-vdrag:hover .pg-vdrag-thumb {
-  opacity: 0.8;
-  background: var(--fg-2);
-}
-
 .wick-playground .pg-right {
   flex-shrink: 0;
   max-width: 960px;
@@ -666,7 +613,6 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  margin: 8px;
 }
 .wick-playground .pg-code-label {
   padding: 6px 12px;
@@ -1152,10 +1098,6 @@
 
 /* ---------- Mobile ---------- */
 @media (max-width: 768px) {
-  .wick-playground .pg-drag {
-    display: none;
-  }
-
   .wick-playground[data-mobile="true"] .pg-right {
     width: 100%;
     height: 100%;
@@ -1234,8 +1176,12 @@
     animation: pg-mobile-slide-in 180ms ease-out;
   }
   @keyframes pg-mobile-slide-in {
-    from { transform: translateX(100%); }
-    to   { transform: translateX(0); }
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
   }
 
   .wick-playground .pg-mobile-sheet-head {

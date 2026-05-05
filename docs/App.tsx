@@ -8,6 +8,7 @@ import { type JsonValue, normalizeThemeConfig, themeToJson } from './components/
 import { FrameworkProvider } from './context/framework';
 import { useFrameworkState } from './hooks/useFramework';
 import { useIsMobile } from './hooks/useIsMobile';
+import { AdvancedRoutePage } from './pages/advanced';
 import { ApiRoutePage } from './pages/api';
 import { ChartRoutePage } from './pages/charts';
 import { HookPage } from './pages/HookPage';
@@ -34,6 +35,7 @@ function renderRoute({ route, theme, baseTheme, editorValue, onEditorChange }: R
   }
   if (route === 'stress-test') return <StressTestPage theme={theme} />;
   if (route.startsWith('charts/')) return <ChartRoutePage route={route} theme={theme} />;
+  if (route.startsWith('advanced/')) return <AdvancedRoutePage route={route} theme={theme} />;
   if (route.startsWith('api/')) return <ApiRoutePage route={route} theme={theme} />;
 
   const hookKey = hookKeyForRoute(route);

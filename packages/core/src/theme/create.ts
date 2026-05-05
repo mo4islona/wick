@@ -51,8 +51,19 @@ export interface ThemeConfig {
   fontUrl?: string | null;
 }
 
-/** Detect dark mode using ITU-R BT.601 luma from the background hex color. */
-function isDarkBg(bg: string): boolean {
+/**
+ * `true` when the given `#rrggbb` background reads as dark — Rec. 601 luma
+ * below the half-byte threshold (`< 128`). Used internally by
+ * {@link createTheme} to flip default palette/contrast picks, and exported
+ * for callers (docs UI chrome, host apps) that want to branch on theme
+ * polarity without carrying their own copy of the heuristic.
+ *
+ * Falls through (`false`) for non-hex inputs (e.g. `transparent`,
+ * `rgba(...)`, gradients) — the built-in presets all use plain hex on the
+ * top-level `background`, so this is fine for the vast majority of cases.
+ */
+export function isDarkBg(bg: string): boolean {
+  if (!bg.startsWith('#') || bg.length < 7) return false;
   return (
     parseInt(bg.slice(1, 3), 16) * 0.299 + parseInt(bg.slice(3, 5), 16) * 0.587 + parseInt(bg.slice(5, 7), 16) * 0.114 <
     128

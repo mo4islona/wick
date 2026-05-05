@@ -294,10 +294,40 @@ function typesEquivalent(reactType, otherType) {
 }
 
 function stripTrailingUndefined(type) {
-  return type
+  const stripped = type
     .replace(/\s*\|\s*undefined\s*$/, '')
     .replace(/^\s*undefined\s*\|\s*/, '')
     .trim();
+
+  return stripOuterParens(stripped);
+}
+
+/**
+ * Drop a single layer of balanced outer parens. Function-typed optional
+ * props in Svelte are declared as `((arg: T) => R) | undefined = undefined`
+ * — the outer parens are mandatory to bind `| undefined` to the arrow type
+ * (without them the union would parse as `R | undefined`). After
+ * `stripTrailingUndefined` removes the union, the parens are noise that
+ * make the type string disagree with React's bare `(arg: T) => R`. Only
+ * the outermost paren pair is unwrapped; nested parens (e.g. tuple types)
+ * stay.
+ */
+function stripOuterParens(type) {
+  if (!type.startsWith('(') || !type.endsWith(')')) return type;
+
+  let depth = 0;
+  for (let i = 0; i < type.length; i++) {
+    if (type[i] === '(') {
+      depth++;
+    } else if (type[i] === ')') {
+      depth--;
+      // Closed before the final char → opening `(` doesn't pair with the
+      // closing `)`, parens are not the outermost wrapping.
+      if (depth === 0 && i < type.length - 1) return type;
+    }
+  }
+
+  return type.slice(1, -1).trim();
 }
 
 // ── main ─────────────────────────────────────────────────────────
