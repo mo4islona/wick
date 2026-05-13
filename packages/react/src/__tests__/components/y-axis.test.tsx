@@ -79,11 +79,11 @@ describe('YAxis', () => {
 
     const host = mounted.container.querySelector('div[style*="right: 0px"][style*="width: 55px"]');
     const labels = Array.from(host!.querySelectorAll('span')) as HTMLSpanElement[];
-    // After a range change, at least one new tick covers the new high end (>100).
-    const numbers = labels
-      .filter((s) => s.style.opacity !== '0')
-      .map((s) => parseFloat(s.textContent ?? ''))
-      .filter((n) => Number.isFinite(n));
+    // After a range change, at least one new tick covers the new high end
+    // (>100). The new labels may still be fading in (opacity < 1) — that's
+    // expected behavior of the shared tick tracker — so we don't filter on
+    // opacity, just on the value.
+    const numbers = labels.map((s) => parseFloat(s.textContent ?? '')).filter((n) => Number.isFinite(n));
     const max = Math.max(...numbers, 0);
     expect(max).toBeGreaterThan(100);
   });

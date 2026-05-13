@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChartInstance } from '../chart';
+import { ChartInstance, type ChartOptions } from '../chart';
 
 const INTERVAL = 60_000;
 
@@ -49,7 +49,10 @@ function installRaf(): { flush: (frames?: number) => void; uninstall: () => void
   };
 }
 
-function makeChart(): { chart: ChartInstance; container: HTMLElement } {
+function makeChartWithOptions(extra: Partial<ChartOptions> = {}): {
+  chart: ChartInstance;
+  container: HTMLElement;
+} {
   const container = document.createElement('div');
   const rect: DOMRect = {
     x: 0,
@@ -66,7 +69,11 @@ function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   Object.defineProperty(container, 'clientWidth', { value: 800, configurable: true });
   Object.defineProperty(container, 'clientHeight', { value: 400, configurable: true });
   document.body.appendChild(container);
-  return { chart: new ChartInstance(container, { interactive: false }), container };
+  return { chart: new ChartInstance(container, { interactive: false, ...extra }), container };
+}
+
+function makeChart(): { chart: ChartInstance; container: HTMLElement } {
+  return makeChartWithOptions();
 }
 
 function seedCandles(chart: ChartInstance, count: number, startTime = 1_000_000): string {
@@ -159,6 +166,55 @@ describe('ChartInstance — streaming auto-scroll (candlestick regression)', () 
     // 3rd bar where isLastPointVisible last returned true.
     const { to } = chart.getVisibleRange();
     expect(to).toBeCloseTo(lastTime + 3 * INTERVAL, -1);
+  });
+
+  it('setVisibleRange({ from, bars: 50 }) holds the viewport at 50 bars while the gap fills, then pans', () => {
+    // Seed 20 bars (well below the 50-bar window), then explicitly set a
+    // 50-bar warm-up window anchored at the seed's first timestamp.
+    const id = seedCandles(chart, 20);
+    chart.setVisibleRange({ from: 1_000_000, bars: 50 });
+    let lastTime = 1_000_000 + 19 * INTERVAL;
+
+    for (let i = 0; i < 60; i++) {
+      lastTime += INTERVAL;
+      chart.appendData(id, { time: lastTime, open: 101, high: 106, low: 100, close: 105 });
+      raf.flush(1);
+    }
+    raf.flush(30);
+
+    const { from, to } = chart.getVisibleRange();
+    // Right edge tracks the latest bar (autoscroll active once the gap closed).
+    expect(to).toBeCloseTo(lastTime + 3 * INTERVAL, -1);
+    // Window width is preserved at the configured 50 bars throughout.
+    expect(to - from).toBeCloseTo(50 * INTERVAL, -1);
+  });
+
+  it('the left edge advances after the warm-up gap fills and pan kicks in', () => {
+    const id = seedCandles(chart, 20);
+    chart.setVisibleRange({ from: 1_000_000, bars: 50 });
+    let lastTime = 1_000_000 + 19 * INTERVAL;
+
+    // Append 30 bars — total 50, exactly filling the warm-up window. Left
+    // edge has not moved yet (hold released right at the boundary).
+    for (let i = 0; i < 30; i++) {
+      lastTime += INTERVAL;
+      chart.appendData(id, { time: lastTime, open: 101, high: 106, low: 100, close: 105 });
+      raf.flush(1);
+    }
+    raf.flush(30);
+    const fromAtCap = chart.getVisibleRange().from;
+
+    // Append 20 more — now past the window. Left edge must have moved
+    // forward (older bars sliding off the left).
+    for (let i = 0; i < 20; i++) {
+      lastTime += INTERVAL;
+      chart.appendData(id, { time: lastTime, open: 101, high: 106, low: 100, close: 105 });
+      raf.flush(1);
+    }
+    raf.flush(30);
+
+    const fromAfter = chart.getVisibleRange().from;
+    expect(fromAfter).toBeGreaterThan(fromAtCap);
   });
 
   it('updateData bursts on the same bar do NOT lose the right-edge pin', () => {

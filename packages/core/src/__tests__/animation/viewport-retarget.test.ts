@@ -31,7 +31,7 @@ describe('viewport retarget continuity', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(100 * INTERVAL);
-    v.fitToData(0, 100 * INTERVAL, CHART_WIDTH);
+    v.fitToData(0, 100 * INTERVAL, { chartWidth: CHART_WIDTH });
 
     return v;
   }
@@ -118,7 +118,7 @@ describe('viewport retarget continuity', () => {
     const midVisual = { ...v.visibleRange };
 
     // Issue an animated fitToData. Visual must not jump.
-    v.fitToData(0, 200 * INTERVAL, CHART_WIDTH, true);
+    v.fitToData(0, 200 * INTERVAL, { chartWidth: CHART_WIDTH, animated: true });
 
     expect(v.visibleRange.from).toBeCloseTo(midVisual.from, 5);
     expect(v.visibleRange.to).toBeCloseTo(midVisual.to, 5);

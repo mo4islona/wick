@@ -41,7 +41,7 @@ describe('input animation', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(100 * INTERVAL);
-    v.fitToData(0, 100 * INTERVAL, CHART_WIDTH);
+    v.fitToData(0, 100 * INTERVAL, { chartWidth: CHART_WIDTH });
 
     return v;
   }

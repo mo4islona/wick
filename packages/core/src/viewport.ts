@@ -1,4 +1,4 @@
-import { ANIM, Animator, easeOutCubic } from './animation';
+import { ANIM, Animator, type Easing, easeLinear, easeOutCubic } from './animation';
 import { DEFAULT_REBOUND_MS } from './animation-constants';
 import { EventEmitter } from './events';
 import type { VisibleRange, YRange } from './types';
@@ -50,6 +50,15 @@ export interface ViewportOptions {
    * ease-out so the viewport snaps back instantly.
    */
   reboundMs?: number;
+  /**
+   * Maximum number of data bars (candles/points) the viewport will fit before
+   * it stops growing and switches to tail-scroll. While the data span is below
+   * this threshold, streaming ticks expand the right edge to absorb new
+   * points; once the span exceeds it, the visible window holds at this width
+   * and slides forward as new data arrives. Default: 200. Values below 2 are
+   * clamped to 2 (the minimum visible-bar count enforced elsewhere).
+   */
+  maxVisibleBars?: number;
 }
 
 interface ResolvedPadding {
@@ -76,6 +85,21 @@ const ZOOM_MIN_OVERSHOOT_FRACTION = 0.4;
 const AUTOSCROLL_MIN_DELTA_BARS = 0.5;
 /** Minimum pending shift in pixels (whichever is smaller vs bars-based). */
 const AUTOSCROLL_MIN_DELTA_PX = 4;
+/** Cap for the adaptive scroll-to-end duration. Long-interval data (daily
+ * candles, etc.) would otherwise stretch the ease across hours; we never need
+ * the scroll to outlast a few seconds of motion to hide the per-tick step. */
+const SCROLL_TO_END_MAX_MS = 5_000;
+
+/** Inter-arrival above this is treated as "the stream paused, this tick
+ * effectively starts a new stream" — `streamingDuration` resets to
+ * `ANIM.streamTick` instead of producing a multi-second slide. */
+const STREAM_IDLE_RESET_MS = 2_000;
+
+/** Default maximum visible bars before fitToData caps the window and tail-scroll takes over. */
+const DEFAULT_MAX_VISIBLE_BARS = 200;
+/** Minimum allowed `maxVisibleBars` — matches the visible-bar floor enforced
+ * by `applyLogical` / `setRange`, below which the viewport refuses to render. */
+const MIN_VISIBLE_BARS = 2;
 
 /** Lerp two `VisibleRange` values for the range animator. */
 const rangeLerp = (a: VisibleRange, b: VisibleRange, t: number): VisibleRange => ({
@@ -128,7 +152,40 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * when startRebound is called from an event handler that doesn't pass width. */
   private _lastChartWidth = 0;
 
-  constructor({ padding, reboundMs }: ViewportOptions = {}) {
+  /** Wall-clock timestamp of the previous {@link scrollToEnd} call. Used to
+   * size the next scroll's duration to the measured inter-arrival interval —
+   * with the animator's mid-flight retargeting, that keeps the viewport
+   * continuously sliding between ticks instead of settling at a fixed 250 ms
+   * and sitting idle until the next point. */
+  #lastScrollWall = 0;
+
+  /** Wall-clock timestamp of the previous {@link setDataEnd} call that
+   * actually advanced `#dataEnd` (intra updates on the same time are
+   * skipped). Lets {@link streamingDuration} size the first pan from the
+   * data-arrival cadence (which is observable before any `scrollToEnd`
+   * has run — typically the history load's setDataEnd happens earlier),
+   * so the first scroll uses the real cadence instead of a fixed 250ms
+   * fallback. */
+  #lastDataEndWall = 0;
+
+  /** Most recent inter-arrival between distinct `setDataEnd` calls, in
+   * wall-clock ms. Updated lazily inside {@link setDataEnd}. */
+  #lastDataEndInterval = 0;
+
+  /** Threshold (in bar count) at which `fitToData` stops expanding the visible
+   * range and tail-scroll takes over. Configurable via {@link ViewportOptions.maxVisibleBars}. */
+  #maxVisibleBars = DEFAULT_MAX_VISIBLE_BARS;
+
+  /**
+   * Set by {@link setRangeHold} (the `setVisibleRange({ from, bars })` path)
+   * to suppress streaming pan while the right-side gap fills up — viewport
+   * stays put as new ticks render into the empty area. Cleared by any user
+   * interaction (pan, zoom, rebound) or by `fitToData`/`setRange`, and by
+   * `scrollToEnd` once the gap closes (data reaches the right edge).
+   */
+  #holdUntilFilled = false;
+
+  constructor({ padding, reboundMs, maxVisibleBars }: ViewportOptions = {}) {
     super();
     this.padding = {
       top: padding?.top ?? DEFAULT_PADDING.top,
@@ -137,6 +194,11 @@ export class Viewport extends EventEmitter<ViewportEvents> {
       left: padding?.left ?? DEFAULT_PADDING.left,
     };
     this.reboundMs = reboundMs ?? DEFAULT_REBOUND_MS;
+    if (maxVisibleBars !== undefined) {
+      this.#maxVisibleBars = Number.isFinite(maxVisibleBars)
+        ? Math.max(MIN_VISIBLE_BARS, Math.floor(maxVisibleBars))
+        : DEFAULT_MAX_VISIBLE_BARS;
+    }
 
     this.#rangeAnimator = new Animator<VisibleRange>({
       initial: { from: 0, to: 0 },
@@ -239,6 +301,16 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   setDataEnd(time: number): void {
     this._prevDataEnd = this.#dataEnd;
     this.#dataEnd = time;
+    // Track wall-clock between distinct data-end advances so streaming
+    // can size the first pan from the data-arrival cadence instead of
+    // falling back to a 250ms default. Intra updates (same time) keep
+    // the previous measurement intact.
+    if (this._prevDataEnd === time) return;
+    const wallNow = performance.now();
+    if (this.#lastDataEndWall > 0) {
+      this.#lastDataEndInterval = wallNow - this.#lastDataEndWall;
+    }
+    this.#lastDataEndWall = wallNow;
   }
 
   /**
@@ -283,12 +355,17 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * would never advance toward the new target. Subsequent per-frame `change`
    * events fire from {@link tick} as `current` interpolates.
    */
-  private retargetLogical(from: number, to: number, duration: number, now?: number): void {
+  private retargetLogical(
+    from: number,
+    to: number,
+    duration: number,
+    opts: { now?: number; easing?: Easing } = {},
+  ): void {
     if (to <= from) return;
     const range = to - from;
     if (range / this.dataInterval < 2) return;
 
-    this.#rangeAnimator.setTarget({ from, to }, { duration, now });
+    this.#rangeAnimator.setTarget({ from, to }, { duration, now: opts.now, easing: opts.easing });
     this.emit('change');
   }
 
@@ -322,34 +399,6 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   /** Minimum visible range (zoom-in ceiling). Expressed as 10 bars. */
   private get softMinRange(): number {
     return 10 * this.dataInterval;
-  }
-
-  /**
-   * "Warm-up" predicate for streaming charts: returns `true` while the
-   * viewport's left edge is still at its natural fit-to-data anchor
-   * (`dataStart − leftPad`). While `true`, `Chart.onDataChanged` re-fits on
-   * each new tick — the right edge expands to absorb fresh data, so the
-   * line keeps growing rightward without sliding old points off the left.
-   * Once `fitToData` hits its `maxBars` cap, the left edge advances away
-   * from the natural anchor, this flips to `false`, and `scrollToEnd`'s
-   * pan-aware tail-tracking takes over.
-   *
-   * Reads {@link logicalRange} so the math operates on the latest committed
-   * target, not a mid-tween animated position.
-   */
-  dataFitsCurrentViewport(chartWidth = 0): boolean {
-    if (this.#dataStart === null || this.#dataEnd === null) return false;
-    const { from, to } = this.logicalRange;
-    const range = to - from;
-    if (range <= 0) return false;
-    if (chartWidth > 0) this._lastChartWidth = chartWidth;
-    const width = chartWidth > 0 ? chartWidth : this._lastChartWidth;
-    const pl = this.resolveHPad(this.padding.left, range, width);
-
-    const naturalLeft = this.#dataStart - pl;
-    const tolerance = this.dataInterval * 0.5;
-
-    return Math.abs(from - naturalLeft) <= tolerance;
   }
 
   /** Maximum visible range (zoom-out floor). When interval-based horizontal padding is
@@ -404,7 +453,26 @@ export class Viewport extends EventEmitter<ViewportEvents> {
 
     const lastVisible = this.#dataEnd !== null && this.#dataEnd >= from && this.#dataEnd <= to;
     this._autoScroll = lastVisible;
+    // Plain setRange is what multi-chart sync and the navigator commit — it
+    // should never inherit a leftover warm-up hold from an earlier
+    // `setVisibleRange({ from, bars })`.
+    this.#holdUntilFilled = false;
     this.applyLogical(from, to);
+  }
+
+  /**
+   * Like {@link setRange}, but additionally arms a "hold until filled" flag
+   * so streaming `appendData` ticks no-op while there's still empty space
+   * between the latest data and the right edge of the viewport. Once the
+   * gap closes (or any user gesture fires), the hold is released and
+   * normal pan-tracking resumes. Used by `setVisibleRange({ from, bars })`
+   * for streaming warm-up windows.
+   */
+  setRangeHold(range: VisibleRange): void {
+    this.setRange(range);
+    // setRange cleared the flag above; arm it now (after applyLogical so
+    // visibleRange reflects the new bounds).
+    this.#holdUntilFilled = true;
   }
 
   /** Set the Y-axis range. Adds pixel-based padding unless a side has a fixed (explicit) bound. */
@@ -444,12 +512,17 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   zoomAt(centerTime: number, factor: number, chartWidth = this._lastChartWidth, durationMs = 0): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
+    // User input cancels a programmatic warm-up hold (the hold is for
+    // initial setup only; once the user starts manipulating the view, the
+    // chart resumes normal pan-tracking on streaming ticks).
+    this.#holdUntilFilled = false;
+
     // User input takes over from any in-flight programmatic animation: commit
     // the current visual position as the new logical baseline so gesture math
     // operates on what the user sees, not on the destination of an animation
-    // they can't perceive yet. Without this, zooming during a warm-up fit or
-    // a scrollToEnd ease produces a visible jump from mid-tween to target
-    // before the zoom is applied.
+    // they can't perceive yet. Without this, zooming during an in-flight
+    // fit or scrollToEnd ease produces a visible jump from mid-tween to
+    // target before the zoom is applied.
     this.cancelPendingAnimation();
 
     const { from, to } = this.logicalRange;
@@ -535,7 +608,9 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   pan(timeDelta: number, chartWidth = 0, durationMs = 0): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    // Same takeover rule as zoomAt — see the comment there.
+    // Same takeover rules as zoomAt — clear warm-up hold and snap any
+    // in-flight programmatic animation to its current visible position.
+    this.#holdUntilFilled = false;
     this.cancelPendingAnimation();
 
     const { from, to } = this.logicalRange;
@@ -601,6 +676,9 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    * (or {@link applyLogical} when `reboundMs <= 0`).
    */
   startRebound(chartWidth = this._lastChartWidth): void {
+    // Rebound runs after a user gesture — a warm-up hold is no longer
+    // appropriate (the user has already touched the view).
+    this.#holdUntilFilled = false;
     const { from, to } = this.logicalRange;
     const range = to - from;
     if (range <= 0) return;
@@ -677,47 +755,95 @@ export class Viewport extends EventEmitter<ViewportEvents> {
 
   /**
    * Fit the viewport to show data from first to last timestamp, with optional
-   * animation. `animated=false` snaps; `animated=true` retargets — duration
-   * defaults to `ANIM.fit` (intentional reflow), pass `durationMs` to
-   * override (e.g. streaming warm-up uses `ANIM.streamTick` so per-tick
-   * re-fits don't accumulate). The animation is skipped when the viewport
-   * is uninitialised — first load always snaps so the data appears at its
-   * natural extent.
+   * animation. The animation is skipped when the viewport is uninitialised —
+   * first load always snaps so the data appears at its natural extent.
+   *
+   * The visible range equals the data span with paddings, capped at
+   * `maxVisibleBars * dataInterval` — when the data overflows the cap, the
+   * range anchors right (latest data pinned to the right edge, older data
+   * clipped off the left).
+   *
+   * Options:
+   * - `chartWidth` — current chart pixel width; required for pixel-based padding resolution.
+   * - `animated` — `true` retargets the animator; `false` (default) snaps.
+   * - `durationMs` — override for the animated retarget; defaults to `ANIM.fit`.
    */
-  fitToData(firstTime: number, lastTime: number, chartWidth = 0, animated = false, durationMs?: number): void {
+  fitToData(
+    firstTime: number,
+    lastTime: number,
+    opts: { chartWidth?: number; animated?: boolean; durationMs?: number } = {},
+  ): void {
+    const { chartWidth = 0, animated = false, durationMs } = opts;
+
     this._autoScroll = true;
+    // A fresh fit replaces any prior warm-up window the dev had armed.
+    this.#holdUntilFilled = false;
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    const maxBars = 400;
-    const maxRange = maxBars * this.dataInterval;
+    const maxRange = this.#maxVisibleBars * this.dataInterval;
     const dataSpan = lastTime - firstTime;
 
-    // Compute a representative range for resolving pixel-based padding.
-    // For interval-based padding this value is unused; for pixel-based it
-    // must be a reasonable estimate — we use the data span as the base and
-    // expand it below once we have targetFrom/targetTo.
-    // For a single point, use a small multiple of dataInterval as the base range
+    // Pixel-based padding needs a representative range. For a single point
+    // the span is 0; fall back to a few intervals so resolveHPad has
+    // something workable.
     const estimatedRange = dataSpan > 0 ? dataSpan : this.dataInterval * 10;
-
     const pr = this.resolveHPad(this.padding.right, estimatedRange, chartWidth);
     const pl = this.resolveHPad(this.padding.left, estimatedRange, chartWidth);
 
     let targetTo = lastTime + pr;
     let targetFrom = firstTime - pl;
 
-    // Cap to maxBars — anchor right edge and trim left
     if (targetTo - targetFrom > maxRange) {
+      // Overflow — anchor right edge, trim left.
       targetTo = lastTime + pr;
       targetFrom = targetTo - maxRange;
     }
 
     const { from: curFrom, to: curTo } = this.logicalRange;
     const uninitialised = curFrom === 0 && curTo === 0;
-    if (animated && !uninitialised) {
-      this.retargetLogical(targetFrom, targetTo, durationMs ?? ANIM.fit);
-    } else {
+
+    if (!animated || uninitialised) {
       this.applyLogical(targetFrom, targetTo);
+
+      return;
     }
+
+    this.retargetLogical(targetFrom, targetTo, durationMs ?? ANIM.fit);
+  }
+
+  /**
+   * Compute the next streaming-retarget duration based on the wall-clock
+   * inter-arrival interval since the previous streaming call. Returns a
+   * value in `[ANIM.streamTick, SCROLL_TO_END_MAX_MS]` so the animator
+   * keeps sliding through to the next tick instead of settling early.
+   *
+   * Updates `#lastScrollWall` as a side effect so the next `scrollToEnd`
+   * call sees the elapsed time since this one — they're sequential ticks of
+   * the same stream.
+   */
+  private streamingDuration(): number {
+    const wallNow = performance.now();
+    // Prefer the inter-arrival between `setDataEnd` calls — that includes
+    // the gap between history load and the first stream tick, so the very
+    // first pan can use the real cadence (typically ~1s in demos with
+    // `speed: 5`) instead of a 250ms fallback that finishes before the
+    // second tick arrives and produces a visible "quick first pan + idle"
+    // discontinuity.
+    let measured = this.#lastDataEndInterval;
+    // If no data-end measurement yet, fall back to the inter-scroll one
+    // (the older mechanism — kept so synthetic tests that drive
+    // `scrollToEnd` without going through `setDataEnd` still work).
+    if (measured <= 0) {
+      measured = this.#lastScrollWall > 0 ? wallNow - this.#lastScrollWall : 0;
+    }
+    this.#lastScrollWall = wallNow;
+    if (measured <= 0) return ANIM.streamTick;
+    // Long idle gap — the stream effectively paused. Snap-back to the baseline
+    // duration so the next tick eases over a normal frame, not over a 5-second
+    // slide derived from the pause.
+    if (measured > STREAM_IDLE_RESET_MS) return ANIM.streamTick;
+
+    return Math.min(SCROLL_TO_END_MAX_MS, Math.max(ANIM.streamTick, measured));
   }
 
   /**
@@ -758,6 +884,21 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     // across ticks reads as "pulse drifting off screen" as new data arrives.
     // In both cases, pulling back toward the natural tail-track position is
     // the right next step.
+    // Warm-up hold (armed by `setRangeHold`, i.e. `setVisibleRange({ from,
+    // bars })`): keep the viewport stationary while the latest data is still
+    // within the configured window. Streaming ticks render into the right-
+    // side gap without sliding the existing seed bars off the left. Once
+    // the data catches up to the right edge — or any user gesture clears
+    // the hold — the normal offset-preserving pan logic takes over.
+    if (this.#holdUntilFilled) {
+      const tolerance = this.dataInterval * 0.01;
+      if (lastTime + pr <= lTo + tolerance) {
+        this._autoScroll = true;
+        return;
+      }
+      this.#holdUntilFilled = false;
+    }
+
     const anchorTo = lTo;
     const rawOffset = this._prevDataEnd !== null ? anchorTo - this._prevDataEnd : pr;
     const offset = Math.max(0, Math.min(pr, rawOffset));
@@ -780,7 +921,15 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     const pending = Math.abs(targetTo - lTo);
     if (pending < threshold) return;
 
-    this.retargetLogical(targetFrom, targetTo, ANIM.streamTick);
+    // Size the scroll duration to the measured inter-arrival interval (see
+    // streamingDuration) so the viewport keeps sliding through to the next
+    // tick instead of settling at a fixed `ANIM.streamTick` and sitting idle
+    // until the next point. Linear easing keeps the slide at constant speed —
+    // eased curves slow as they approach each target, which produces a visible
+    // wobble when the animator's mid-flight retarget kicks in.
+    const duration = this.streamingDuration();
+
+    this.retargetLogical(targetFrom, targetTo, duration, { easing: easeLinear });
     this._prevDataEnd = this.#dataEnd;
   }
 

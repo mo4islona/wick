@@ -35,6 +35,18 @@ export interface VisibleRange {
   to: number;
 }
 
+/**
+ * Argument accepted by {@link Chart.setVisibleRange}. Three forms:
+ *
+ * - `number N` — show the last N bars from the data tail (anchor right).
+ * - `{ from, to }` — explicit time range; `from`/`to` accept either epoch
+ *   milliseconds or `Date`, normalised to ms internally.
+ * - `{ from, bars }` — anchor the visible window at `from` and extend
+ *   right by `bars` data intervals. Useful for "show N bars starting
+ *   here" patterns (warm-up windows for streaming charts, etc.).
+ */
+export type VisibleRangeSpec = number | { from: TimeValue; to: TimeValue } | { from: TimeValue; bars: number };
+
 /** Min/max value range for the Y axis. */
 export interface YRange {
   min: number;

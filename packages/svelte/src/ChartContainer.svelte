@@ -6,6 +6,7 @@ import {
   type ChartOptions,
   type ChartTheme,
   type EdgeReachedInfo,
+  type VisibleRangeSpec,
   catppuccin,
 } from '@wick-charts/core';
 import { onDestroy, onMount, tick } from 'svelte';
@@ -32,6 +33,11 @@ export let axis: AxisConfig | undefined = undefined;
  */
 // biome-ignore format: keep the inline shape so the parity checker matches React's type string verbatim
 export let padding: { top?: number; bottom?: number; right?: number | { intervals: number }; left?: number | { intervals: number }; } | undefined = undefined;
+/**
+ * Viewport-level streaming behavior. Captured at mount only — changing
+ * this prop after the chart is created is ignored.
+ */
+export let viewport: { maxVisibleBars?: number; initialRange?: VisibleRangeSpec } | undefined = undefined;
 /** Show the chart background gradient. Defaults to true. */
 export let gradient: boolean = true;
 /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
@@ -45,16 +51,11 @@ export let grid: { visible: boolean } | undefined = undefined;
  */
 export let headerLayout: 'overlay' | 'inline' = 'overlay';
 /**
- * Chart-level animation configuration. See `AnimationsConfig` for the full shape.
- *
- * Two layers — chart-level (this prop) sets defaults for every series; per-series
- * options on `<LineSeries>`/`<CandlestickSeries>`/`<BarSeries>` override that
- * default for that one series.
- *
- * Shorthands: `true` / omitted — built-in defaults; `false` — disables every
- * animation category; `{ points: false }` / `{ viewport: false }` disables a
- * category. Updating this prop calls `chart.setAnimations(...)` so the new
- * durations take effect on the next animation / render.
+ * Animation control. `true` / omitted uses built-in defaults; `false`
+ * disables every category. Per-series options on `<LineSeries>` /
+ * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
+ * defaults unless the category here is explicitly `false`. Updates
+ * after mount call `chart.setAnimations(...)`.
  */
 export let animations: boolean | AnimationsConfig | undefined = undefined;
 /**
@@ -145,6 +146,7 @@ onMount(() => {
   if (axis) options.axis = axis;
   if (theme) options.theme = theme;
   if (padding) options.padding = padding;
+  if (viewport) options.viewport = viewport;
   if (interactive !== undefined) options.interactive = interactive;
   if (grid !== undefined) options.grid = grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;

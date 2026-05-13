@@ -1,16 +1,9 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useState } from 'react';
 
 import { formatTime, resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
 
 import { useChartInstance } from '../context';
 import { useVisibleRange } from '../store-bridge';
-import { AXIS_LABEL_CLEANUP_MS, AXIS_LABEL_FADE_CSS } from './axisFade';
-
-interface TrackedTick {
-  opacity: number;
-  addedAt: number;
-  fadedAt?: number;
-}
 
 export interface TimeAxisProps {
   /** Desired number of labels (≥ 2). Overrides chart-level `axis.x.labelCount`. */
@@ -33,46 +26,29 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
       chart.setTimeAxisLabelDensity({ labelCount: null, minLabelSpacing: null });
     };
   }, [chart, labelCount, minLabelSpacing]);
+
+  // Subscribe to `tickFrame` so the DOM opacity update lands in step with the
+  // canvas grid fade — without this we'd only re-render on viewport changes
+  // and the labels would snap-in.
+  const [, setBump] = useState(0);
+  useLayoutEffect(() => {
+    const onFrame = () => setBump((n) => n + 1);
+    chart.on('tickFrame', onFrame);
+
+    return () => chart.off('tickFrame', onFrame);
+  }, [chart]);
+
   const theme = chart.getTheme();
   const dataInterval = chart.getDataInterval();
   const { ticks: currentTicks, tickInterval } = chart.timeScale.niceTickValues(dataInterval);
-  const currentSet = new Set(currentTicks);
-
-  // Persistent map: tick value → tracked state
-  const mapRef = useRef<Map<number, TrackedTick>>(new Map());
-  const map = mapRef.current;
-  const now = performance.now();
-
-  // Mark current ticks as visible
-  for (const t of currentTicks) {
-    if (!map.has(t)) {
-      map.set(t, { opacity: 1, addedAt: now });
-    } else {
-      map.get(t)!.opacity = 1;
-    }
-  }
-
-  // Mark missing ticks for fade-out
-  for (const [t, entry] of map) {
-    if (!currentSet.has(t)) {
-      if (entry.opacity !== 0) {
-        entry.opacity = 0;
-        entry.fadedAt = now;
-      }
-    }
-  }
-
-  // Clean up ticks that have finished fading. Buffer = AXIS_LABEL_FADE_MS + 250
-  // (one transition + a frame margin) so the DOM node sticks around past the
-  // visible fade.
-  for (const [t, entry] of map) {
-    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > AXIS_LABEL_CLEANUP_MS) {
-      map.delete(t);
-    }
-  }
-
-  // Collect all ticks to render (current + fading out)
-  const allTicks = Array.from(map.entries());
+  // Sync the tracker in render. This is idempotent — `setCurrentTicks` on
+  // the same tick array is a no-op — so the StrictMode double-invocation
+  // path doesn't leak state. We need the snapshot to reflect the current
+  // tick set in the very first paint, which a layout-effect-based sync
+  // can't deliver without a follow-up re-render the DOM consumer can't
+  // observe synchronously.
+  chart.timeScale.tickTracker.setCurrentTicks(currentTicks);
+  const { entries } = chart.timeScale.tickTracker.snapshot();
 
   return (
     <div
@@ -87,8 +63,11 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
         alignItems: 'center',
       }}
     >
-      {allTicks.map(([time, entry]) => {
+      {entries.map(({ value: time, opacity }) => {
+        if (opacity <= 0.01) return null;
+
         const x = chart.timeScale.timeToX(time);
+
         return (
           <span
             key={time}
@@ -101,8 +80,7 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
               fontFamily: theme.typography.fontFamily,
               userSelect: 'none',
               whiteSpace: 'nowrap',
-              opacity: entry.opacity,
-              transition: AXIS_LABEL_FADE_CSS,
+              opacity,
               willChange: 'opacity',
             }}
           >

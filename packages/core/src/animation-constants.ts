@@ -71,3 +71,20 @@ export const DEFAULT_Y_AXIS_MS = DEFAULT_ANIMATION_MS;
  * full {@link DEFAULT_Y_AXIS_MS} ease without any visible motion.
  */
 export const INTERACT_Y_AXIS_MS = 100;
+
+/**
+ * Cap for the adaptive Y-range chase duration on streaming ticks. A long-
+ * interval feed (daily candles, etc.) would otherwise stretch the linear
+ * Y ease over hours; we never need the chase to outlast a few seconds of
+ * motion to hide the per-tick step. Mirrors `SCROLL_TO_END_MAX_MS` in
+ * `viewport.ts`.
+ */
+export const STREAMING_Y_MAX_MS = 5_000;
+
+/**
+ * Inter-arrival above this resets the Y streaming measurement to the
+ * baseline `yAxisMs` — a long pause means the previous cadence is stale,
+ * so the next tick eases over a normal frame instead of a multi-second
+ * slide. Mirrors `STREAM_IDLE_RESET_MS` in `viewport.ts`.
+ */
+export const STREAMING_Y_IDLE_RESET_MS = 2_000;

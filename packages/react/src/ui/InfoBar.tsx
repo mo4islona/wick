@@ -97,7 +97,41 @@ export function InfoBar({ sort = 'none', format = defaultInfoBarFormat, children
     }
   }
 
-  if (snapshots.length === 0) return null;
+  // No data yet (initial mount, before the first series tick) — render a
+  // zero-content placeholder *for the default UI only* so the header reserves
+  // its real height from the very first paint. Without this the header grows
+  // when InfoBar pops in, ChartContainer's header-measure observer fires
+  // `setPadding`, and the canvas + axes visibly shift down on the next RAF.
+  //
+  // The render-prop variant (`children`) keeps the legacy "return null"
+  // behavior — its layout depends on user-supplied JSX, so we can't
+  // synthesise a meaningful placeholder.
+  if (snapshots.length === 0) {
+    if (children) return null;
+
+    return (
+      <div
+        data-tooltip-legend=""
+        aria-hidden="true"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '4px 8px',
+          flexShrink: 0,
+          fontSize: theme.typography.fontSize,
+          fontFamily: theme.typography.fontFamily,
+          fontVariantNumeric: 'tabular-nums',
+          visibility: 'hidden',
+          pointerEvents: 'none',
+        }}
+      >
+        {/* Non-breaking space keeps line-height intact so the div claims its
+            real rendered height instead of collapsing to padding-only. */}
+        <span>&nbsp;</span>
+      </div>
+    );
+  }
 
   if (children) {
     return (

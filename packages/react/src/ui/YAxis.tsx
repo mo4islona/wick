@@ -1,16 +1,9 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useState } from 'react';
 
-import { resolveAxisFontSize, resolveAxisTextColor, type ValueFormatter } from '@wick-charts/core';
+import { type ValueFormatter, resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
 
 import { useChartInstance } from '../context';
 import { useYRange } from '../store-bridge';
-import { AXIS_LABEL_CLEANUP_MS, AXIS_LABEL_FADE_CSS } from './axisFade';
-
-interface TrackedTick {
-  opacity: number;
-  addedAt: number;
-  fadedAt?: number;
-}
 
 export interface YAxisProps {
   /**
@@ -50,39 +43,26 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
     };
   }, [chart, labelCount, minLabelSpacing]);
 
+  // Subscribe to `tickFrame` so DOM opacity advances together with grid fade.
+  const [, setBump] = useState(0);
+  useLayoutEffect(() => {
+    const onFrame = () => setBump((n) => n + 1);
+    chart.on('tickFrame', onFrame);
+
+    return () => chart.off('tickFrame', onFrame);
+  }, [chart]);
+
   const theme = chart.getTheme();
-  const currentTicks = chart.yScale.niceTickValues();
-  const currentSet = new Set(currentTicks);
-
-  const mapRef = useRef<Map<number, TrackedTick>>(new Map());
-  const map = mapRef.current;
-  const now = performance.now();
-
-  for (const p of currentTicks) {
-    if (!map.has(p)) {
-      map.set(p, { opacity: 1, addedAt: now });
-    } else {
-      map.get(p)!.opacity = 1;
-    }
-  }
-
-  for (const [p, entry] of map) {
-    if (!currentSet.has(p)) {
-      if (entry.opacity !== 0) {
-        entry.opacity = 0;
-        entry.fadedAt = now;
-      }
-    }
-  }
-
-  // Cleanup buffer matches the shared AXIS_LABEL_CLEANUP_MS — see axisFade.ts.
-  for (const [p, entry] of map) {
-    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > AXIS_LABEL_CLEANUP_MS) {
-      map.delete(p);
-    }
-  }
-
-  const allTicks = Array.from(map.entries());
+  // Sync the tracker before reading its snapshot. Strictly speaking this is
+  // a side effect during React's render phase; we accept it because
+  // `setCurrentTicks` is idempotent (same tick array → no-op, no observable
+  // mutation across StrictMode double-invocations) and we need the snapshot
+  // to reflect the *current* tick set in the very first paint — moving this
+  // into a layout effect would leave the initial render with an empty
+  // snapshot and require a follow-up bump+re-render that DOM consumers
+  // can't observe synchronously.
+  chart.yScale.tickTracker.setCurrentTicks(chart.yScale.niceTickValues());
+  const { entries } = chart.yScale.tickTracker.snapshot();
 
   return (
     <div
@@ -95,8 +75,11 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
         pointerEvents: 'none',
       }}
     >
-      {allTicks.map(([price, entry]) => {
+      {entries.map(({ value: price, opacity }) => {
+        if (opacity <= 0.01) return null;
+
         const y = chart.yScale.valueToY(price);
+
         return (
           <span
             key={price}
@@ -110,8 +93,7 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
               fontFamily: theme.typography.fontFamily,
               fontVariantNumeric: 'tabular-nums',
               userSelect: 'none',
-              opacity: entry.opacity,
-              transition: AXIS_LABEL_FADE_CSS,
+              opacity,
               willChange: 'opacity',
             }}
           >

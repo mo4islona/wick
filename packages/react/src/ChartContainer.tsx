@@ -18,6 +18,7 @@ import {
   type ChartOptions,
   type ChartTheme,
   type EdgeReachedInfo,
+  type VisibleRangeSpec,
 } from '@wick-charts/core';
 
 type PerfOption = NonNullable<ChartOptions['perf']>;
@@ -63,6 +64,30 @@ export interface ChartContainerProps {
      */
     left?: number | { intervals: number };
   };
+  /**
+   * Viewport-level streaming behavior. Captured at mount only — changing this
+   * prop after the chart is created is ignored.
+   */
+  viewport?: {
+    /**
+     * Width of the visible window in data bars, set on the first data load
+     * to `maxVisibleBars * dataInterval`. While the dataset is smaller than
+     * this width, streaming ticks render into the empty right-side gap and
+     * the viewport stays put; once the data reaches the right edge, the
+     * viewport pans forward to keep the latest bar pinned (tail-scroll).
+     * Default: 200.
+     */
+    maxVisibleBars?: number;
+    /**
+     * Initial visible range applied before the first paint with data. Same
+     * shape as the imperative `chart.setVisibleRange` — pass a bar count
+     * (e.g. `35`), an explicit `{from, to}` window, or `{from, bars}` for
+     * a warm-up pair. The standard alternative is calling
+     * `setVisibleRange` from a `useEffect`, but that runs post-paint and
+     * makes the chart visibly re-zoom on the next RAF. Captured at mount.
+     */
+    initialRange?: VisibleRangeSpec;
+  };
   /** Show the chart background gradient. Defaults to true. */
   gradient?: boolean;
   /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
@@ -82,33 +107,11 @@ export interface ChartContainerProps {
    */
   headerLayout?: 'overlay' | 'inline';
   /**
-   * Chart-level animation configuration. See {@link AnimationsConfig} for the
-   * full shape.
-   *
-   * Two layers — remember which is which:
-   *
-   * - **Chart-level (this prop)** — `animations.points.{enterMs, smoothMs,
-   *   pulseMs}` and `animations.viewport.{reboundMs, yAxisMs,
-   *   inputResponseMs}`. Acts as the default for every series.
-   * - **Per-series** — `<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`
-   *   (and the analogous CandlestickSeries / BarSeries options). Overrides
-   *   the chart-level default for that one series. Note the spelling:
-   *   `entryMs` per-series, `enterMs` chart-level — historical artefact,
-   *   both refer to the same animation.
-   *
-   * Resolution: per-series option wins over chart-level numeric value.
-   * Chart-level wins only when its category is explicitly `false` — that's
-   * a hard disable that overrides per-series too.
-   *
-   * Shorthands:
-   * - `true` / omitted — built-in defaults (every settling animation 250 ms,
-   *   pulse cycle 600 ms, input ease 0 / off).
-   * - `false` — disables every animation category.
-   * - `{ points: false }` / `{ viewport: false }` — disables a category.
-   *
-   * Runtime updates: changing this prop after mount calls
-   * `chart.setAnimations(...)` so the new durations take effect on the next
-   * animation / render.
+   * Animation control. `true` / omitted uses built-in defaults; `false`
+   * disables every category. Per-series options on `<LineSeries>` /
+   * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
+   * defaults unless the category here is explicitly `false`. Updates
+   * after mount call `chart.setAnimations(...)`.
    */
   animations?: boolean | AnimationsConfig;
   /**
@@ -227,6 +230,7 @@ export function ChartContainer({
   theme,
   axis,
   padding,
+  viewport,
   gradient = true,
   interactive,
   grid,
@@ -258,6 +262,7 @@ export function ChartContainer({
     if (axis) options.axis = axis;
     if (resolvedTheme) options.theme = resolvedTheme;
     if (padding) options.padding = padding;
+    if (viewport) options.viewport = viewport;
     if (interactive !== undefined) options.interactive = interactive;
     if (grid !== undefined) options.grid = grid;
     if (perfRef.current !== undefined) options.perf = perfRef.current;
@@ -318,7 +323,12 @@ export function ChartContainer({
   // fire redundant `chart.setPadding(...)` calls (headerExtra stays 0).
   const headerExtra = headerLayout === 'overlay' ? topOverlayHeight : 0;
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the header-height fold-in lands
+  // before the browser paints the chart for the first time. With
+  // `useEffect` the padding update would fire AFTER paint, causing a
+  // visible "chart drawn, then everything shifts down by the header
+  // height on the next frame" jump on initial mount.
+  useLayoutEffect(() => {
     const current = chartRef.current;
     if (!current) return;
     const userTop = padding?.top ?? 20;
