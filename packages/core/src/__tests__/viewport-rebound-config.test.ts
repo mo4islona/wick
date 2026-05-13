@@ -13,7 +13,7 @@ describe('Viewport rebound configuration', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(100 * INTERVAL);
-    v.fitToData(0, 100 * INTERVAL, 800);
+    v.fitToData(0, 100 * INTERVAL, { chartWidth: 800 });
   }
 
   it('reboundMs = 0 snaps the range instantly (no animation)', () => {

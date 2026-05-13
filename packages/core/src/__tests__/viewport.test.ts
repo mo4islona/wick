@@ -26,17 +26,18 @@ describe('Viewport', () => {
   it('fitToData sets visible range', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(1_000_000, 19_000_000, 800);
+    // Span chosen below the default 200-bar cap so the natural fit anchor holds.
+    v.fitToData(1_000_000, 7_000_000, { chartWidth: 800 });
     const r = v.visibleRange;
     expect(r.from).toBeLessThanOrEqual(1_000_000);
-    expect(r.to).toBeGreaterThanOrEqual(19_000_000);
+    expect(r.to).toBeGreaterThanOrEqual(7_000_000);
   });
 
   it('fitToData with zero padding places last time exactly at right edge', () => {
     const v = new Viewport({ padding: { right: { intervals: 0 }, left: { intervals: 0 } } });
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
-    expect(v.visibleRange.to).toBe(18_000_000);
+    v.fitToData(0, 6_000_000, { chartWidth: 800 });
+    expect(v.visibleRange.to).toBe(6_000_000);
     expect(v.visibleRange.from).toBe(0);
   });
 
@@ -44,21 +45,21 @@ describe('Viewport', () => {
     // right: 80px on 800px wide chart = 10% of dataSpan → pr = (80/800)*18_000_000 = 1_800_000
     const v = new Viewport({ padding: { right: 80, left: 0 } });
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     expect(v.visibleRange.to).toBeCloseTo(18_000_000 + 1_800_000, 0);
   });
 
   it('fitToData right padding as intervals adds N*dataInterval', () => {
     const v = new Viewport({ padding: { right: { intervals: 3 }, left: { intervals: 0 } } });
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     expect(v.visibleRange.to).toBeCloseTo(18_000_000 + 3 * INTERVAL, 0);
   });
 
   it('zoomAt changes range', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     const before = { ...v.visibleRange };
 
     v.zoomAt(9_000_000, 0.5); // zoom in
@@ -70,7 +71,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     // Zoom in so there is room to pan without hitting the right-edge clamp.
     v.zoomAt(9_000_000, 0.3);
     const before = { ...v.visibleRange };
@@ -89,7 +90,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     const widthBefore = v.visibleRange.to - v.visibleRange.from;
     const rightLimit = 18_000_000 + 3 * INTERVAL;
@@ -110,7 +111,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     const widthBefore = v.visibleRange.to - v.visibleRange.from;
     const expectedPr = (80 / 800) * widthBefore;
@@ -129,7 +130,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     const rightLimit = 18_000_000 + 3 * INTERVAL;
 
@@ -153,7 +154,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     const before = { ...v.visibleRange };
     // Shift that still leaves us inside the allowed range.
@@ -170,7 +171,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     const before = { ...v.visibleRange };
     // No chartWidth passed — the pan must not collapse to `dataEnd`.
@@ -182,7 +183,7 @@ describe('Viewport', () => {
   it('pan does not clamp when dataEnd is unset', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     const before = { ...v.visibleRange };
     // No setDataEnd — panning must still work without any known right limit.
     v.pan(5_000_000);
@@ -193,10 +194,11 @@ describe('Viewport', () => {
   it('scrollToEnd pins right edge after animation', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.scrollToEnd(20_000_000, 800);
-    // Tick past the animation duration (150ms)
-    v.tick(performance.now() + 200);
+    // Streaming scrolls use linear easing — tick past the full duration
+    // (default `ANIM.streamTick`, 250ms) for the visual range to reach target.
+    v.tick(performance.now() + 300);
     expect(v.visibleRange.to).toBeGreaterThanOrEqual(20_000_000);
   });
 
@@ -204,7 +206,7 @@ describe('Viewport', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
     // 5 bars = 300_000ms range — should be accepted (was rejected before fix)
-    v.fitToData(0, 300_000, 800);
+    v.fitToData(0, 300_000, { chartWidth: 800 });
     const r = v.visibleRange;
     expect(r.to - r.from).toBeGreaterThan(0);
   });
@@ -214,7 +216,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     const before = { ...v.visibleRange };
     const softMin = 10 * INTERVAL;
     const minOvershoot = softMin * 0.4; // ZOOM_MIN_OVERSHOOT_FRACTION
@@ -239,7 +241,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
 
     // Push into overshoot in one tick.
     v.zoomAt(9_000_000, 0.02);
@@ -260,7 +262,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
 
     // Zoom deep into overshoot.
     v.zoomAt(9_000_000, 0.01);
@@ -280,9 +282,9 @@ describe('Viewport', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
     // Set a non-zero initial range so fitToData animated branch triggers
-    v.fitToData(1_000_000, 18_000_000, 800);
+    v.fitToData(1_000_000, 18_000_000, { chartWidth: 800 });
     // Start a 450ms animation via animated fitToData
-    v.fitToData(1_000_000, 20_000_000, 800, true);
+    v.fitToData(1_000_000, 20_000_000, { chartWidth: 800, animated: true });
     expect(v.animating).toBe(true);
     const startTime = performance.now();
 
@@ -298,7 +300,7 @@ describe('Viewport', () => {
   it('scrollToEnd with sub-threshold delta is a no-op while idle', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     expect(v.animating).toBe(false);
     // scrollToEnd re-applies padding; target shift matches (lastTime - prevLast).
     // Pending of ~1ms — well below the half-bar / 4px threshold.
@@ -309,7 +311,7 @@ describe('Viewport', () => {
   it('scrollToEnd with sub-threshold retarget lets the in-flight animation finish', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     // Start a real auto-scroll animation with a visible delta.
     v.scrollToEnd(20_000_000, 800);
     expect(v.animating).toBe(true);
@@ -326,7 +328,7 @@ describe('Viewport', () => {
   it('getVisibleBarsCount returns correct count', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     const bars = v.getVisibleBarsCount();
     expect(bars).toBeGreaterThan(0);
   });
@@ -334,7 +336,7 @@ describe('Viewport', () => {
   it('pan emits interact event', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     let interacts = 0;
     v.on('interact', () => {
       interacts++;
@@ -346,7 +348,7 @@ describe('Viewport', () => {
   it('zoomAt emits interact event', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     let interacts = 0;
     v.on('interact', () => {
       interacts++;
@@ -360,7 +362,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     const rightBefore = v.visibleRange.to;
 
     // Zoom-in at a cursor mid-range — right edge must stay pinned even though
@@ -382,7 +384,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     const { to: rightBefore } = v.visibleRange;
 
     // Zoom-in at a cursor in the middle of the visible range.
@@ -401,7 +403,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.2); // zoom-in — pins right edge to softRight
     // Pan left far enough that a 1.2x zoom-out stays inside soft bounds and no clamping fires.
     v.pan(-15 * INTERVAL, 800);
@@ -427,7 +429,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3); // zoom-in
     // Cursor near the left so cursor-anchored zoom-out would blow up the right edge.
     const cursor = v.visibleRange.from + (v.visibleRange.to - v.visibleRange.from) * 0.05;
@@ -443,7 +445,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
 
     // Aggressive zoom-out factor — must cap at (dataSpan + leftPad + rightPad).
     v.zoomAt(9_000_000, 100);
@@ -464,7 +466,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     expect(v.autoScroll).toBe(true);
 
     v.zoomAt(9_000_000, 0.5); // zoom-in — must not touch autoScroll
@@ -485,7 +487,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.startRebound(800);
     expect(v.animating).toBe(false);
   });
@@ -495,7 +497,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3); // zoom in so we have pan headroom
     v.pan(50_000_000, 800); // overshoot right
 
@@ -514,7 +516,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     v.pan(50_000_000, 800);
     v.startRebound(800);
@@ -530,7 +532,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.01); // massive overzoom-in → rubber band active
     v.startRebound(800);
     expect(v.animating).toBe(true);
@@ -544,7 +546,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     v.pan(50_000_000, 800); // large right overshoot
 
@@ -562,7 +564,7 @@ describe('Viewport', () => {
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
     // Tiny overshoot — well below 10% of visible range.
     v.pan(INTERVAL * 0.05, 800);
@@ -577,12 +579,87 @@ describe('Viewport', () => {
     expect(Math.max(0, overshootBefore)).toBeLessThan((v.visibleRange.to - v.visibleRange.from) * 0.1);
   });
 
+  describe('maxVisibleBars option', () => {
+    it('caps fitToData range at the configured threshold once exceeded', () => {
+      const v = new Viewport({
+        maxVisibleBars: 50,
+        padding: { left: { intervals: 0 }, right: { intervals: 0 } },
+      });
+      v.setDataInterval(INTERVAL);
+      v.setDataStart(0);
+      v.setDataEnd(60 * INTERVAL);
+      v.fitToData(0, 60 * INTERVAL, { chartWidth: 800 });
+
+      const r = v.visibleRange;
+      // Right edge pinned to last data, window trimmed to 50 bars wide.
+      expect(r.to).toBe(60 * INTERVAL);
+      expect(r.to - r.from).toBe(50 * INTERVAL);
+    });
+
+    it('does not cap while data span is below the threshold', () => {
+      const v = new Viewport({
+        maxVisibleBars: 50,
+        padding: { left: { intervals: 0 }, right: { intervals: 0 } },
+      });
+      v.setDataInterval(INTERVAL);
+      v.setDataStart(0);
+      v.setDataEnd(40 * INTERVAL);
+      v.fitToData(0, 40 * INTERVAL, { chartWidth: 800 });
+
+      const r = v.visibleRange;
+      expect(r.from).toBe(0);
+      expect(r.to).toBe(40 * INTERVAL);
+    });
+
+    it('keeps the default 200 cap when maxVisibleBars is omitted', () => {
+      const v = new Viewport({
+        padding: { left: { intervals: 0 }, right: { intervals: 0 } },
+      });
+      v.setDataInterval(INTERVAL);
+      v.setDataStart(0);
+      v.setDataEnd(300 * INTERVAL);
+      v.fitToData(0, 300 * INTERVAL, { chartWidth: 800 });
+
+      expect(v.visibleRange.to - v.visibleRange.from).toBe(200 * INTERVAL);
+    });
+
+    it('clamps maxVisibleBars below 2 to the minimum', () => {
+      const v = new Viewport({
+        maxVisibleBars: 1,
+        padding: { left: { intervals: 0 }, right: { intervals: 0 } },
+      });
+      v.setDataInterval(INTERVAL);
+      v.setDataStart(0);
+      v.setDataEnd(10 * INTERVAL);
+      v.fitToData(0, 10 * INTERVAL, { chartWidth: 800 });
+
+      // Floor of 2 means the window can't be narrower than 2 bars.
+      expect(v.visibleRange.to - v.visibleRange.from).toBe(2 * INTERVAL);
+    });
+
+    it('caps to maxVisibleBars and anchors right on overflow', () => {
+      const v = new Viewport({
+        maxVisibleBars: 50,
+        padding: { left: { intervals: 0 }, right: { intervals: 0 } },
+      });
+      v.setDataInterval(INTERVAL);
+      v.setDataStart(0);
+      v.setDataEnd(60 * INTERVAL);
+      v.fitToData(0, 60 * INTERVAL, { chartWidth: 800 });
+
+      const range = v.visibleRange.to - v.visibleRange.from;
+      expect(range).toBe(50 * INTERVAL);
+      // Anchor right — last data at the right edge.
+      expect(v.visibleRange.to).toBe(60 * INTERVAL);
+    });
+  });
+
   it('startRebound after zoom-in overshoot clamps range to softMin', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, 800);
+    v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.01); // zoom in past the 10-bar floor
     const rangeAfterZoom = v.visibleRange.to - v.visibleRange.from;
     expect(rangeAfterZoom).toBeLessThan(10 * INTERVAL);

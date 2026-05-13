@@ -23,9 +23,9 @@ export const rosePineDawn = createTheme({
     '#d7827e',
   ],
   bands: { upper: '#286983', lower: '#b4637a' },
-  crosshair: { color: 'rgba(152,147,165,0.3)', labelBackground: '#f2e9e1' },
+  crosshair: { color: 'rgba(80,72,98,0.5)', labelBackground: '#f2e9e1' },
   axis: { textColor: '#9893a5' },
-  tooltip: { background: 'rgba(250,244,237,0.95)', textColor: '#575279', borderColor: 'rgba(152,147,165,0.3)' },
+  tooltip: { background: 'rgba(250,244,237,0.95)', textColor: '#575279', borderColor: 'rgba(152,147,165,0.2)' },
   typography: { fontFamily: SOURCE_CODE },
   fontUrl: SOURCE_CODE_URL,
 });

@@ -6,6 +6,7 @@ import {
   type ChartOptions,
   type ChartTheme,
   type EdgeReachedInfo,
+  type VisibleRangeSpec,
   catppuccin,
 } from '@wick-charts/core';
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue';
@@ -38,6 +39,28 @@ const props = withDefaults(
       right?: number | { intervals: number };
       left?: number | { intervals: number };
     };
+    /**
+     * Viewport-level streaming behavior. Captured at mount only — changing
+     * this prop after the chart is created is ignored.
+     */
+    viewport?: {
+      /**
+       * Width of the visible window in data bars, set on the first data load
+       * to `maxVisibleBars * dataInterval`. While the dataset is smaller than
+       * this width, streaming ticks render into the empty right-side gap and
+       * the viewport stays put; once the data reaches the right edge, the
+       * viewport pans forward to keep the latest bar pinned (tail-scroll).
+       * Default: 200.
+       */
+      maxVisibleBars?: number;
+      /**
+       * Initial visible range applied before the first paint with data. Same
+       * shape as the imperative `chart.setVisibleRange` — pass a bar count
+       * (e.g. `35`), an explicit `{from, to}` window, or `{from, bars}` for
+       * a warm-up pair. Captured at mount.
+       */
+      initialRange?: VisibleRangeSpec;
+    };
     /** Show the chart background gradient. Defaults to true. */
     gradient?: boolean;
     /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
@@ -51,16 +74,11 @@ const props = withDefaults(
      */
     headerLayout?: 'overlay' | 'inline';
     /**
-     * Chart-level animation configuration. See `AnimationsConfig` for the full shape.
-     *
-     * Two layers — chart-level (this prop) sets defaults for every series; per-series
-     * options on `<LineSeries>`/`<CandlestickSeries>`/`<BarSeries>` override that
-     * default for that one series.
-     *
-     * Shorthands: `true` / omitted — built-in defaults; `false` — disables every
-     * animation category; `{ points: false }` / `{ viewport: false }` disables a
-     * category. Updating this prop calls `chart.setAnimations(...)` so the new
-     * durations take effect on the next animation / render.
+     * Animation control. `true` / omitted uses built-in defaults; `false`
+     * disables every category. Per-series options on `<LineSeries>` /
+     * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
+     * defaults unless the category here is explicitly `false`. Updates
+     * after mount call `chart.setAnimations(...)`.
      */
     animations?: boolean | AnimationsConfig;
     /**
@@ -159,6 +177,7 @@ onMounted(async () => {
   if (props.axis) options.axis = props.axis;
   if (props.theme) options.theme = props.theme;
   if (props.padding) options.padding = props.padding;
+  if (props.viewport) options.viewport = props.viewport;
   if (props.interactive !== undefined) options.interactive = props.interactive;
   if (props.grid !== undefined) options.grid = props.grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;

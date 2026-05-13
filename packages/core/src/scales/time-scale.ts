@@ -1,5 +1,6 @@
 import type { VisibleRange } from '../types';
 import { niceTimeIntervals } from '../utils/time';
+import { AxisTickTracker } from './tick-tracker';
 
 /** Hard cap on generated ticks — defence-in-depth against pathological inputs. */
 const MAX_TICKS = 50;
@@ -8,6 +9,13 @@ const MAX_TICKS = 50;
 const DEFAULT_MIN_LABEL_SPACING = 80;
 
 export class TimeScale {
+  /**
+   * Shared fade state for time ticks. Grid lines (canvas) and DOM tick labels
+   * read opacity from the same tracker, so a tick fading in/out looks
+   * identical on both surfaces.
+   */
+  readonly tickTracker = new AxisTickTracker();
+
   private from = 0;
   private to = 0;
   private width = 1;

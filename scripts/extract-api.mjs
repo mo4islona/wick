@@ -183,7 +183,19 @@ function printPropType(prop, decl) {
 function resolveExpandable(decl) {
   if (!decl || !ts.isPropertySignature(decl) || !decl.type) return null;
 
-  const t = decl.type;
+  return resolveExpandableType(decl.type);
+}
+
+/**
+ * Walk a {@link ts.TypeNode} looking for something the API table can
+ * render as a nested row group: a bare type reference, an inline object
+ * literal, or a union that contains either. Recursing into unions lets
+ * us expand props typed `boolean | SomeConfig` (e.g. `animations`) and
+ * `false | { ... }` (e.g. `animations.points`) — the first member that
+ * resolves wins, non-object members (`boolean`, `'string'` literals,
+ * etc.) are skipped silently.
+ */
+function resolveExpandableType(t) {
   if (ts.isTypeReferenceNode(t)) {
     const name = t.typeName.getText();
     if (name === 'Partial' && t.typeArguments?.length === 1) {
@@ -195,6 +207,13 @@ function resolveExpandable(decl) {
 
   if (ts.isTypeLiteralNode(t)) {
     return { kind: 'inline', members: t.members };
+  }
+
+  if (ts.isUnionTypeNode(t)) {
+    for (const member of t.types) {
+      const result = resolveExpandableType(member);
+      if (result !== null) return result;
+    }
   }
 
   return null;
@@ -210,6 +229,18 @@ function resolveTypeName(typeNode) {
   const decls = aliased.getDeclarations() ?? [];
 
   for (const d of decls) {
+    // Skip platform / library declarations (Intl.NumberFormatOptions,
+    // Math, RegExp, ...) — they don't describe our API and the resulting
+    // nested rows are noise. `isSourceFileDefaultLibrary` flags
+    // TypeScript's built-in `.d.ts` files; we extend it to anything
+    // sitting under `node_modules/` so user-side type packages like
+    // `@types/react` aren't expanded either. Local API config types
+    // (our own interfaces) always live in the project source tree and
+    // pass this check.
+    const sf = d.getSourceFile();
+    if (program.isSourceFileDefaultLibrary(sf)) return null;
+    if (sf.fileName.includes('/node_modules/')) return null;
+
     if (ts.isInterfaceDeclaration(d)) {
       if (['Partial', 'Pick', 'Omit', 'Record'].includes(aliased.getName())) return null;
 

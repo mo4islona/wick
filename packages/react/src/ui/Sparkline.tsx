@@ -1,4 +1,4 @@
-import { type CSSProperties, useMemo } from 'react';
+import { type CSSProperties, useMemo, useRef } from 'react';
 
 import { type ChartTheme, type TimePoint, formatCompact, resolveCandlestickBodyColor } from '@wick-charts/core';
 
@@ -12,6 +12,14 @@ export type SparklineValuePosition = 'left' | 'right' | 'none';
 export interface SparklineProps {
   /** Data points plotted by the sparkline. A flat `TimePoint[]` — the sparkline only ever shows one tiny line/bar. */
   data: TimePoint[];
+  /**
+   * Streaming-window mode: viewport is fixed at `capacity` bars wide and
+   * stays anchored at the time of the first data point until the window
+   * fills. New ticks flow into the empty right side instead of expanding
+   * the visible range. Pass at least one seed point in `data` so the
+   * initial window has a time anchor.
+   */
+  flow?: { capacity: number };
   /** Visual theme. Drives series colour, background gradient, and the change-direction colours used in the value block. */
   theme: ChartTheme;
   /** 'line' (default) or 'bar' */
@@ -77,6 +85,7 @@ export function Sparkline({
   negativeColor,
   area,
   areaFill,
+  flow,
   width = 140,
   height = 48,
   strokeWidth = 1.5,
@@ -94,6 +103,58 @@ export function Sparkline({
   const changeColor = resolveCandlestickBodyColor(
     change.positive ? theme.candlestick.up.body : theme.candlestick.down.body,
   );
+
+  // Self-stabilising Y bounds — never contract. Sparklines are tiny enough
+  // that the chart's default auto-Y (visible min/max on every tick) reads
+  // as a noticeable vertical "jump" when a streamed value is far from the
+  // seen range, and every already-drawn point repositions with it. We
+  // track a running min/max of all values we've seen, never shrink, and
+  // hand the chart a padded version. Bounds settle within a few ticks for
+  // bounded feeds (e.g. random in [-100, 100]); for drifting feeds they
+  // creep outward to keep up. Reset across mounts via useRef — flow-mode
+  // remounts get a fresh window.
+  const boundsRef = useRef<{ min: number; max: number } | null>(null);
+  const yBounds = useMemo(() => {
+    if (data.length === 0) return undefined;
+
+    let min = boundsRef.current?.min ?? Number.POSITIVE_INFINITY;
+    let max = boundsRef.current?.max ?? Number.NEGATIVE_INFINITY;
+    for (const p of data) {
+      if (p.value < min) min = p.value;
+      if (p.value > max) max = p.value;
+    }
+    boundsRef.current = { min, max };
+
+    const range = max - min || Math.max(1, Math.abs(min));
+    const pad = range * 0.2;
+
+    return { min: min - pad, max: max + pad };
+  }, [data]);
+
+  // Captured-at-mount viewport for flow mode. Pins the latest seed point near
+  // the RIGHT edge of the visible window (3-interval right pad, matching the
+  // viewport default) with empty space stretching to the LEFT. New ticks
+  // arrive at the right side and existing points slide LEFT — the "drive-in"
+  // effect. Requires at least 2 seed points so `interval` can be inferred;
+  // falls back to undefined otherwise (chart fits to data normally).
+  // Subsequent renders don't recompute because ChartContainer ignores viewport
+  // prop changes after mount.
+  const viewport = useMemo(() => {
+    if (!flow || data.length < 2) return undefined;
+
+    const interval = data[1].time - data[0].time;
+    if (interval <= 0) return undefined;
+
+    const last = data[data.length - 1].time;
+    const rightPad = 3 * interval;
+    const to = last + rightPad;
+    const from = to - flow.capacity * interval;
+
+    return {
+      maxVisibleBars: flow.capacity,
+      initialRange: { from, to } as const,
+    };
+  }, []);
 
   const valueBlock = valuePosition !== 'none' && (
     <div
@@ -166,13 +227,14 @@ export function Sparkline({
       <ChartContainer
         theme={theme}
         axis={{
-          y: { visible: false, width: 0 },
+          y: { visible: false, width: 0, min: yBounds?.min, max: yBounds?.max },
           x: { visible: false, height: 0 },
         }}
         padding={{ top: 5, right: 0, bottom: 0, left: 0 }}
         gradient={gradient}
         interactive={false}
         grid={{ visible: false }}
+        viewport={viewport}
       >
         {variant === 'line' ? (
           <LineSeries

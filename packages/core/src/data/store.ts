@@ -46,6 +46,19 @@ export class TimeSeriesStore<T extends { time: number }> extends EventEmitter<St
     this.emit('update');
   }
 
+  trimStart(count: number): void {
+    if (count <= 0 || this.data.length === 0) return;
+    if (count >= this.data.length) {
+      this.data = [];
+      this.cachedRange = null;
+      this.emit('update');
+      return;
+    }
+    this.data = this.data.slice(count);
+    this.cachedRange = null;
+    this.emit('update');
+  }
+
   getAll(): T[] {
     return this.data;
   }

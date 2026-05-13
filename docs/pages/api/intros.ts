@@ -17,7 +17,7 @@ export const INTROS: Record<string, string> = {
 
   // subcomponents
   ChartContainer:
-    'The root component every chart starts with. Provides theme, axis configuration, padding, and the canvas; collects series and overlays from its children.',
+    'The root component every chart starts with. Provides theme, axis configuration, padding, and the canvas; collects series and overlays from its children. Use `viewport={{ maxVisibleBars, initialRange }}` to size the streaming window and apply an initial zoom *before* the first paint (same shape as the imperative `chart.setVisibleRange`).',
   TimeAxis:
     'Renders tick marks and labels along the time axis. Density adapts to viewport width and is bounded by the `labelCount` and `minLabelSpacing` props (which override the chart-level defaults).',
   YAxis:

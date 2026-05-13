@@ -23,6 +23,11 @@ export interface SetTargetOptions {
    * loop or a synthetic event timestamp so the animation start agrees with the
    * next `tick(now)` call. Defaults to {@link performance.now}. */
   now?: number;
+  /** Override the animator's default easing curve for this retarget. Lets a
+   * single animator serve both eased programmatic transitions (rebound, fit)
+   * and continuous-chase paths (streaming scroll) without needing a separate
+   * instance per use site. */
+  easing?: Easing;
 }
 
 /**
@@ -44,46 +49,48 @@ export interface SetTargetOptions {
  * time agrees with what `tick` will see on the next frame.
  */
 export class Animator<T> {
-  private _current: T;
-  private _from: T;
-  private _to: T;
-  private _startTime = 0;
-  private _activeDuration: number;
-  private readonly _defaultDuration: number;
-  private readonly _easing: Easing;
-  private readonly _lerp: (from: T, to: T, t: number) => T;
-  private readonly _equals: (a: T, b: T) => boolean;
-  private _animating = false;
+  #current: T;
+  #from: T;
+  #to: T;
+  #startTime = 0;
+  #activeDuration: number;
+  #activeEasing: Easing;
+  readonly #defaultDuration: number;
+  readonly #easing: Easing;
+  readonly #lerp: (from: T, to: T, t: number) => T;
+  readonly #equals: (a: T, b: T) => boolean;
+  #animating = false;
 
   constructor(opts: AnimatorOptions<T>) {
-    this._current = opts.initial;
-    this._from = opts.initial;
-    this._to = opts.initial;
-    this._defaultDuration = opts.duration;
-    this._activeDuration = opts.duration;
-    this._easing = opts.easing ?? easeOutCubic;
-    this._lerp = opts.lerp;
-    this._equals = opts.equals ?? Object.is;
+    this.#current = opts.initial;
+    this.#from = opts.initial;
+    this.#to = opts.initial;
+    this.#defaultDuration = opts.duration;
+    this.#activeDuration = opts.duration;
+    this.#easing = opts.easing ?? easeOutCubic;
+    this.#activeEasing = this.#easing;
+    this.#lerp = opts.lerp;
+    this.#equals = opts.equals ?? Object.is;
   }
 
   get current(): T {
-    return this._current;
+    return this.#current;
   }
 
   get target(): T {
-    return this._to;
+    return this.#to;
   }
 
   get animating(): boolean {
-    return this._animating;
+    return this.#animating;
   }
 
   /** Replace the target instantly; cancels any in-flight animation. */
   snap(value: T): void {
-    this._current = value;
-    this._from = value;
-    this._to = value;
-    this._animating = false;
+    this.#current = value;
+    this.#from = value;
+    this.#to = value;
+    this.#animating = false;
   }
 
   /**
@@ -105,41 +112,42 @@ export class Animator<T> {
   setTarget(value: T, opts: SetTargetOptions = {}): void {
     const now = opts.now ?? performance.now();
 
-    if (this._animating) {
-      if (this._equals(value, this._to)) return;
+    if (this.#animating) {
+      if (this.#equals(value, this.#to)) return;
       this.tick(now);
-    } else if (this._equals(value, this._current)) {
+    } else if (this.#equals(value, this.#current)) {
       return;
     }
 
-    const dur = opts.duration ?? this._defaultDuration;
+    const dur = opts.duration ?? this.#defaultDuration;
     if (dur <= 0) {
       this.snap(value);
       return;
     }
 
-    this._from = this._current;
-    this._to = value;
-    this._activeDuration = dur;
-    this._startTime = now;
-    this._animating = true;
+    this.#from = this.#current;
+    this.#to = value;
+    this.#activeDuration = dur;
+    this.#activeEasing = opts.easing ?? this.#easing;
+    this.#startTime = now;
+    this.#animating = true;
   }
 
   /** Advance `current` toward `target`. Returns `true` while still animating. */
   tick(now: number): boolean {
-    if (!this._animating) return false;
+    if (!this.#animating) return false;
 
-    const elapsed = now - this._startTime;
+    const elapsed = now - this.#startTime;
 
-    if (elapsed >= this._activeDuration) {
-      this._current = this._to;
-      this._animating = false;
+    if (elapsed >= this.#activeDuration) {
+      this.#current = this.#to;
+      this.#animating = false;
 
       return false;
     }
 
-    const t = elapsed <= 0 ? 0 : elapsed / this._activeDuration;
-    this._current = this._lerp(this._from, this._to, this._easing(t));
+    const t = elapsed <= 0 ? 0 : elapsed / this.#activeDuration;
+    this.#current = this.#lerp(this.#from, this.#to, this.#activeEasing(t));
 
     return true;
   }

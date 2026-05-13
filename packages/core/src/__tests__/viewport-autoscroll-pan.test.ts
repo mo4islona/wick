@@ -16,7 +16,7 @@ function primed(): Viewport {
   v.setDataInterval(INTERVAL);
   v.setDataStart(0);
   v.setDataEnd(100 * INTERVAL);
-  v.fitToData(0, 100 * INTERVAL, 800);
+  v.fitToData(0, 100 * INTERVAL, { chartWidth: 800 });
 
   return v;
 }

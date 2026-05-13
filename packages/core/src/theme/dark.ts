@@ -18,8 +18,8 @@ export const darkTheme: ChartTheme = {
   },
 
   grid: {
-    color: 'rgba(42, 46, 57, 0.6)',
-    style: 'dashed',
+    color: 'rgba(82, 88, 102, 0.3)',
+    style: 'solid',
   },
 
   candlestick: {

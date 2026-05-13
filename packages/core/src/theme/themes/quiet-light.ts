@@ -27,7 +27,7 @@ export const quietLight = createTheme({
     '#7a3e9d',
   ],
   bands: { upper: '#2d8fa1', lower: '#aa3731' },
-  crosshair: { color: 'rgba(170,170,170,0.3)', labelBackground: '#e8e8e8' },
+  crosshair: { color: 'rgba(80,80,80,0.5)', labelBackground: '#e8e8e8' },
   axis: { textColor: '#aaaaaa' },
   tooltip: { background: 'rgba(245,245,245,0.95)', textColor: '#333333', borderColor: 'rgba(200,200,200,0.5)' },
   typography: { fontFamily: IBM },

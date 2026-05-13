@@ -23,7 +23,7 @@ export const sandDune = createTheme({
   bands: { upper: '#4a7a7a', lower: '#b85040' },
   grid: { color: 'rgba(150,130,100,0.15)' },
   axis: { textColor: '#9a8a70' },
-  crosshair: { color: 'rgba(150,130,100,0.2)', labelBackground: '#e8e0d0' },
+  crosshair: { color: 'rgba(85,65,45,0.45)', labelBackground: '#e8e0d0' },
   tooltip: { background: 'rgba(244,240,232,0.95)', textColor: '#3a3020', borderColor: 'rgba(150,130,100,0.3)' },
   typography: { fontFamily: SOURCE_CODE },
   fontUrl: SOURCE_CODE_URL,

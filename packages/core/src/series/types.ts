@@ -83,6 +83,13 @@ export interface SeriesRenderer {
   /** Replace the last point in place (live candle update). Optional. */
   updateLastPoint?(point: unknown, layerIndex?: number): void;
 
+  /**
+   * Keep only the last `count` points; drop the oldest. No-op when the series
+   * is already at or below the cap. Smooth Y-range update — does NOT trigger
+   * the snap that {@link setData} forces.
+   */
+  keepLast?(count: number, layerIndex?: number): void;
+
   // --- Layer model ---------------------------------------------------------
 
   /** Number of visual layers the renderer owns. Default: 1. */

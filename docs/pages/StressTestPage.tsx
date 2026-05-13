@@ -1,5 +1,6 @@
+import { useEffect, useMemo, useState } from 'react';
+
 import type { ChartTheme } from '@wick-charts/react';
-import { useMemo, useState } from 'react';
 
 import { Toggle } from '../components/playground/primitives';
 import { themeSurfaceVars } from '../components/playground/themeSurface';
@@ -9,15 +10,27 @@ import { StressPanels } from './stress/panel';
 import { piePanels } from './stress/pie';
 import { reactPanels } from './stress/react';
 import { scalePanels } from './stress/scale';
+import { streamingPanels } from './stress/streaming';
 import { themePanels } from './stress/theme';
 import { timeAxisPanels } from './stress/timeaxis';
 import { viewportPanels } from './stress/viewport';
 import { volumePanels } from './stress/volume';
 
-type GroupId = 'volume' | 'data' | 'scale' | 'timeaxis' | 'multi' | 'pie' | 'viewport' | 'theme' | 'react';
+type GroupId =
+  | 'volume'
+  | 'streaming'
+  | 'data'
+  | 'scale'
+  | 'timeaxis'
+  | 'multi'
+  | 'pie'
+  | 'viewport'
+  | 'theme'
+  | 'react';
 
 const GROUPS: { id: GroupId; label: string; hint: string }[] = [
   { id: 'volume', label: 'Volume', hint: '10k · 100k points · streaming' },
+  { id: 'streaming', label: 'Streaming', hint: 'warm-up · jumps · jitter · pause' },
   { id: 'data', label: 'Data hygiene', hint: 'empty · nulls · NaN · gaps' },
   { id: 'scale', label: 'Scale', hint: 'constant · tiny · giant · negative' },
   { id: 'timeaxis', label: 'Time axis', hint: 'ms · days · years · decades' },
@@ -28,9 +41,34 @@ const GROUPS: { id: GroupId; label: string; hint: string }[] = [
   { id: 'react', label: 'React', hint: 'ref identity · id churn' },
 ];
 
+const STORAGE_KEY = 'wick-charts:stress-test:group';
+
+function isGroupId(value: unknown): value is GroupId {
+  return typeof value === 'string' && GROUPS.some((g) => g.id === value);
+}
+
+function readPersistedGroup(): GroupId {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (isGroupId(stored)) return stored;
+  } catch {
+    // localStorage may be unavailable (private mode, sandboxed iframe) — fall through.
+  }
+
+  return 'volume';
+}
+
 export function StressTestPage({ theme }: { theme: ChartTheme }) {
-  const [group, setGroup] = useState<GroupId>('volume');
+  const [group, setGroup] = useState<GroupId>(readPersistedGroup);
   const [perfHud, setPerfHud] = useState(false);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, group);
+    } catch {
+      // localStorage write failed — non-critical; the in-memory state still works.
+    }
+  }, [group]);
 
   const surface = useMemo(() => themeSurfaceVars(theme), [theme]);
 
@@ -38,6 +76,8 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
     switch (group) {
       case 'volume':
         return volumePanels;
+      case 'streaming':
+        return streamingPanels;
       case 'data':
         return dataPanels;
       case 'scale':
@@ -71,7 +111,9 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
               <code>#stress-test</code> in any build.
             </p>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: theme.tooltip.textColor }}>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: theme.tooltip.textColor }}
+          >
             Perf HUD <Toggle checked={perfHud} onChange={setPerfHud} />
           </label>
         </div>

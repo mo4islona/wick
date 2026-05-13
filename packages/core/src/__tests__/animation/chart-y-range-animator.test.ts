@@ -166,6 +166,53 @@ describe('chart Y-range animator', () => {
     expect(settled.min).toBeLessThanOrEqual(-200);
   });
 
+  it('preserves streaming cadence wall across per-frame renders between ticks', () => {
+    // Regression: per-frame `renderMain → updateScales → updateYRange`
+    // used to wipe `#lastYStreamingWall` because it called with
+    // `streaming` defaulted to false. With tri-state semantics
+    // (`streaming === false` resets, `streaming === undefined` doesn't)
+    // the cadence anchor survives between adjacent streaming ticks so
+    // the adaptive duration actually reflects the inter-arrival
+    // interval instead of always falling back to `yAxisMs`.
+    ({ chart, container } = makeChart({ yAxisMs: 200 }));
+    const id = seedLine(chart, [50, 50, 50, 50, 50]);
+    raf.flush(20);
+
+    // First streaming tick — sets the cadence wall.
+    chart.appendData(id, { time: 1_000_000 + 5 * INTERVAL, value: 60 });
+    const wallAfterFirstTick = chart._lastYStreamingWall;
+    expect(wallAfterFirstTick).toBeGreaterThan(0);
+
+    // Several per-frame renders run between ticks (RAF advancing the
+    // Y-range animator). The wall must survive every one of them.
+    raf.flush(5);
+    expect(chart._lastYStreamingWall).toBe(wallAfterFirstTick);
+
+    // Second streaming tick — wall advances to the new time, but the
+    // important fact is that the FIRST wall wasn't lost mid-flight.
+    chart.appendData(id, { time: 1_000_000 + 6 * INTERVAL, value: 70 });
+    expect(chart._lastYStreamingWall).toBeGreaterThan(wallAfterFirstTick);
+  });
+
+  it('resets streaming cadence wall on explicit non-streaming updateYRange (batch load)', () => {
+    // Tri-state: only an explicit `streaming: false` call (batch load,
+    // bulk replace) wipes the wall. After a fresh setSeriesData the
+    // cadence anchor must be cleared so the next streaming session
+    // starts from a clean measurement instead of inheriting a stale one.
+    ({ chart, container } = makeChart({ yAxisMs: 200 }));
+    const id = seedLine(chart, [50, 50, 50, 50, 50]);
+    raf.flush(20);
+    chart.appendData(id, { time: 1_000_000 + 5 * INTERVAL, value: 100 });
+    expect(chart._lastYStreamingWall).toBeGreaterThan(0);
+
+    // Bulk replace (batch load).
+    chart.setSeriesData(
+      id,
+      Array.from({ length: 10 }, (_, i) => ({ time: 1_000_000 + i * INTERVAL, value: 200 + i })),
+    );
+    expect(chart._lastYStreamingWall).toBe(0);
+  });
+
   it('setSeriesData snaps Y synchronously so yScale.getRange() reflects new domain', () => {
     // Bulk replace path: tests like chart-scales-sync.test rely on yScale
     // updating immediately after setSeriesData. The chart marks

@@ -115,7 +115,7 @@ export function createTheme(config: ThemeConfig): ThemePreset {
     },
     grid: {
       color: config.grid?.color ?? defGrid,
-      style: config.grid?.style ?? 'dashed',
+      style: config.grid?.style ?? 'solid',
     },
     candlestick: {
       up: {
