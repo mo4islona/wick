@@ -37,6 +37,7 @@ Root component. Requires a defined width + height.
   theme={catppuccin.theme}
   axis={{ y: { min: 0, max: 'auto' }, x: { visible: true } }}
   padding={{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }}
+  viewport={{ maxVisibleBars: 200, initialRange: 35 }}
   gradient grid={{ visible: true }} interactive
   headerLayout="overlay"
   style={{ width: '100%', height: 400 }}
@@ -45,9 +46,7 @@ Root component. Requires a defined width + height.
 </ChartContainer>
 ```
 
-React props: `theme`, `axis`, `padding`, `gradient`, `grid`, `interactive`, `headerLayout`, `style`, `className` (all optional, safe defaults). `padding.top|bottom` are pixels; `padding.left|right` accept pixels **or** `{ intervals: N }` for N empty data slots. `grid` is `{ visible: boolean }` — pass `grid={{ visible: false }}` to hide. `axis.y` / `axis.x` accept `width` / `height` respectively for axis gutter sizing. `headerLayout` is `'overlay' | 'inline'` — defaults to `'overlay'` (Title / InfoBar float above the canvas with their height folded into `padding.top`); `'inline'` pushes them into the vertical flow instead.
-
-Vue / Svelte props (current subset): `theme`, `axis` (+ `style` in Svelte). `padding`/`gradient`/`grid`/`interactive` are React-only at the moment — use the sensible defaults on Vue and Svelte, or size via the wrapping element.
+Props: `theme`, `axis`, `padding`, `viewport`, `gradient`, `grid`, `interactive`, `headerLayout`, `animations`, `onEdgeReached`, `perf`, `style`, `className` — all optional with safe defaults, in parity across React/Vue/Svelte (style is React/Svelte only). `padding.top|bottom` are pixels; `padding.left|right` accept pixels **or** `{ intervals: N }` for N empty data slots. `grid` is `{ visible: boolean }` — pass `grid={{ visible: false }}` to hide. `axis.y` / `axis.x` accept `width` / `height` respectively for axis gutter sizing. `headerLayout` is `'overlay' | 'inline'` — defaults to `'overlay'` (Title / InfoBar float above the canvas with their height folded into `padding.top`); `'inline'` pushes them into the vertical flow instead. `viewport.maxVisibleBars` (default 200) caps the visible window before tail-scroll kicks in. `viewport.initialRange` matches `chart.setVisibleRange(spec)` (bar count, `{from, to}`, or `{from, bars}`) and is applied **before** the first paint — use instead of an after-mount `useEffect(() => chart.setVisibleRange(...))` to avoid a visible re-zoom on the next frame.
 
 `AxisBound` = `'auto' | number | "+10%" | ((values: number[]) => number)`.
 

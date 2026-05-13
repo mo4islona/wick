@@ -4,7 +4,7 @@ export const gruvbox = createTheme({
   name: 'Gruvbox',
   description: 'Retro warm with earthy tones',
   background: '#282828',
-  grid: { color: 'rgba(60,56,54,0.8)' },
+  grid: { color: 'rgba(100,94,90,0.3)' },
   candlestick: {
     up: { body: autoGradient('#b8bb26'), wick: '#b8bb26' },
     down: { body: autoGradient('#fb4934'), wick: '#fb4934' },
@@ -23,7 +23,7 @@ export const gruvbox = createTheme({
     '#d3869b',
   ],
   bands: { upper: '#83a598', lower: '#d3869b' },
-  crosshair: { color: 'rgba(146,131,116,0.4)', labelBackground: '#3c3836' },
+  crosshair: { color: 'rgba(146,131,116,0.7)', labelBackground: '#3c3836' },
   axis: { textColor: '#928374' },
   tooltip: { background: 'rgba(40,40,40,0.92)', textColor: '#ebdbb2', borderColor: 'rgba(60,56,54,0.6)' },
   typography: { fontFamily: MONO },

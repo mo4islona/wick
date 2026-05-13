@@ -59,7 +59,7 @@ export const COMMON_DEFAULTS: CommonState = {
   streaming: true,
   perfHudVisible: false,
   gridVisible: true,
-  gridStyle: 'dashed',
+  gridStyle: 'solid',
   bgGradient: true,
   headerLayout: 'overlay',
   yAxisVisible: true,

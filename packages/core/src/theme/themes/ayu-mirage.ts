@@ -4,7 +4,7 @@ export const ayuMirage = createTheme({
   name: 'Ayu Mirage',
   description: 'Warm dark with amber accents',
   background: '#1f2430',
-  grid: { color: 'rgba(42,48,60,0.8)' },
+  grid: { color: 'rgba(82,90,108,0.3)' },
   candlestick: {
     up: { body: autoGradient('#bae67e'), wick: '#bae67e' },
     down: { body: autoGradient('#f27983'), wick: '#f27983' },
@@ -23,7 +23,7 @@ export const ayuMirage = createTheme({
     '#d4bfff',
   ],
   bands: { upper: '#5ccfe6', lower: '#f28779' },
-  crosshair: { color: 'rgba(92,103,115,0.4)', labelBackground: '#2a3040' },
+  crosshair: { color: 'rgba(92,103,115,0.7)', labelBackground: '#2a3040' },
   axis: { textColor: '#5c6773' },
   tooltip: { background: 'rgba(31,36,48,0.92)', textColor: '#cbccc6', borderColor: 'rgba(42,48,60,0.6)' },
   typography: { fontFamily: GEIST },

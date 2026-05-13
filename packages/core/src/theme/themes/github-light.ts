@@ -24,7 +24,7 @@ export const githubLight = createTheme({
     '#8250df',
   ],
   bands: { upper: '#0550ae', lower: '#cf222e' },
-  crosshair: { color: 'rgba(208,215,222,0.3)', labelBackground: '#f0f3f6' },
+  crosshair: { color: 'rgba(80,90,100,0.5)', labelBackground: '#f0f3f6' },
   axis: { textColor: '#8b949e' },
   tooltip: { background: 'rgba(250,251,252,0.95)', textColor: '#24292f', borderColor: 'rgba(216,222,228,0.5)' },
   typography: { fontFamily: JAKARTA },

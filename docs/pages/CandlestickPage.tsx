@@ -167,7 +167,7 @@ export function CandlestickPage({ theme }: { theme: ChartTheme }) {
       theme={theme}
       extraDefaults={(m) => ({
         yLabelVisible: true,
-        tooltipVisible: true,
+        tooltipVisible: false,
         infoBarVisible: !m,
         crosshairVisible: true,
       })}

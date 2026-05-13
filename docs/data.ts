@@ -251,27 +251,18 @@ class BaseStream<T extends { time: number }, S extends AnyStrategy<T>> {
    * promptly on every new bar. */
   protected lastIntraEmit = 0;
   protected static readonly INTRA_EMIT_MS = 500;
-  /** Virtual-time head start granted to the first boundary so streaming
-   * demos don't sit silent for a full `interval` after the user enables
-   * live mode. 500ms feels snappy without creating a visible "jump". */
-  protected static readonly INITIAL_LEAD_MS = 500;
-
   constructor(cfg: StreamConfig<T, S>) {
     this.last = { ...cfg.last };
     this.index = cfg.startIndex;
     this.interval = cfg.interval;
     this.strategy = cfg.strategy;
     this.speed = cfg.speed ?? (() => 1);
-    // Seed virtualNow `INITIAL_LEAD_MS` below the next boundary so the first
-    // live bar shows up ~500ms after stream start instead of after a full
-    // `interval` (5s at the canonical demo pace — too long to feel alive).
-    // Subsequent bars arrive at the natural `interval / speed` cadence. The
-    // small virtual/wall-clock offset this introduces is invisible on the
-    // chart because the time axis is data-relative. Anchoring at Date.now()
-    // instead would force the first tick to catch up across whatever gap
-    // accumulated during history rendering, producing a visible burst of bars.
-    const lead = Math.min(BaseStream.INITIAL_LEAD_MS, cfg.interval - 1);
-    this.virtualNow = cfg.last.time + cfg.interval - lead;
+    // First bar fires after a full `interval / speed` wait. Previous versions
+    // granted a 500ms virtual-time head start to make the first bar appear
+    // ~immediately, but that produced a visible "fast first tick → 1s pause
+    // → steady cadence" rhythm. Equal spacing across every bar reads as
+    // smoother panning, even at the cost of a one-interval cold start.
+    this.virtualNow = cfg.last.time;
   }
 
   onTick(listener: (point: T) => void): () => void {

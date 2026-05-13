@@ -12,38 +12,76 @@ import { ICONS } from '../components/playground/icons';
 import { Playground, type PlaygroundChartProps } from '../components/playground/Playground';
 import { Select, ToggleGroup } from '../components/playground/primitives';
 import type { RowSpec, SectionSpec } from '../components/playground/sections';
-import { generateBarData, generateLineData, generateWaveData } from '../data';
+import {
+  type LineStrategy,
+  barStrategy,
+  generateBarData,
+  generateLineData,
+  generateWaveData,
+  lineDriftStrategy,
+  waveStrategy,
+} from '../data';
 import { DEMO_INTERVAL } from '../data/demo';
-import { useIsMobile } from '../hooks';
+import { useIsMobile, useLineStreams } from '../hooks';
 
 // ── Sample data generators ──────────────────────────────────
 
-function makeSparkData(seed: number, count = 60): LineData[] {
-  return generateLineData(count, 40 + seed * 20, DEMO_INTERVAL);
+const SPARK_HISTORY = 80;
+
+// Streaming cadence — sparklines look better moving at a brisk pace than the
+// canonical 5s bar interval. Faster speed = fresh bars every ~500ms.
+const SPARK_SPEED = 10;
+
+interface RowMeta {
+  label: string;
+  sublabel?: string;
+  color?: string;
+  variant?: SparklineVariant;
 }
 
-function makeWaveSparkData(seed: number, count = 60): LineData[] {
-  return generateWaveData(count, {
+interface RowSeed extends RowMeta {
+  data: LineData[];
+  strategy: LineStrategy;
+}
+
+function makeLineRow(seed: number, label: string, sublabel?: string): RowSeed {
+  const startValue = 40 + seed * 20;
+  const data = generateLineData(SPARK_HISTORY, startValue, DEMO_INTERVAL);
+
+  return { label, sublabel, data, strategy: lineDriftStrategy(data[data.length - 1]?.value ?? startValue) };
+}
+
+function makeWaveRow(seed: number, label: string, sublabel?: string): RowSeed {
+  const opts = {
     base: 10 + seed * 5,
     amplitude: 50 + seed * 30,
     period: 20 + seed * 8,
     phase: seed * 0.3,
     interval: DEMO_INTERVAL,
-  });
+  };
+  const data = generateWaveData(SPARK_HISTORY, opts);
+
+  return {
+    label,
+    sublabel,
+    data,
+    strategy: waveStrategy({ ...opts, totalHint: SPARK_HISTORY }),
+  };
 }
 
-function makeBarSparkData(count = 60): LineData[] {
-  return generateBarData(count, DEMO_INTERVAL);
+function makeBarRow(label: string): RowSeed {
+  return {
+    label,
+    variant: 'bar',
+    data: generateBarData(SPARK_HISTORY, DEMO_INTERVAL),
+    strategy: barStrategy(100),
+  };
 }
 
 // ── Metric card rows ────────────────────────────────────────
 
-interface MetricRow {
-  label: string;
-  sublabel?: string;
+interface MetricRow extends RowMeta {
   data: LineData[];
-  color?: string;
-  variant?: SparklineVariant;
 }
 
 const CRYPTO_LABELS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AVAX/USD', 'DOT/USD', 'LINK/USD'];
@@ -53,12 +91,14 @@ const METRIC_LABELS = ['Revenue', 'Users', 'Conversion', 'Latency', 'Throughput'
 // ── Settings ────────────────────────────────────────────────
 
 type Preset = 'crypto' | 'servers' | 'metrics';
+type SparklineMode = 'static' | 'live';
 
 interface SparklineSettings {
   variant: SparklineVariant;
   valuePos: SparklineValuePosition;
   areaVisible: boolean;
   preset: Preset;
+  mode: SparklineMode;
 }
 
 // ── Page ────────────────────────────────────────────────────
@@ -136,6 +176,32 @@ const SERIES_SECTION: SectionSpec = {
   ] as RowSpec[],
 };
 
+// Mirrors the built-in Demo section that cartesian pages render via Playground.
+// `hideCartesian` suppresses the built-in version here, so the page owns it.
+const DEMO_SECTION: SectionSpec = {
+  id: 'demo',
+  title: 'Demo',
+  icon: ICONS.data,
+  defaultOpen: true,
+  rows: [
+    {
+      key: 'mode',
+      label: 'Mode',
+      hint: 'Stream mock data vs. static snapshot',
+      render: (v, onChange) => (
+        <ToggleGroup<SparklineMode>
+          value={v as SparklineMode}
+          options={[
+            { value: 'live', label: 'Live' },
+            { value: 'static', label: 'Static' },
+          ]}
+          onChange={onChange as (v: SparklineMode) => void}
+        />
+      ),
+    },
+  ] as RowSpec[],
+};
+
 const VALUE_SECTION: SectionSpec = {
   id: 'value',
   title: 'Value',
@@ -182,25 +248,48 @@ const DATASET_SECTION: SectionSpec = {
   ] as RowSpec[],
 };
 
+// ── Live sparkline grid ─────────────────────────────────────
+
+interface AnimatedGridProps extends PlaygroundChartProps, SparklineSettings {
+  seeds: RowSeed[];
+  mobile: boolean;
+}
+
+// Sits inside a key={preset} boundary so switching dataset remounts the
+// streaming hook with fresh seeds rather than tearing through the live tail.
+function AnimatedSparklineGrid({ seeds, ...props }: AnimatedGridProps) {
+  const seriesHistory = useMemo(() => seeds.map((s) => s.data), [seeds]);
+  const strategies = useMemo(() => seeds.map((s) => s.strategy), [seeds]);
+
+  const { datasets } = useLineStreams(seriesHistory, {
+    interval: DEMO_INTERVAL,
+    speed: SPARK_SPEED,
+    maxPoints: SPARK_HISTORY,
+    strategy: (_series, i) => strategies[i],
+  });
+
+  const rows: MetricRow[] = seeds.map((seed, i) => ({
+    label: seed.label,
+    sublabel: seed.sublabel,
+    color: seed.color,
+    variant: seed.variant,
+    data: datasets[i]?.length ? datasets[i] : seed.data,
+  }));
+
+  return <SparklineGrid {...props} rows={rows} />;
+}
+
 export function SparklinePage({ theme }: { theme: ChartTheme }) {
   const mobile = useIsMobile();
 
-  // Pre-generate datasets to avoid re-creation on every render
-  const datasets = useMemo(() => {
-    const crypto = CRYPTO_LABELS.map((label, i) => ({
-      label,
-      data: makeSparkData(i, 80),
-    }));
-    const servers = SERVER_LABELS.map((label, i) => ({
-      label,
-      sublabel: `${(95 + Math.random() * 5).toFixed(1)}% uptime`,
-      data: makeWaveSparkData(i, 80),
-    }));
-    const metrics = METRIC_LABELS.map((label, i) => ({
-      label,
-      data: i === 5 ? makeBarSparkData(80) : makeSparkData(i + 3, 80),
-      variant: (i === 5 ? 'bar' : 'line') as SparklineVariant,
-    }));
+  // Pre-generate seeds with bundled streaming strategies — keeps history and
+  // live samplers statistically aligned per row.
+  const seedsByPreset = useMemo(() => {
+    const crypto = CRYPTO_LABELS.map((label, i) => makeLineRow(i, label));
+    const servers = SERVER_LABELS.map((label, i) =>
+      makeWaveRow(i, label, `${(95 + Math.random() * 5).toFixed(1)}% uptime`),
+    );
+    const metrics = METRIC_LABELS.map((label, i) => (i === 5 ? makeBarRow(label) : makeLineRow(i + 3, label)));
 
     return { crypto, servers, metrics };
   }, []);
@@ -216,16 +305,29 @@ export function SparklinePage({ theme }: { theme: ChartTheme }) {
         valuePos: 'right',
         areaVisible: true,
         preset: 'crypto',
+        mode: 'live',
       }}
-      sections={[SERIES_SECTION, VALUE_SECTION, DATASET_SECTION]}
+      sections={[DEMO_SECTION, SERIES_SECTION, VALUE_SECTION, DATASET_SECTION]}
       charts={(props) => {
-        const presetData = datasets[props.preset];
-        const rows: MetricRow[] = presetData.map((d, i) => ({
-          ...d,
-          color: 'variant' in d && d.variant === 'bar' ? undefined : theme.seriesColors[i % theme.seriesColors.length],
+        const presetSeeds = seedsByPreset[props.preset];
+        const seeds: RowSeed[] = presetSeeds.map((seed, i) => ({
+          ...seed,
+          color: seed.variant === 'bar' ? undefined : theme.seriesColors[i % theme.seriesColors.length],
         }));
 
-        return <SparklineGrid {...props} rows={rows} mobile={mobile} />;
+        if (props.mode === 'static') {
+          const rows: MetricRow[] = seeds.map((s) => ({
+            label: s.label,
+            sublabel: s.sublabel,
+            color: s.color,
+            variant: s.variant,
+            data: s.data,
+          }));
+
+          return <SparklineGrid {...props} rows={rows} mobile={mobile} />;
+        }
+
+        return <AnimatedSparklineGrid key={props.preset} {...props} seeds={seeds} mobile={mobile} />;
       }}
       codeConfig={(s) => ({
         theme: 'catppuccin.theme',

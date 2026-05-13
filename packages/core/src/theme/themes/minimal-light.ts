@@ -8,7 +8,7 @@ export const minimalLight = createTheme({
   description: 'Pure black and white, pixel font',
   background: '#ffffff',
   chartGradient: ['#ffffff', '#fafafa'],
-  grid: { color: 'rgba(0,0,0,0.06)', style: 'solid' },
+  grid: { color: 'rgba(0,0,0,0.04)', style: 'solid' },
   candlestick: {
     up: { body: autoGradient('#111111'), wick: '#111111' },
     down: { body: autoGradient('#bbbbbb'), wick: '#bbbbbb' },
@@ -27,9 +27,9 @@ export const minimalLight = createTheme({
     '#444444',
   ],
   bands: { upper: '#555555', lower: '#bbbbbb' },
-  crosshair: { color: 'rgba(0,0,0,0.08)', labelBackground: '#f0f0f0' },
+  crosshair: { color: 'rgba(0,0,0,0.35)', labelBackground: '#f0f0f0' },
   axis: { textColor: '#b0b0b0' },
-  tooltip: { fontSize: 9, background: 'rgba(255,255,255,0.97)', textColor: '#222222', borderColor: 'rgba(0,0,0,0.08)' },
+  tooltip: { fontSize: 9, background: 'rgba(255,255,255,0.97)', textColor: '#222222', borderColor: 'rgba(0,0,0,0.04)' },
   typography: { fontFamily: SILKSCREEN },
   fontUrl: SILKSCREEN_URL,
 });

@@ -644,7 +644,48 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Ambient *outer* drop-shadow behind each slice. Adds lift for flat\ndashboards. Omit / `false` to disable (default). `true` uses soft\ndefaults; pass an object to tune individually.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": true,
+                      "defaultValue": "rgba(0, 0, 0, 0.22)",
+                      "deprecated": null,
+                      "description": "Shadow color. Default: `rgba(0, 0, 0, 0.22)`.",
+                      "see": []
+                    },
+                    {
+                      "name": "blur",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "24",
+                      "deprecated": null,
+                      "description": "Blur radius in CSS pixels. Default: 24.",
+                      "see": []
+                    },
+                    {
+                      "name": "offsetX",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "0",
+                      "deprecated": null,
+                      "description": "Horizontal offset in CSS pixels. Default: 0.",
+                      "see": []
+                    },
+                    {
+                      "name": "offsetY",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "10",
+                      "deprecated": null,
+                      "description": "Vertical offset in CSS pixels. Default: 10.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "innerShadow",
@@ -653,7 +694,30 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Inner rim darkening — a dark band near each slice's outer edge that\ngives the pie an \"inset\" / pressed look. Implemented by extending the\nper-slice radial gradient with a dark edge stop, so it pairs naturally\nwith the existing depth gradient. Omit / `false` to disable (default).",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": true,
+                      "defaultValue": "rgba(0, 0, 0, 0.1)",
+                      "deprecated": null,
+                      "description": "Rim color. Default: `rgba(0, 0, 0, 0.1)` (blended over the slice\ncolor). Accepts any CSS color.",
+                      "see": []
+                    },
+                    {
+                      "name": "depth",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "0.3 — darkening starts at 70% of the radius",
+                      "deprecated": null,
+                      "description": "Fraction of the slice's radial span covered by the darkened band\n(0..1). Default: 0.3 — darkening starts at 70% of the radius.",
+                      "see": []
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -1598,11 +1662,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Container style override",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         }
       ]
     },
@@ -2529,7 +2589,21 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Empty space on the right edge. A `number` is pixels (e.g. `50`); an\nobject pads by data intervals on the time axis (e.g. `{ intervals: 3 }`\nleaves room for three more bars/candles past the latest point). Default\n`{ intervals: 3 }`.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "intervals",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "left",
@@ -2538,6 +2612,52 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Empty space on the left edge. A `number` is pixels; an object pads by\ndata intervals on the time axis. Default `{ intervals: 0 }`.",
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "intervals",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "",
+                      "see": []
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "viewport",
+          "type": "{ maxVisibleBars?: number; initialRange?: VisibleRangeSpec; }",
+          "optional": true,
+          "defaultValue": null,
+          "deprecated": null,
+          "description": "Viewport-level streaming behavior. Captured at mount only — changing this\nprop after the chart is created is ignored.",
+          "see": [],
+          "nested": {
+            "name": "",
+            "props": [
+              {
+                "name": "maxVisibleBars",
+                "type": "number",
+                "optional": true,
+                "defaultValue": "200",
+                "deprecated": null,
+                "description": "Width of the visible window in data bars, set on the first data load\nto `maxVisibleBars * dataInterval`. While the dataset is smaller than\nthis width, streaming ticks render into the empty right-side gap and\nthe viewport stays put; once the data reaches the right edge, the\nviewport pans forward to keep the latest bar pinned (tail-scroll).\nDefault: 200.",
+                "see": []
+              },
+              {
+                "name": "initialRange",
+                "type": "VisibleRangeSpec",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Initial visible range applied before the first paint with data. Same\nshape as the imperative `chart.setVisibleRange` — pass a bar count\n(e.g. `35`), an explicit `{from, to}` window, or `{from, bars}` for\na warm-up pair. The standard alternative is calling\n`setVisibleRange` from a `useEffect`, but that runs post-paint and\nmakes the chart visibly re-zoom on the next RAF. Captured at mount.",
                 "see": []
               }
             ]
@@ -2599,8 +2719,95 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "Chart-level animation configuration. See {@link AnimationsConfig} for the\nfull shape.\n\nTwo layers — remember which is which:\n\n- **Chart-level (this prop)** — `animations.points.{enterMs, smoothMs,\n  pulseMs}` and `animations.viewport.{reboundMs, yAxisMs,\n  inputResponseMs}`. Acts as the default for every series.\n- **Per-series** — `<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`\n  (and the analogous CandlestickSeries / BarSeries options). Overrides\n  the chart-level default for that one series. Note the spelling:\n  `entryMs` per-series, `enterMs` chart-level — historical artefact,\n  both refer to the same animation.\n\nResolution: per-series option wins over chart-level numeric value.\nChart-level wins only when its category is explicitly `false` — that's\na hard disable that overrides per-series too.\n\nShorthands:\n- `true` / omitted — built-in defaults (every settling animation 250 ms,\n  pulse cycle 600 ms, input ease 0 / off).\n- `false` — disables every animation category.\n- `{ points: false }` / `{ viewport: false }` — disables a category.\n\nRuntime updates: changing this prop after mount calls\n`chart.setAnimations(...)` so the new durations take effect on the next\nanimation / render.",
-          "see": []
+          "description": "Animation control. `true` / omitted uses built-in defaults; `false`\ndisables every category. Per-series options on `<LineSeries>` /\n`<CandlestickSeries>` / `<BarSeries>` override these chart-level\ndefaults unless the category here is explicitly `false`. Updates\nafter mount call `chart.setAnimations(...)`.",
+          "see": [],
+          "nested": {
+            "name": "AnimationsConfig",
+            "props": [
+              {
+                "name": "points",
+                "type": "false | { enterMs?: AnimationTime; smoothMs?: AnimationTime; pulseMs?: AnimationTime; }",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Data-series animations. `false` disables every point animation (entrance,\nlive-smoothing, pulse) across every series — overrides any per-series\noption set on the same fields. An object overrides individual categories;\nomitted fields fall back to the built-in defaults.\n\nPer-series options (`<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`)\nwin over chart-level numeric values. The chart-level field becomes the\ndefault for series that don't set their own.",
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "enterMs",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": "250",
+                      "deprecated": null,
+                      "description": "Per-point entrance duration (ms). Default: 250.\nPer-series equivalent: `<XSeries options={{ entryMs }}>` (note the\n`y` — chart-level uses `enterMs`, per-series uses `entryMs` for\nhistorical reasons; both refer to the same animation). `false` /\n`0` disables.",
+                      "see": []
+                    },
+                    {
+                      "name": "smoothMs",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": "250",
+                      "deprecated": null,
+                      "description": "Live-value chase duration (ms) for the displayed last point on\n`updateData` ticks. Animator-driven cubic ease — after this many ms\nwith no new updates, the displayed value reaches exactly the\nactual last value. Default: 250. Per-series equivalent:\n`options={{ smoothMs }}`. `false` / `0` snaps.",
+                      "see": []
+                    },
+                    {
+                      "name": "pulseMs",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": "600",
+                      "deprecated": null,
+                      "description": "Pulse cycle period (ms) for the line last-point halo — periodic,\nnot a one-shot transition. Default: 600. Per-series equivalent:\n`<LineSeries options={{ pulseMs }}>`. `false` / `0` disables.",
+                      "see": []
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "viewport",
+                "type": "false | { reboundMs?: AnimationTime; yAxisMs?: AnimationTime; inputResponseMs?: AnimationTime; }",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Viewport interaction animations. `false` disables both rebound and Y-axis\nsmoothing — viewport changes snap instantly.",
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "reboundMs",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": "350",
+                      "deprecated": null,
+                      "description": "Rebound (snap-back) duration after pan/zoom overshoot (ms). Default: 350.",
+                      "see": []
+                    },
+                    {
+                      "name": "yAxisMs",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Y-axis range transition duration in wall-clock milliseconds. The Y\nmin and max each ride their own {@link Animator} that retargets on\ndata updates and eases toward the new bound over this many ms.\nDefault `250` (shares the lockstep-arrival budget with viewport and\nlive-track). Inward contraction always eases. Outward expansion\neases when the per-point entrance is enabled (the entering candle's\nfade masks the brief overshoot); when entrance is hard-disabled\n(`points.enterMs === 0`), Y bounds snap outward to keep new\nhighs/lows from clipping at the canvas edge. `false` / `0` snaps\nthe Y range instantly on every update.",
+                      "see": []
+                    },
+                    {
+                      "name": "inputResponseMs",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Per-event ease applied to user pan/zoom commits. Logical state\nadvances synchronously (gesture math, edge detection, autoscroll\nall read the committed target); the visual range eases over this\nduration so back-to-back wheel/trackpad events interpolate\nsmoothly through the same animator.\n\nDefault `0` (instant-apply, matches the long-standing pre-Phase-5\nbehaviour). Opt in via `inputResponseMs: 60` for an eased pan/zoom\nfeel — the default is conservative because the animated visual\nrange diverges from the committed target until the ease completes,\nand existing consumers reading `chart.getVisibleRange()`\nsynchronously after a wheel/pan expect the new value.",
+                      "see": []
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         },
         {
           "name": "perf",
@@ -2612,17 +2819,22 @@
           "see": []
         },
         {
+          "name": "onEdgeReached",
+          "type": "(info: EdgeReachedInfo) => void",
+          "optional": true,
+          "defaultValue": null,
+          "deprecated": null,
+          "description": "Fired after the user releases a pan/zoom gesture that pulled the viewport\npast a data edge by more than ~10% of the visible range. Hosts typically\nrespond by prefetching more history.\n\nFor threshold-based prefetch (load *before* the user fully overshoots),\nuse `<EdgeLoader>` instead — that component subscribes to `viewportChange`\nand arms when the visible range nears the data edge.\n\nCaptured at mount only; changing the prop identity later is ignored.",
+          "see": []
+        },
+        {
           "name": "style",
           "type": "CSSProperties",
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
           "description": "Inline style for the chart's outer wrapper element.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         },
         {
           "name": "className",
@@ -2813,11 +3025,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Style override for the outer wrapper div.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         },
         {
           "name": "className",
@@ -2861,11 +3069,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Extra styles merged onto the flex row.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         }
       ]
     },
@@ -3050,11 +3254,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Inline style on the root `<span>`. Useful for `fontVariantNumeric: 'tabular-nums'`.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         }
       ]
     },
