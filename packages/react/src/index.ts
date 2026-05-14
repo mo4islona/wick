@@ -136,7 +136,7 @@ export type { PieLegendMode, PieLegendPosition, PieLegendProps, PieLegendRenderC
 export { PieLegend } from './ui/PieLegend';
 export { PieTooltip } from './ui/PieTooltip';
 export type { SparklineProps, SparklineValuePosition, SparklineVariant } from './ui/Sparkline';
-export { Sparkline } from './ui/Sparkline';
+export { SPARKLINE_DEFAULT_STROKE_WIDTH, Sparkline } from './ui/Sparkline';
 export { TimeAxis, TimeAxis as XAxis } from './ui/TimeAxis';
 export type { TitleProps } from './ui/Title';
 export { Title } from './ui/Title';

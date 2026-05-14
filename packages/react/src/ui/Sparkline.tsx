@@ -9,17 +9,33 @@ import { LineSeries } from '../LineSeries';
 export type SparklineVariant = 'line' | 'bar';
 export type SparklineValuePosition = 'left' | 'right' | 'none';
 
+/**
+ * Default line stroke width for {@link Sparkline} (`variant: 'line'`), in
+ * CSS pixels. Exported so demos can compare the live `strokeWidth` setting
+ * against the built-in default without hard-coding the number.
+ */
+export const SPARKLINE_DEFAULT_STROKE_WIDTH = 1;
+
 export interface SparklineProps {
   /** Data points plotted by the sparkline. A flat `TimePoint[]` — the sparkline only ever shows one tiny line/bar. */
   data: TimePoint[];
   /**
-   * Streaming-window mode: viewport is fixed at `capacity` bars wide and
-   * stays anchored at the time of the first data point until the window
-   * fills. New ticks flow into the empty right side instead of expanding
-   * the visible range. Pass at least one seed point in `data` so the
-   * initial window has a time anchor.
+   * Streaming-window mode: viewport is fixed at `capacity` bars wide. Pass
+   * at least two seed points in `data` so the initial window can infer the
+   * tick interval.
+   *
+   * `align` controls where the seed sits at mount:
+   * - `'right'` *(default)* — seed flush with the right edge; each tick
+   *   shifts the viewport left by one interval and the new tick lands at
+   *   the right edge.
+   * - `'left'` — seed flush with the left edge; the viewport is held in
+   *   place until empty bars on the right are consumed, then normal
+   *   tail-scroll resumes.
+   * - `'offscreen'` — seed starts one interval past the right edge so the
+   *   first tick's tail-scroll animates it onto canvas (a brief "drive-in"
+   *   effect).
    */
-  flow?: { capacity: number };
+  flow?: { capacity: number; align?: 'left' | 'right' | 'offscreen' };
   /** Visual theme. Drives series colour, background gradient, and the change-direction colours used in the value block. */
   theme: ChartTheme;
   /** 'line' (default) or 'bar' */
@@ -47,7 +63,7 @@ export interface SparklineProps {
   width?: number;
   /** Overall height (default: 48) */
   height?: number;
-  /** Stroke width in CSS pixels (default: 1.5) */
+  /** Stroke width in CSS pixels. Default: {@link SPARKLINE_DEFAULT_STROKE_WIDTH}. */
   strokeWidth?: number;
   /** Show chart background gradient (default: true) */
   gradient?: boolean;
@@ -88,7 +104,7 @@ export function Sparkline({
   flow,
   width = 140,
   height = 48,
-  strokeWidth = 1.5,
+  strokeWidth = SPARKLINE_DEFAULT_STROKE_WIDTH,
   gradient = true,
   style,
 }: SparklineProps) {
@@ -115,33 +131,45 @@ export function Sparkline({
   // `viewportChange` emit on Y advance, so the chart handles streaming
   // stability itself — Sparkline can drop its local fix.
 
-  // Captured-at-mount viewport for flow mode. Anchors the seed at the LEFT
-  // edge of the visible window with `capacity - seedLength` empty bars
-  // stretching to the RIGHT. New ticks land in that empty right area and the
-  // line grows rightward — the "drive-in" effect. Once the empty bars are
-  // consumed, the viewport's hold releases and tail-scroll takes over.
+  // Captured-at-mount viewport for flow mode. Three layouts, see the
+  // `flow.align` docstring on SparklineProps for the user-facing summary.
   //
-  // Requires at least 2 seed points so `interval` can be inferred; falls
-  // back to undefined otherwise (chart fits to data normally).
+  // - 'left' uses the `{ from, bars }` form so setRangeHold arms
+  //   `#holdUntilFilled` and the viewport stays put while empty bars on the
+  //   right are consumed.
+  // - 'right' and 'offscreen' use `{ from, to }` (setRange) so normal
+  //   tail-scroll kicks in on the first tick. The only difference is
+  //   `to`: at `last` the seed sits flush right; at `last - interval` the
+  //   seed sits one interval past the right edge and the first tick's
+  //   scrollToEnd animates it into view.
+  //
+  // Requires at least 2 seed points so `interval` can be inferred;
+  // falls back to undefined otherwise (chart fits to data normally).
   //
   // Subsequent renders don't recompute because ChartContainer ignores
   // viewport prop changes after mount.
-  //
-  // Uses the `{ from, bars }` form (routes through `setRangeHold`) instead
-  // of `{ from, to }` (which routes through `setRange` and clears any
-  // pending hold). The hold flag keeps `scrollToEnd` from snapping the right
-  // edge to the latest data point while empty bars remain on the right —
-  // without it, the very first stream tick would yank the seed toward the
-  // right edge.
   const viewport = useMemo(() => {
     if (!flow || data.length < 2) return undefined;
 
     const interval = data[1].time - data[0].time;
     if (interval <= 0) return undefined;
 
+    const align = flow.align ?? 'right';
+
+    if (align === 'left') {
+      return {
+        maxVisibleBars: flow.capacity,
+        initialRange: { from: data[0].time, bars: flow.capacity } as const,
+      };
+    }
+
+    const last = data[data.length - 1].time;
+    const to = align === 'offscreen' ? last - interval : last;
+    const from = to - flow.capacity * interval;
+
     return {
       maxVisibleBars: flow.capacity,
-      initialRange: { from: data[0].time, bars: flow.capacity } as const,
+      initialRange: { from, to } as const,
     };
   }, []);
 

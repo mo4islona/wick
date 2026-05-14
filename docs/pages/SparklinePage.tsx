@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import {
   type ChartTheme,
   type LineData,
+  SPARKLINE_DEFAULT_STROKE_WIDTH,
   Sparkline,
   type SparklineValuePosition,
   type SparklineVariant,
@@ -131,6 +132,8 @@ type Preset = 'crypto' | 'servers' | 'metrics' | 'monotonic';
 //           from tick 1. Equivalent to the dashboard streaming pattern.
 type SparklineMode = 'static' | 'flow' | 'live';
 
+type SparklineFlowAlign = 'left' | 'right' | 'offscreen';
+
 interface SparklineSettings {
   variant: SparklineVariant;
   valuePos: SparklineValuePosition;
@@ -138,6 +141,8 @@ interface SparklineSettings {
   preset: Preset;
   mode: SparklineMode;
   points: number;
+  align: SparklineFlowAlign;
+  strokeWidth: number;
 }
 
 // ── Page ────────────────────────────────────────────────────
@@ -147,7 +152,7 @@ function SparklineGrid(
     SparklineSettings & {
       rows: MetricRow[];
       mobile: boolean;
-      flow?: { capacity: number };
+      flow?: { capacity: number; align: SparklineFlowAlign };
     },
 ) {
   return (
@@ -172,6 +177,7 @@ function SparklineGrid(
           area={{ visible: props.areaVisible }}
           gradient={props.gradient}
           flow={props.flow}
+          strokeWidth={props.strokeWidth}
           width={props.mobile ? 120 : 150}
           height={props.mobile ? 40 : 48}
           style={{ width: '100%' }}
@@ -181,44 +187,10 @@ function SparklineGrid(
   );
 }
 
-const SERIES_SECTION: SectionSpec = {
-  id: 'series',
-  title: 'Sparkline',
-  icon: ICONS.series,
-  rows: [
-    {
-      key: 'variant',
-      label: 'Type',
-      render: (v, onChange) => (
-        <ToggleGroup<SparklineVariant>
-          value={v as SparklineVariant}
-          options={[
-            { value: 'line', label: 'Line' },
-            { value: 'bar', label: 'Bar' },
-          ]}
-          onChange={onChange as (v: SparklineVariant) => void}
-        />
-      ),
-    },
-    {
-      key: 'areaVisible',
-      label: 'Fill',
-      render: (v, onChange) => (
-        <ToggleGroup<'on' | 'off'>
-          value={(v as boolean) ? 'on' : 'off'}
-          options={[
-            { value: 'on', label: 'Area' },
-            { value: 'off', label: 'Line only' },
-          ]}
-          onChange={(next) => (onChange as (v: boolean) => void)(next === 'on')}
-        />
-      ),
-    },
-  ] as RowSpec[],
-};
-
-// Mirrors the built-in Demo section that cartesian pages render via Playground.
-// `hideCartesian` suppresses the built-in version here, so the page owns it.
+// `hideCartesian` suppresses the playground's built-in Demo section, so this
+// page owns it. Demo holds the knobs that pick *which* data feeds the chart
+// (mode, preset) — anything that maps to a Sparkline prop lives in the
+// Sparkline section below.
 const DEMO_SECTION: SectionSpec = {
   id: 'demo',
   title: 'Demo',
@@ -242,30 +214,25 @@ const DEMO_SECTION: SectionSpec = {
       ),
     },
     {
-      key: 'points',
-      label: 'Points',
-      hint: 'Number of data points in the visible window',
+      key: 'preset',
+      label: 'Preset',
       render: (v, onChange) => (
-        <Slider
-          value={v as number}
-          min={SPARK_POINTS_MIN}
-          max={SPARK_POINTS_MAX}
-          step={1}
-          onChange={onChange as (v: number) => void}
+        <Select<Preset>
+          value={v as Preset}
+          options={[
+            { value: 'crypto', label: 'Crypto prices' },
+            { value: 'servers', label: 'Server health' },
+            { value: 'metrics', label: 'KPI metrics' },
+            { value: 'monotonic', label: 'Monotonic ramp' },
+          ]}
+          onChange={onChange as (v: Preset) => void}
         />
       ),
     },
-  ] as RowSpec[],
-};
-
-const VALUE_SECTION: SectionSpec = {
-  id: 'value',
-  title: 'Value',
-  icon: ICONS.display,
-  rows: [
     {
       key: 'valuePos',
-      label: 'Position',
+      label: 'Value position',
+      hint: 'Where the value card sits relative to the chart',
       render: (v, onChange) => (
         <ToggleGroup<SparklineValuePosition>
           value={v as SparklineValuePosition}
@@ -281,24 +248,84 @@ const VALUE_SECTION: SectionSpec = {
   ] as RowSpec[],
 };
 
-const DATASET_SECTION: SectionSpec = {
-  id: 'dataset',
-  title: 'Dataset',
-  icon: ICONS.data,
+const SERIES_SECTION: SectionSpec = {
+  id: 'series',
+  title: 'Sparkline',
+  icon: ICONS.series,
   rows: [
     {
-      key: 'preset',
-      label: 'Preset',
+      key: 'variant',
+      label: 'Type',
       render: (v, onChange) => (
-        <Select<Preset>
-          value={v as Preset}
+        <ToggleGroup<SparklineVariant>
+          value={v as SparklineVariant}
           options={[
-            { value: 'crypto', label: 'Crypto prices' },
-            { value: 'servers', label: 'Server health' },
-            { value: 'metrics', label: 'KPI metrics' },
-            { value: 'monotonic', label: 'Monotonic ramp' },
+            { value: 'line', label: 'Line' },
+            { value: 'bar', label: 'Bar' },
           ]}
-          onChange={onChange as (v: Preset) => void}
+          onChange={onChange as (v: SparklineVariant) => void}
+        />
+      ),
+    },
+    {
+      key: 'areaVisible',
+      label: 'Fill',
+      visible: (state) => state.variant === 'line',
+      render: (v, onChange) => (
+        <ToggleGroup<'on' | 'off'>
+          value={(v as boolean) ? 'on' : 'off'}
+          options={[
+            { value: 'on', label: 'Area' },
+            { value: 'off', label: 'Line only' },
+          ]}
+          onChange={(next) => (onChange as (v: boolean) => void)(next === 'on')}
+        />
+      ),
+    },
+    {
+      key: 'points',
+      label: 'Points',
+      hint: 'Number of data points in the visible window — `flow.capacity` in flow mode',
+      render: (v, onChange) => (
+        <Slider
+          value={v as number}
+          min={SPARK_POINTS_MIN}
+          max={SPARK_POINTS_MAX}
+          step={1}
+          onChange={onChange as (v: number) => void}
+        />
+      ),
+    },
+    {
+      key: 'align',
+      label: 'Align',
+      hint: 'Where the seed sits at mount in flow mode',
+      visible: (state) => state.mode === 'flow',
+      render: (v, onChange) => (
+        <ToggleGroup<SparklineFlowAlign>
+          value={v as SparklineFlowAlign}
+          options={[
+            { value: 'left', label: 'Left' },
+            { value: 'right', label: 'Right' },
+            { value: 'offscreen', label: 'Drive in' },
+          ]}
+          onChange={onChange as (v: SparklineFlowAlign) => void}
+        />
+      ),
+    },
+    {
+      key: 'strokeWidth',
+      label: 'Stroke width',
+      hint: 'Line thickness in CSS pixels',
+      visible: (state) => state.variant === 'line',
+      render: (v, onChange) => (
+        <Slider
+          value={v as number}
+          min={0.5}
+          max={5}
+          step={0.5}
+          suffix="px"
+          onChange={onChange as (v: number) => void}
         />
       ),
     },
@@ -346,7 +373,9 @@ function AnimatedSparklineGrid({ seeds, flow, ...props }: AnimatedGridProps) {
     data: datasets[i]?.length ? datasets[i] : seriesHistory[i],
   }));
 
-  return <SparklineGrid {...props} rows={rows} flow={flow ? { capacity: props.points } : undefined} />;
+  return (
+    <SparklineGrid {...props} rows={rows} flow={flow ? { capacity: props.points, align: props.align } : undefined} />
+  );
 }
 
 export function SparklinePage({ theme }: { theme: ChartTheme }) {
@@ -376,10 +405,12 @@ export function SparklinePage({ theme }: { theme: ChartTheme }) {
         valuePos: 'right',
         areaVisible: true,
         preset: 'crypto',
-        mode: 'flow',
+        mode: 'live',
         points: SPARK_POINTS_DEFAULT,
+        align: 'right',
+        strokeWidth: SPARKLINE_DEFAULT_STROKE_WIDTH,
       }}
-      sections={[DEMO_SECTION, SERIES_SECTION, VALUE_SECTION, DATASET_SECTION]}
+      sections={[DEMO_SECTION, SERIES_SECTION]}
       charts={(props) => {
         const presetSeeds = seedsByPreset[props.preset];
         const seeds: RowSeed[] = presetSeeds.map((seed, i) => ({
@@ -407,7 +438,7 @@ export function SparklinePage({ theme }: { theme: ChartTheme }) {
         // mid-flight by a fresh seed or new viewport pinning.
         return (
           <AnimatedSparklineGrid
-            key={`${props.preset}-${props.points}-${props.mode}`}
+            key={`${props.preset}-${props.points}-${props.mode}-${props.align}`}
             {...props}
             seeds={seeds}
             mobile={mobile}
@@ -424,7 +455,12 @@ export function SparklinePage({ theme }: { theme: ChartTheme }) {
               data: 'data',
               variant: s.variant,
               valuePosition: s.valuePos,
-              ...(s.areaVisible ? { area: { visible: true } } : {}),
+              ...(s.variant === 'line' && !s.areaVisible ? { area: { visible: false } } : {}),
+              ...(s.variant === 'line' && s.strokeWidth !== SPARKLINE_DEFAULT_STROKE_WIDTH
+                ? { strokeWidth: s.strokeWidth }
+                : {}),
+              ...(s.gradient ? {} : { gradient: false }),
+              ...(s.mode === 'flow' ? { flow: { capacity: s.points, align: s.align } } : {}),
             },
           },
         ],
