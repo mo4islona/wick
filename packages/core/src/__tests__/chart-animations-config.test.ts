@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_CONTRACT_MS,
   DEFAULT_ENTER_MS,
   DEFAULT_INPUT_RESPONSE_MS,
   DEFAULT_PULSE_MS,
@@ -27,6 +28,8 @@ describe('resolveAnimationsConfig', () => {
         reboundMs: DEFAULT_REBOUND_MS,
         yAxisMs: DEFAULT_Y_AXIS_MS,
         inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
+        contractMs: DEFAULT_CONTRACT_MS,
+        yEngine: 'spring',
       },
     });
   });
@@ -38,7 +41,7 @@ describe('resolveAnimationsConfig', () => {
   it('false collapses every field to 0', () => {
     expect(resolveAnimationsConfig(false)).toEqual({
       points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
+      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0, contractMs: 0, yEngine: 'spring' },
     });
   });
 
@@ -49,11 +52,13 @@ describe('resolveAnimationsConfig', () => {
         reboundMs: DEFAULT_REBOUND_MS,
         yAxisMs: DEFAULT_Y_AXIS_MS,
         inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
+        contractMs: DEFAULT_CONTRACT_MS,
+        yEngine: 'spring',
       },
     });
     expect(resolveAnimationsConfig({ viewport: false })).toEqual({
       points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
-      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
+      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0, contractMs: 0, yEngine: 'spring' },
     });
   });
 

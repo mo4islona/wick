@@ -1,5 +1,6 @@
-import { Animator, easeLinear, easeOutCubic } from './animation';
+import { Animator, type YRangeAnimatorLike, YRangeHermite, YRangeSpring } from './animation';
 import {
+  DEFAULT_CONTRACT_MS,
   DEFAULT_ENTER_MS,
   DEFAULT_INPUT_RESPONSE_MS,
   DEFAULT_PULSE_MS,
@@ -7,7 +8,6 @@ import {
   DEFAULT_SMOOTH_MS,
   DEFAULT_Y_AXIS_MS,
   INTERACT_Y_AXIS_MS,
-  STREAMING_Y_IDLE_RESET_MS,
 } from './animation-constants';
 import { CanvasManager } from './canvas-manager';
 import { renderCrosshair } from './components/crosshair';
@@ -44,6 +44,7 @@ import type {
   TimePointInput,
   VisibleRange,
   VisibleRangeSpec,
+  YRange,
 } from './types';
 import { detectInterval, normalizeTime } from './utils/time';
 import { type HorizontalPadding, Viewport } from './viewport';
@@ -204,6 +205,39 @@ export interface AnimationsConfig {
          * synchronously after a wheel/pan expect the new value.
          */
         inputResponseMs?: AnimationTime;
+        /**
+         * Settle time (ms) for inward Y-bound contraction — when a recent
+         * extreme leaves the visible window and the bound is moving
+         * toward the centre. Larger values produce a sticky-Y feel: the
+         * chart reacts quickly to new highs / lows but holds the wider
+         * bound after the outlier scrolls off, settling back slowly
+         * rather than reflowing on every outlier in/out.
+         *
+         * Default {@link DEFAULT_CONTRACT_MS}. Set equal to
+         * {@link yAxisMs} for symmetric expand / contract. `false` / `0`
+         * snaps inward contractions instantly.
+         */
+        contractMs?: AnimationTime;
+        /**
+         * Algorithm used to animate the Y bounds. Both engines respect
+         * the per-side direction-aware durations
+         * ({@link yAxisMs} for outward, {@link contractMs} for inward),
+         * and both preserve velocity across mid-flight retargets — the
+         * difference is in the motion curve.
+         *
+         * - `'spring'` *(default)* — critically damped spring physics.
+         *   Asymptotic approach to the target with no fixed arrival
+         *   time. Best for streaming / continuously-retargeted Y, where
+         *   the physics naturally absorbs each retarget without
+         *   restarting an easing curve.
+         * - `'hermite'` — cubic Hermite curve with matched starting
+         *   velocity. Each retarget starts a fresh cubic that reaches
+         *   the new target in exactly the configured duration. Better
+         *   for one-shot moves (programmatic fit, zoom, single-extreme
+         *   reactions) where a known arrival time matters more than
+         *   buttery continuity.
+         */
+        yEngine?: 'spring' | 'hermite';
       };
 }
 
@@ -223,6 +257,8 @@ export interface ResolvedAnimationsConfig {
     reboundMs: number;
     yAxisMs: number;
     inputResponseMs: number;
+    contractMs: number;
+    yEngine: 'spring' | 'hermite';
   };
 }
 
@@ -334,7 +370,7 @@ export function resolveAnimationsConfig(input: ChartOptions['animations']): Reso
   if (input === false) {
     return {
       points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
+      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0, contractMs: 0, yEngine: 'spring' },
     };
   }
 
@@ -355,11 +391,13 @@ export function resolveAnimationsConfig(input: ChartOptions['animations']): Reso
 
   const viewport =
     rawViewport === false
-      ? { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 }
+      ? { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0, contractMs: 0, yEngine: 'spring' as const }
       : {
           reboundMs: resolveTime(rawViewport?.reboundMs, DEFAULT_REBOUND_MS),
           yAxisMs: resolveTime(rawViewport?.yAxisMs, DEFAULT_Y_AXIS_MS),
           inputResponseMs: resolveTime(rawViewport?.inputResponseMs, DEFAULT_INPUT_RESPONSE_MS),
+          contractMs: resolveTime(rawViewport?.contractMs, DEFAULT_CONTRACT_MS),
+          yEngine: rawViewport?.yEngine ?? 'spring',
         };
 
   return { points, viewport };
@@ -503,6 +541,18 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.#theme = options?.theme ?? catppuccin.theme;
     this.#grid = options?.grid?.visible !== false;
     this.#animationsConfig = resolveAnimationsConfig(options?.animations);
+    this.#yAnimator =
+      this.#animationsConfig.viewport.yEngine === 'hermite'
+        ? new YRangeHermite({
+            initial: { min: 0, max: 0 },
+            expandMs: this.#animationsConfig.viewport.yAxisMs || DEFAULT_Y_AXIS_MS,
+            contractMs: this.#animationsConfig.viewport.contractMs || DEFAULT_CONTRACT_MS,
+          })
+        : new YRangeSpring({
+            initial: { min: 0, max: 0 },
+            expandMs: this.#animationsConfig.viewport.yAxisMs || DEFAULT_Y_AXIS_MS,
+            contractMs: this.#animationsConfig.viewport.contractMs || DEFAULT_CONTRACT_MS,
+          });
     this.#onEdgeReached = options?.onEdgeReached;
     this.#initialVisibleRange = options?.viewport?.initialRange;
 
@@ -1723,35 +1773,33 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     }
   }
 
-  /** Animates the Y-axis lower bound. Streaming `appendData` ticks retarget
-   * this animator so the bound eases toward the latest data extreme over
-   * `viewport.yAxisMs`. Inward contraction (chart settling tighter as old
-   * extremes leave the window) always eases. Outward expansion (new low)
-   * eases when the per-point entrance is enabled — the entering candle's
-   * fade masks the brief overshoot; when entrance is hard-disabled
-   * (`points.enterMs === 0`), the new extreme would render at full alpha
-   * and clip at the canvas edge for the duration of the ease, so
-   * {@link updateYRange} snaps the bound outward in that case.
+  /** Animates the Y-axis range as a single struct so `min` and `max` always
+   *  move in lockstep — there's no frame where the visible domain has been
+   *  half-applied (lower already at the new bound, upper still chasing the
+   *  old). Streaming `appendData` ticks retarget this animator so the bound
+   *  eases toward the latest data extreme over `viewport.yAxisMs`. Inward
+   *  contraction (chart settling tighter as old extremes leave the window)
+   *  always eases; outward expansion (new low / new high) eases when the
+   *  per-point entrance is enabled — the entering candle's fade masks the
+   *  brief overshoot. When entrance is hard-disabled (`points.enterMs === 0`),
+   *  the new extreme would render at full alpha and clip at the canvas edge
+   *  for the duration of the ease, so {@link updateYRange} snaps the relevant
+   *  bound (and only that bound) outward — see the asymmetric expand/contract
+   *  branch in that method.
    *
-   * Bulk replaces (`setSeriesData`) flow through the snap branch in
-   * {@link updateYRange} via `#dataReplaceSnapPending`, so `yScale.getRange()`
-   * reflects the new domain on the same frame — the long-standing public-API
-   * contract pinned by `chart-scales-sync.test`. */
-  readonly #yMinAnimator = new Animator<number>({
-    initial: 0,
-    duration: DEFAULT_Y_AXIS_MS,
-    easing: easeOutCubic,
-    lerp: (a, b, t) => a + (b - a) * t,
-  });
-  /** Animates the Y-axis upper bound — mirror of {@link #yMinAnimator}. */
-  readonly #yMaxAnimator = new Animator<number>({
-    initial: 0,
-    duration: DEFAULT_Y_AXIS_MS,
-    easing: easeOutCubic,
-    lerp: (a, b, t) => a + (b - a) * t,
-  });
+   *  Bulk replaces (`setSeriesData`) flow through the snap branch in
+   *  {@link updateYRange} via `#dataReplaceSnapPending`, so `yScale.getRange()`
+   *  reflects the new domain on the same frame — the long-standing public-API
+   *  contract pinned by `chart-scales-sync.test`. */
+  /** Y-bound animator. Concrete implementation (`YRangeSpring` vs
+   *  `YRangeHermite`) chosen at construction time from
+   *  `animations.viewport.yEngine`. Both implement the same
+   *  {@link YRangeAnimatorLike} interface so this declaration is the only
+   *  point where the engine differs. */
+  readonly #yAnimator: YRangeAnimatorLike;
   /** Whether the Y range has been initialized (first snap vs smooth lerp). */
   #yInited = false;
+
   /**
    * One-shot `setVisibleRange` argument applied on the first data arrival.
    * Captured at chart construction from {@link ChartOptions.viewport.initialRange};
@@ -1759,19 +1807,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * back to the initial window.
    */
   #initialVisibleRange: VisibleRangeSpec | undefined;
-
-  /** Wall-clock timestamp of the previous streaming-mode `updateYRange` call.
-   * Used to size the next Y chase to the measured tick inter-arrival, so the
-   * Y animator slides at constant velocity through high-frequency streams
-   * instead of restarting a 250 ms ease-out on every tick (visible wobble in
-   * the axis labels). Mirrors `Viewport#lastScrollWall`; not shared because
-   * `updateScales(snap)` and other off-stream callers shouldn't reset it. */
-  #lastYStreamingWall = 0;
-
-  /** @internal Test-only accessor for streaming cadence anchor. */
-  get _lastYStreamingWall(): number {
-    return this.#lastYStreamingWall;
-  }
 
   /**
    * Set by the viewport `interact` listener on every user pan/zoom event;
@@ -1843,11 +1878,22 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   }
 
   private updateYRange(snap = false, opts: { now?: number; streaming?: boolean } = {}): void {
-    const { now, streaming } = opts;
+    const { now } = opts;
+    // `opts.streaming` is preserved on the call signature (back-compat with
+    // callers that distinguish streaming ticks for the X path) but the
+    // spring no longer needs to know — its velocity-handoff on each
+    // setTarget already gives smooth slide on rapid retargets without
+    // per-tick cadence measurement.
     // Y target is sampled against the X *destination* (logicalRange) so Y
     // stays stable while X animates — otherwise Y chases a moving definition
     // of "in view" and never converges with X.
     const targetVisible = this.#viewport.logicalRange;
+
+    // Read-and-clear the gesture flag. When the user just panned/zoomed the
+    // Y target should converge quickly (INTERACT_Y_AXIS_MS short ease) rather
+    // than trailing the gesture through the full yAxisMs.
+    const interacting = this.#interactPending;
+    this.#interactPending = false;
 
     // Only collect individual values when bounds use a function/percentage (rare)
     const needsAllValues =
@@ -1862,109 +1908,55 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       return;
     }
 
-    // Apply Y bounds
     const targetMin = this.resolveBound(this.#yBounds.min, raw.min, raw.max, allValues ?? [], 'min');
     const targetMax = this.resolveBound(this.#yBounds.max, raw.max, raw.min, allValues ?? [], 'max');
 
     const baseYAxisMs = this.#animationsConfig.viewport.yAxisMs;
-    // During an active user pan/zoom, shorten the Y chase so it converges
-    // within ~1 frame per wheel tick — the full 250 ms ease feels rubbery
-    // because every retarget restarts from a position still trailing the
-    // previous one. We don't outright snap (which would jitter labels) — a
-    // short ease keeps the motion smooth without lagging the gesture. Skip
-    // the override when the user has already disabled animation
-    // (yAxisMs ≤ 0) or asked for an even shorter chase.
-    const interacting = this.#interactPending;
-    this.#interactPending = false;
-    const yAxisMs = interacting && baseYAxisMs > INTERACT_Y_AXIS_MS ? INTERACT_Y_AXIS_MS : baseYAxisMs;
-    const useSnap = !this.#yInited || snap || yAxisMs <= 0;
-
-    // Streaming ticks: size the chase to the measured inter-arrival interval and
-    // switch easing to linear so mid-flight retargets keep constant velocity.
-    // The fixed 250 ms ease-out otherwise wobbles when ticks arrive faster than
-    // the ease completes — the axis decelerates near each retarget point and
-    // visibly stutters on every tick. Skip during user gestures (the
-    // `interacting` short ease handles those).
-    const useStreamingChase = streaming === true && !useSnap && !interacting;
-    let streamingDuration = yAxisMs;
-    if (useStreamingChase) {
-      const wallNow = now ?? performance.now();
-      const measured = this.#lastYStreamingWall > 0 ? wallNow - this.#lastYStreamingWall : 0;
-      this.#lastYStreamingWall = wallNow;
-      // Idle reset: a long pause invalidates the cadence; fall back to the
-      // baseline `yAxisMs` so the post-pause first tick doesn't ride a
-      // multi-second slide derived from the stale interval. We then cap
-      // adaptive duration at `yAxisMs` (not `max(yAxisMs, measured)`) so a
-      // slow feed (500 ms+ inter-arrival) doesn't leave the animator
-      // mid-tween when the next tick arrives — that produces a continuous
-      // "creep" of the Y bound that reads worse than a clean 250 ms ease
-      // followed by an idle gap. Bound the floor at 16 ms so fast feeds
-      // still get a smoothly-rendered chase rather than a snap.
-      if (measured > 0 && measured <= STREAMING_Y_IDLE_RESET_MS) {
-        streamingDuration = Math.min(yAxisMs, Math.max(16, measured));
-      }
-    } else if (streaming === false) {
-      // Explicit non-streaming path (batch load, initial mount snap) resets
-      // the cadence anchor so a later stream starts fresh. Tri-state: only
-      // the explicit `streaming: false` callers wipe the wall; per-frame
-      // `renderMain → updateScales → updateYRange` polls (where `streaming`
-      // is left undefined) leave it alone so the cadence measurement
-      // actually survives between streaming ticks.
-      this.#lastYStreamingWall = 0;
-    }
-    const yEasing = useStreamingChase ? easeLinear : undefined;
-    const yDuration = useStreamingChase ? streamingDuration : yAxisMs;
+    const contractMs = this.#animationsConfig.viewport.contractMs;
+    // Gesture short-ease wins over the baseline; the math.min preserves a
+    // caller-configured shorter chase. On user gesture both directions
+    // use the short ease — the user just chose a new view, no point
+    // sticking to the old bound.
+    const expandMs = interacting ? Math.min(INTERACT_Y_AXIS_MS, baseYAxisMs) : baseYAxisMs;
+    const effectiveContractMs = interacting ? expandMs : contractMs;
+    const useSnap = !this.#yInited || snap || expandMs <= 0;
+    const tickNow = now ?? performance.now();
 
     if (useSnap) {
-      this.#yMinAnimator.snap(targetMin);
-      this.#yMaxAnimator.snap(targetMax);
+      this.#yAnimator.snap({ min: targetMin, max: targetMax }, { now: tickNow });
       this.#yInited = true;
     } else {
-      // Streaming path. Inward contraction is always eased — the data has
-      // already been drawn at its position, the bound just shrinks toward
-      // it, no clipping risk.
-      //
-      // Outward expansion is conditional. Easing the bound toward a new
-      // high/low leaves the new extreme rendered above (or below) the
-      // current bound for the duration of the ease. That's invisible only
-      // while the entering candle/bar fades in over an `entryMs` window
-      // longer than `yAxisMs`. If the user disabled the per-point entrance
-      // (`animations.points: false`, or per-series `entryMs: 0` /
-      // `entryAnimation: 'none'`), the new extreme renders at full alpha
-      // from frame 0 — easing the bound would clip the wick at the canvas
-      // edge for ~yAxisMs. We snap outward in that case.
-      //
-      // Bulk replaces flow through the `useSnap` branch above via the
-      // `#dataReplaceSnapPending` flag, so `yScale.getRange()` still
-      // reflects new data synchronously after `setSeriesData`.
-      // Use chart-level entrance gate: hard-disabled (0 / false) at the
-      // chart level forces entrance off for every series, so expansion
-      // would clip — snap outward. Numeric chart-level lets per-series
-      // entrance defaults flow through; the common "default everything on"
-      // case eases outward smoothly.
-      const easeOutward = this.#animationsConfig.points.enterMs > 0;
+      // Spring picks up its new natural frequencies from this point — existing
+      // velocity is preserved, so the change reads as a continuous handoff.
+      this.#yAnimator.setSettleMs({ expandMs, contractMs: effectiveContractMs });
 
-      if (targetMin < this.#yMinAnimator.current && !easeOutward) {
-        this.#yMinAnimator.snap(targetMin);
-      } else {
-        this.#yMinAnimator.setTarget(targetMin, { duration: yDuration, now, easing: yEasing });
+      // Outward expansion still needs a snap on the expanding side when the
+      // per-point entrance is disabled — the new extreme renders at full
+      // alpha from frame 0 and would otherwise clip until the spring
+      // catches up. Per-side snap moves the at-risk bound and zeroes only
+      // that bound's velocity; the other bound continues its chase
+      // normally.
+      const easeOutward = this.#animationsConfig.points.enterMs > 0;
+      const current = this.#yAnimator.current;
+      const snapMin = targetMin < current.min && !easeOutward;
+      const snapMax = targetMax > current.max && !easeOutward;
+      if (snapMin || snapMax) {
+        this.#yAnimator.snap(
+          {
+            min: snapMin ? targetMin : current.min,
+            max: snapMax ? targetMax : current.max,
+          },
+          { now: tickNow },
+        );
       }
-      if (targetMax > this.#yMaxAnimator.current && !easeOutward) {
-        this.#yMaxAnimator.snap(targetMax);
-      } else {
-        this.#yMaxAnimator.setTarget(targetMax, { duration: yDuration, now, easing: yEasing });
-      }
+      this.#yAnimator.setTarget({ min: targetMin, max: targetMax }, { now: tickNow });
     }
 
-    // Advance the animators to the current frame timestamp. `setTarget` already
-    // moved `current` to `now` internally, so the tick on the same frame is a
-    // no-op for newly-retargeted animators; on subsequent frames it advances
-    // toward the target. `tick` is the only place the animator's `current`
-    // changes, so we must call it before reading values out below.
-    const tickNow = now ?? performance.now();
-    const minAnimating = this.#yMinAnimator.tick(tickNow);
-    const maxAnimating = this.#yMaxAnimator.tick(tickNow);
-    if (minAnimating || maxAnimating) {
+    // Advance the spring to the current frame timestamp. The spring's
+    // closed-form integration means a setTarget on the same frame produces
+    // identical `current` to a setTarget + tick on the same frame.
+    const yAnimated = this.#yAnimator.tick(tickNow);
+    if (yAnimated) {
       this.#mainScheduler.markDirty();
     }
 
@@ -1972,13 +1964,20 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const hasMinBound = this.#yBounds.min !== undefined && this.#yBounds.min !== 'auto';
     const hasMaxBound = this.#yBounds.max !== undefined && this.#yBounds.max !== 'auto';
     const chartHeight = this.#canvasManager.size.media.height - this.xAxisHeight;
-    this.#viewport.setYRange(
-      this.#yMinAnimator.current,
-      this.#yMaxAnimator.current,
-      chartHeight,
-      hasMinBound,
-      hasMaxBound,
-    );
+    const { min, max } = this.#yAnimator.current;
+    this.#viewport.setYRange(min, max, chartHeight, hasMinBound, hasMaxBound);
+
+    // Emit `viewportChange` when the Y range advanced this frame. DOM axis
+    // labels (`<YAxis>` via `useYRange`) subscribe to this event to re-read
+    // yScale and reposition. Without the emit they only re-render on
+    // `tickFrame` (which fires on tick-set changes / opacity transitions),
+    // so between tick-set changes the labels stay pinned at stale Y while
+    // the canvas line moves smoothly underneath them. On streams with
+    // continuously-growing data (monotonic ramp), that reads as labels
+    // "jumping" in chunks every ~half-second instead of sliding.
+    if (yAnimated) {
+      this.emit('viewportChange');
+    }
   }
 
   /** Resolve an {@link AxisBound} to a concrete numeric value. */

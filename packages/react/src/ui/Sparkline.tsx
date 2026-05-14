@@ -1,4 +1,4 @@
-import { type CSSProperties, useMemo, useRef } from 'react';
+import { type CSSProperties, useMemo } from 'react';
 
 import { type ChartTheme, type TimePoint, formatCompact, resolveCandlestickBodyColor } from '@wick-charts/core';
 
@@ -104,32 +104,16 @@ export function Sparkline({
     change.positive ? theme.candlestick.up.body : theme.candlestick.down.body,
   );
 
-  // Self-stabilising Y bounds — never contract. Sparklines are tiny enough
-  // that the chart's default auto-Y (visible min/max on every tick) reads
-  // as a noticeable vertical "jump" when a streamed value is far from the
-  // seen range, and every already-drawn point repositions with it. We
-  // track a running min/max of all values we've seen, never shrink, and
-  // hand the chart a padded version. Bounds settle within a few ticks for
-  // bounded feeds (e.g. random in [-100, 100]); for drifting feeds they
-  // creep outward to keep up. Reset across mounts via useRef — flow-mode
-  // remounts get a fresh window.
-  const boundsRef = useRef<{ min: number; max: number } | null>(null);
-  const yBounds = useMemo(() => {
-    if (data.length === 0) return undefined;
-
-    let min = boundsRef.current?.min ?? Number.POSITIVE_INFINITY;
-    let max = boundsRef.current?.max ?? Number.NEGATIVE_INFINITY;
-    for (const p of data) {
-      if (p.value < min) min = p.value;
-      if (p.value > max) max = p.value;
-    }
-    boundsRef.current = { min, max };
-
-    const range = max - min || Math.max(1, Math.abs(min));
-    const pad = range * 0.2;
-
-    return { min: min - pad, max: max + pad };
-  }, [data]);
+  // Previously Sparkline kept its own running min/max in a useRef and handed
+  // a padded Y range to ChartContainer via `axis.y.{min,max}`. That worked
+  // around the chart's default auto-Y "jumps" on streamed wild values, but
+  // it had a hidden cost: every new data prop made the memo emit a fresh
+  // `{min, max}` object, which ChartContainer fed into `chart.setAxis`, and
+  // setAxis SNAPS Y (sets `#yInited = false` and calls `updateYRange(true)`).
+  // Result: every streaming tick snapped Y without animation, which is the
+  // jerky behaviour you saw. The chart core now has sticky-Y bounds + a
+  // `viewportChange` emit on Y advance, so the chart handles streaming
+  // stability itself — Sparkline can drop its local fix.
 
   // Captured-at-mount viewport for flow mode. Pins the latest seed point near
   // the RIGHT edge of the visible window (3-interval right pad, matching the
@@ -227,7 +211,7 @@ export function Sparkline({
       <ChartContainer
         theme={theme}
         axis={{
-          y: { visible: false, width: 0, min: yBounds?.min, max: yBounds?.max },
+          y: { visible: false, width: 0 },
           x: { visible: false, height: 0 },
         }}
         padding={{ top: 5, right: 0, bottom: 0, left: 0 }}

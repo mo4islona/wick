@@ -88,3 +88,17 @@ export const STREAMING_Y_MAX_MS = 5_000;
  * slide. Mirrors `STREAM_IDLE_RESET_MS` in `viewport.ts`.
  */
 export const STREAMING_Y_IDLE_RESET_MS = 2_000;
+
+/**
+ * Default settle time for the Y-bound *contract* direction — when a bound
+ * is moving inward because a recent extreme has scrolled out of the visible
+ * window. Longer than the standard {@link DEFAULT_Y_AXIS_MS} produces the
+ * "sticky-Y" feel: the chart reacts quickly to new highs / lows but holds
+ * the wider bound after the outlier leaves, settling back slowly instead
+ * of reflowing on every outlier in/out.
+ *
+ * Configurable via `animations.viewport.contractMs`. Set equal to
+ * `yAxisMs` for symmetric expand/contract.
+ */
+export const DEFAULT_CONTRACT_MS = 2_500;
+

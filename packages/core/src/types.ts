@@ -35,6 +35,15 @@ export interface VisibleRange {
   to: number;
 }
 
+/** Value range covered by the chart's Y axis at a given frame. Animated as a
+ *  single struct so the upper and lower bounds always move in lockstep — no
+ *  half-tween states where the visible domain is wider on one side than the
+ *  other for a frame. */
+export interface YRange {
+  min: number;
+  max: number;
+}
+
 /**
  * Argument accepted by {@link Chart.setVisibleRange}. Three forms:
  *
@@ -46,12 +55,6 @@ export interface VisibleRange {
  *   here" patterns (warm-up windows for streaming charts, etc.).
  */
 export type VisibleRangeSpec = number | { from: TimeValue; to: TimeValue } | { from: TimeValue; bars: number };
-
-/** Min/max value range for the Y axis. */
-export interface YRange {
-  min: number;
-  max: number;
-}
 
 /** Axis-aligned rectangle in media (CSS) coordinates. */
 export interface Rect {

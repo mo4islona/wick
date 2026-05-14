@@ -61,6 +61,7 @@ function readPersistedGroup(): GroupId {
 export function StressTestPage({ theme }: { theme: ChartTheme }) {
   const [group, setGroup] = useState<GroupId>(readPersistedGroup);
   const [perfHud, setPerfHud] = useState(false);
+  const [yEngine, setYEngine] = useState<'spring' | 'hermite'>('spring');
 
   useEffect(() => {
     try {
@@ -111,15 +112,45 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
               <code>#stress-test</code> in any build.
             </p>
           </div>
-          <label
-            style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: theme.tooltip.textColor }}
-          >
-            Perf HUD <Toggle checked={perfHud} onChange={setPerfHud} />
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: theme.tooltip.textColor }}
+            >
+              <span>Y engine</span>
+              <div style={{ display: 'flex', border: `1px solid ${theme.tooltip.borderColor}`, borderRadius: 6 }}>
+                {(['spring', 'hermite'] as const).map((kind) => {
+                  const active = kind === yEngine;
+
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => setYEngine(kind)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        fontFamily: 'var(--mono, ui-monospace, monospace)',
+                        color: active ? theme.tooltip.textColor : theme.axis.textColor,
+                        background: active ? theme.crosshair.labelBackground : 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {kind}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <span
+              style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: theme.tooltip.textColor }}
+            >
+              Perf HUD <Toggle checked={perfHud} onChange={setPerfHud} />
+            </span>
+          </div>
         </div>
 
         <nav
-          role="tablist"
           style={{
             display: 'flex',
             gap: 4,
@@ -158,7 +189,7 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
         </nav>
       </header>
 
-      <StressPanels panels={panels} theme={theme} perfHud={perfHud} />
+      <StressPanels panels={panels} theme={theme} perfHud={perfHud} yEngine={yEngine} />
     </div>
   );
 }

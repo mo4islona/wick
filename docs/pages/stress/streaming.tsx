@@ -42,7 +42,7 @@ function ResetButton({ theme, onClick, label }: { theme: PanelCtx['theme']; onCl
  * sit on the left and incoming ticks fill the empty right side. Once
  * the window fills up, panning takes over.
  */
-function WarmUpComparison({ theme, perfHud }: PanelCtx) {
+function WarmUpComparison({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 5 * INTERVAL, 5), []);
   const [data, setData] = useState<LineData[]>(seed);
   const [running, setRunning] = useState(true);
@@ -83,6 +83,7 @@ function WarmUpComparison({ theme, perfHud }: PanelCtx) {
       <ChartContainer
         theme={theme}
         perf={perfHud}
+        animations={{ viewport: { yEngine } }}
         interactive={false}
         viewport={{ initialRange: { from: seedRef.current[0].time, bars: cap } }}
       >
@@ -118,7 +119,7 @@ function WarmUpComparison({ theme, perfHud }: PanelCtx) {
  * different chart per tick. Deterministic — phase advances by a fixed step
  * each frame.
  */
-function SharpJumps({ theme, perfHud }: PanelCtx) {
+function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
   const VISIBLE_CAP = 60;
   // Carrier period in ticks — short enough that several oscillations are
   // visible inside the window at any time.
@@ -167,6 +168,7 @@ function SharpJumps({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ viewport: { yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >
@@ -183,7 +185,7 @@ function SharpJumps({ theme, perfHud }: PanelCtx) {
  * duration should track the interval so the right edge stays close to the
  * latest bar without wobble or overshoot.
  */
-function VariableJitter({ theme, perfHud }: PanelCtx) {
+function VariableJitter({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
   const [data, setData] = useState<LineData[]>(seed);
 
@@ -210,6 +212,7 @@ function VariableJitter({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ viewport: { yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: 80 } }}
     >
@@ -226,7 +229,7 @@ function VariableJitter({ theme, perfHud }: PanelCtx) {
  * tick must not produce a multi-second slide (idle reset clamps the adaptive
  * duration back to the baseline).
  */
-function BurstThenPause({ theme, perfHud }: PanelCtx) {
+function BurstThenPause({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 30 * INTERVAL, 30), []);
   const [data, setData] = useState<LineData[]>(seed);
   const [phase, setPhase] = useState<'burst' | 'idle'>('burst');
@@ -263,6 +266,7 @@ function BurstThenPause({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ viewport: { yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: 60 } }}
     >
@@ -283,7 +287,7 @@ function BurstThenPause({ theme, perfHud }: PanelCtx) {
  * Use this panel as the "before" picture for any Y-stability fix in core:
  * the visual movement must reduce noticeably once sticky bounds land.
  */
-function MonotonicRamp({ theme, perfHud }: PanelCtx) {
+function MonotonicRamp({ theme, perfHud, yEngine }: PanelCtx) {
   const VISIBLE_CAP = 60;
   const STEP = 1.5;
 
@@ -318,10 +322,65 @@ function MonotonicRamp({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ viewport: { yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >
       <Title sub={`value += ${STEP} per tick · ${data.length} points`}>Monotonic ramp</Title>
+      <LineSeries data={[data]} options={{ pulse: false }} />
+      <YAxis />
+      <TimeAxis />
+    </ChartContainer>
+  );
+}
+
+/**
+ * Outlier-rebound case: baseline ~50 with periodic spikes to 200. Spike
+ * interval (40 ticks) is longer than the visible window (20 bars), so each
+ * spike sits on screen for a while then scrolls off the left edge — leaving
+ * a ~20-tick window where the visible data is back to baseline.
+ *
+ * Sticky-Y (`Y_BOUND_CONTRACT_ALPHA` in `animation-constants.ts`) holds the
+ * upper bound elevated after the spike scrolls off, then lerps it back
+ * toward the baseline with an EMA half-life of ~14 ticks. Without sticky,
+ * Y max would snap to ~60 the instant the spike left the window and the
+ * whole chart would reflow on every outlier.
+ */
+function OutlierRebound({ theme, perfHud, yEngine }: PanelCtx) {
+  const VISIBLE_CAP = 20;
+  const SPIKE_EVERY = 40;
+  const BASE = 50;
+  const SPIKE = 200;
+
+  const seed = useMemo(() => makeSeed(Date.now() - 15 * INTERVAL, 15, BASE), []);
+  const [data, setData] = useState<LineData[]>(seed);
+  const tickRef = useRef(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setData((prev) => {
+        const last = prev[prev.length - 1];
+        const t = tickRef.current;
+        tickRef.current += 1;
+
+        const isSpike = t % SPIKE_EVERY === SPIKE_EVERY - 1;
+        const value = isSpike ? SPIKE : BASE + (Math.random() - 0.5) * 4;
+
+        return [...prev, { time: last.time + INTERVAL, value }];
+      });
+    }, 250);
+
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <ChartContainer
+      theme={theme}
+      perf={perfHud}
+      animations={{ viewport: { yEngine } }}
+      interactive={false}
+      viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
+    >
       <LineSeries data={[data]} options={{ pulse: false }} />
       <YAxis />
       <TimeAxis />
@@ -362,5 +421,13 @@ export const streamingPanels: readonly StressPanel[] = [
     hint: 'Each tick adds a fixed step to value. Y MAX grows every tick; already-drawn points slide downward as the bound expands.',
     note: 'Baseline for Y-stability work — sticky bounds with EMA shrink should make the slide smoother and eliminate per-tick wobble after the initial expansion.',
     render: (ctx) => <MonotonicRamp {...ctx} />,
+  },
+  {
+    id: 'stream-outlier-rebound',
+    title: 'Outlier rebound',
+    hint: 'Baseline ~50 with spikes to 200 every 40 ticks; visible window = 20 bars, so each spike spends ~20 ticks on screen then ~20 ticks off-screen. Sticky-Y keeps the upper bound elevated after the spike scrolls off and lerps it back toward the baseline rather than snapping — no per-spike reflow of the whole panel.',
+    note: 'Demonstrates the sticky-Y contraction trade-off. Left chart = default (α=0.05); right chart = effectively no sticky (α=1.0). Same stream feeds both — compare which feels more readable for noisy data.',
+    render: (ctx) => <OutlierRebound {...ctx} />,
+    minHeight: 360,
   },
 ];
