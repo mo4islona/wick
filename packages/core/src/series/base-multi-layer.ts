@@ -140,6 +140,27 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
     store.updateLast({ ...p, time: normalizeTime(p.time) } as unknown as TData);
   }
 
+  keepLast(count: number, layerIndex = 0): void {
+    const store = this.stores[layerIndex];
+    if (!store || count < 0) return;
+
+    const drop = store.length - count;
+    if (drop <= 0) return;
+
+    // Purge entrance-animation entries for the points being dropped — entries
+    // are keyed by `time` (`base-multi-layer.ts` line 59), so the lookup is
+    // safe across the slice operation that follows.
+    const head = store.getAll().slice(0, drop);
+    const entries = this.entries[layerIndex];
+    if (entries) {
+      for (const pt of head) {
+        entries.delete(pt.time);
+      }
+    }
+
+    store.trimStart(drop);
+  }
+
   // --- Layer model ----------------------------------------------------------
 
   getLayerCount(): number {

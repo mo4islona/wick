@@ -274,6 +274,61 @@ function BurstThenPause({ theme, perfHud }: PanelCtx) {
   );
 }
 
+/**
+ * Monotonically increasing line: each tick adds `STEP ± small noise` to the
+ * previous value. Y MAX grows on every tick, Y MIN stays put — the cleanest
+ * test of the chart's default auto-Y. Even a smooth Y chase visibly slides
+ * every already-drawn point downward as the bound expands.
+ *
+ * Use this panel as the "before" picture for any Y-stability fix in core:
+ * the visual movement must reduce noticeably once sticky bounds land.
+ */
+function MonotonicRamp({ theme, perfHud }: PanelCtx) {
+  const VISIBLE_CAP = 60;
+  const STEP = 1.5;
+
+  const seed = useMemo(() => {
+    const out: LineData[] = [];
+    const start = Date.now() - 10 * INTERVAL;
+    let value = 100;
+    for (let i = 0; i < 10; i++) {
+      value += STEP + (Math.random() - 0.5) * STEP * 0.3;
+      out.push({ time: start + i * INTERVAL, value });
+    }
+    return out;
+  }, []);
+
+  const [data, setData] = useState<LineData[]>(seed);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setData((prev) => {
+        const last = prev[prev.length - 1];
+        const jitter = (Math.random() - 0.5) * STEP * 0.3;
+        const value = last.value + STEP + jitter;
+
+        return [...prev, { time: last.time + INTERVAL, value }];
+      });
+    }, 200);
+
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <ChartContainer
+      theme={theme}
+      perf={perfHud}
+      interactive={false}
+      viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
+    >
+      <Title sub={`value += ${STEP} per tick · ${data.length} points`}>Monotonic ramp</Title>
+      <LineSeries data={[data]} options={{ pulse: false }} />
+      <YAxis />
+      <TimeAxis />
+    </ChartContainer>
+  );
+}
+
 export const streamingPanels: readonly StressPanel[] = [
   {
     id: 'stream-warmup-compare',
@@ -300,5 +355,12 @@ export const streamingPanels: readonly StressPanel[] = [
     title: 'Burst → idle → burst',
     hint: '80 fast ticks then a 5 s pause. Idle reset prevents a long slide on the first post-pause tick.',
     render: (ctx) => <BurstThenPause {...ctx} />,
+  },
+  {
+    id: 'stream-monotonic-ramp',
+    title: 'Monotonic ramp',
+    hint: 'Each tick adds a fixed step to value. Y MAX grows every tick; already-drawn points slide downward as the bound expands.',
+    note: 'Baseline for Y-stability work — sticky bounds with EMA shrink should make the slide smoother and eliminate per-tick wobble after the initial expansion.',
+    render: (ctx) => <MonotonicRamp {...ctx} />,
   },
 ];

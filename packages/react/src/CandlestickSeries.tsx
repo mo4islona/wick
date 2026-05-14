@@ -62,13 +62,12 @@ export function CandlestickSeries({ data, options, id: idProp }: CandlestickSeri
     const hasNewLast = prevLast !== null && prevLast !== lastTime;
 
     // Rolling-window slide: same array length but first AND last timestamps
-    // advanced (old point dropped, new point appended). Must NOT fall through
-    // to a full `setSeriesData` — that would wipe the entrance-animation
-    // entries. Sync the stable prefix, then appendData the fresh tail so the
-    // renderer registers an entry for just the new point.
+    // advanced (old point dropped, new point appended). Append the new tail
+    // then trim the head — `keepLast` keeps the streaming Y chase smooth,
+    // unlike `setSeriesData` which would snap Y on every tick.
     if (shifted && added === 0 && hasNewLast) {
-      chart.setSeriesData(id, data.slice(0, -1));
       chart.appendData(id, data[data.length - 1]);
+      chart.keepLast(id, data.length);
     } else if (prevLen === 0 || data.length < prevLen || added > BULK_THRESHOLD || shifted) {
       chart.setSeriesData(id, data);
     } else if (data.length === prevLen) {

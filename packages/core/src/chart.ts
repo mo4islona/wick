@@ -820,6 +820,24 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     entry?.renderer.updateLastPoint?.(point, layerIndex);
   }
 
+  /**
+   * Keep only the most recent `count` points of a series — drop the oldest
+   * tail when the series exceeds the cap. Smooth Y-range chase (no snap):
+   * unlike {@link setSeriesData}, this does NOT set the bulk-replace snap
+   * flag, so streaming windows can roll without per-tick Y jitter.
+   *
+   * Idempotent: a no-op when the series is already at or below `count`.
+   * Use after {@link appendData} in a rolling-window stream:
+   * ```ts
+   * chart.appendData('feed', point);
+   * chart.keepLast('feed', 100);
+   * ```
+   */
+  keepLast(id: string, count: number, layerIndex?: number): void {
+    const entry = this.#series.find((s) => s.id === id);
+    entry?.renderer.keepLast?.(count, layerIndex);
+  }
+
   /** Update visual options (color, width, etc.) for an existing series. */
   updateSeriesOptions(
     id: string,

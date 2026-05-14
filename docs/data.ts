@@ -66,6 +66,25 @@ export function ohlcStrategy(startPrice: number): OHLCStrategy {
   };
 }
 
+// ── Monotonic ramp strategy ─────────────────────────────────
+//
+// Each tick adds `step + small noise` to the previous value. Used as a
+// Y-axis stability test fixture: with strictly growing values, Y MAX
+// extends on every tick while Y MIN stays put. Even a perfectly smooth
+// auto-Y chase visibly slides all already-drawn points downward — the
+// monotonic case is the cleanest way to see the default auto-Y behaviour
+// before any sticky-bound fix.
+
+export function monotonicStrategy(step: number, noise = 0.2): LineStrategy {
+  return {
+    boundary: ({ time, prev }) => {
+      const jitter = (Math.random() - 0.5) * 2 * step * noise;
+      const value = (prev?.value ?? 0) + step + jitter;
+      return { time, value: round(value) };
+    },
+  };
+}
+
 // ── Line drift strategy (accumulating random walk) ──────────
 
 export function lineDriftStrategy(startValue: number): LineStrategy {
@@ -197,6 +216,23 @@ export function generateLayerData(count: number, base: number, interval = DEMO_I
 export function generateWaveData(count: number, opts: WaveOpts & { interval?: number } = {}): LineData[] {
   const { interval = DEMO_INTERVAL, ...rest } = opts;
   return walkLine(count, interval, waveStrategy({ ...rest, totalHint: rest.totalHint ?? count }));
+}
+
+export function generateMonotonicData(
+  count: number,
+  startValue: number,
+  step: number,
+  interval = DEMO_INTERVAL,
+): LineData[] {
+  const out = walkLine(count, interval, monotonicStrategy(step));
+
+  // walkLine starts from `prev = null` → first point is just step+noise. Shift
+  // everything up by `startValue` so the seed sits at a recognisable base.
+  for (const p of out) {
+    p.value = round(p.value + startValue);
+  }
+
+  return out;
 }
 
 export function generateBandLine(ohlc: OHLCData[], offset: number, noiseScale = 0.003): LineData[] {

@@ -116,6 +116,21 @@ export class CandlestickRenderer implements SeriesRenderer {
     this.store.updateLast({ ...p, time: normalizeTime(p.time) });
   }
 
+  keepLast(count: number): void {
+    if (count < 0) return;
+
+    const drop = this.store.length - count;
+    if (drop <= 0) return;
+
+    // entries are keyed by candle `time` — purge before mutating the store.
+    const head = this.store.getAll().slice(0, drop);
+    for (const c of head) {
+      this.entries.delete(c.time);
+    }
+
+    this.store.trimStart(drop);
+  }
+
   getLayerCount(): number {
     return 1;
   }
