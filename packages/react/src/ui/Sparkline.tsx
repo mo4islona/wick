@@ -115,28 +115,33 @@ export function Sparkline({
   // `viewportChange` emit on Y advance, so the chart handles streaming
   // stability itself — Sparkline can drop its local fix.
 
-  // Captured-at-mount viewport for flow mode. Pins the latest seed point near
-  // the RIGHT edge of the visible window (3-interval right pad, matching the
-  // viewport default) with empty space stretching to the LEFT. New ticks
-  // arrive at the right side and existing points slide LEFT — the "drive-in"
-  // effect. Requires at least 2 seed points so `interval` can be inferred;
-  // falls back to undefined otherwise (chart fits to data normally).
-  // Subsequent renders don't recompute because ChartContainer ignores viewport
-  // prop changes after mount.
+  // Captured-at-mount viewport for flow mode. Anchors the seed at the LEFT
+  // edge of the visible window with `capacity - seedLength` empty bars
+  // stretching to the RIGHT. New ticks land in that empty right area and the
+  // line grows rightward — the "drive-in" effect. Once the empty bars are
+  // consumed, the viewport's hold releases and tail-scroll takes over.
+  //
+  // Requires at least 2 seed points so `interval` can be inferred; falls
+  // back to undefined otherwise (chart fits to data normally).
+  //
+  // Subsequent renders don't recompute because ChartContainer ignores
+  // viewport prop changes after mount.
+  //
+  // Uses the `{ from, bars }` form (routes through `setRangeHold`) instead
+  // of `{ from, to }` (which routes through `setRange` and clears any
+  // pending hold). The hold flag keeps `scrollToEnd` from snapping the right
+  // edge to the latest data point while empty bars remain on the right —
+  // without it, the very first stream tick would yank the seed toward the
+  // right edge.
   const viewport = useMemo(() => {
     if (!flow || data.length < 2) return undefined;
 
     const interval = data[1].time - data[0].time;
     if (interval <= 0) return undefined;
 
-    const last = data[data.length - 1].time;
-    const rightPad = 3 * interval;
-    const to = last + rightPad;
-    const from = to - flow.capacity * interval;
-
     return {
       maxVisibleBars: flow.capacity,
-      initialRange: { from, to } as const,
+      initialRange: { from: data[0].time, bars: flow.capacity } as const,
     };
   }, []);
 
@@ -238,6 +243,7 @@ export function Sparkline({
               colors: [resolvedColor, resolvedNegColor],
               barWidthRatio: 0.7,
               stacking: 'off',
+              anchor: 'right',
             }}
           />
         )}

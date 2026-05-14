@@ -390,6 +390,20 @@ export interface BarSeriesOptions {
    * disable that wins over this field.
    */
   smoothMs?: number | false;
+  /**
+   * Where the bar body sits relative to its time slot.
+   *
+   * - `'center'` (default) — body centered on the time tick. Standard chart
+   *   look; the leftmost and rightmost bars rely on the surrounding
+   *   `padding.left` / `padding.right` to keep their outer half on canvas.
+   * - `'right'` — body anchored so its right edge sits on the time tick.
+   *   Lets the rightmost bar fit fully inside the canvas with
+   *   `padding.right = 0` (e.g. Sparkline). Not currently a public option —
+   *   subject to change without notice.
+   *
+   * @internal
+   */
+  anchor?: 'center' | 'right';
 }
 
 /**

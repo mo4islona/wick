@@ -10,6 +10,7 @@ const DEFAULT_OPTIONS: BarSeriesOptions = {
   colors: ['#26a69a', '#ef5350'],
   barWidthRatio: 0.6,
   stacking: 'off',
+  anchor: 'center',
 };
 
 /**
@@ -158,6 +159,9 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
     const barWidth = maxVisibleCount <= 2 ? Math.min(sparseCap, naturalBarWidth) : naturalBarWidth;
     const bodyWidth = Math.max(1, Math.round(barWidth * this.options.barWidthRatio) - 2);
     const halfBody = Math.floor(bodyWidth / 2);
+    // anchor='right' draws the body so its right edge sits on the time tick,
+    // letting the rightmost bar fit on canvas with padding.right = 0.
+    const anchorOffset = this.options.anchor === 'right' ? bodyWidth : halfBody;
 
     const yRange = yScale.getRange();
     const hasNegative = yRange.min < 0;
@@ -189,14 +193,14 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
             zeroY,
             topY,
             barHeight,
-            cx - halfBody,
+            cx - anchorOffset,
             bodyWidth,
             value >= 0 ? posColor : negColor,
           );
         } else {
           const bottomY = yScale.valueToBitmapY(value);
           const barHeight = Math.max(1, bottomY - zeroY);
-          this.drawAnimatedBar(context, progress, zeroY, zeroY, barHeight, cx - halfBody, bodyWidth, negColor);
+          this.drawAnimatedBar(context, progress, zeroY, zeroY, barHeight, cx - anchorOffset, bodyWidth, negColor);
         }
       }
     } else {
@@ -228,11 +232,11 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
           if (value >= 0) {
             const topY = yScale.valueToBitmapY(value);
             const barHeight = Math.max(1, zeroY - topY);
-            this.drawAnimatedBar(context, progress, zeroY, topY, barHeight, cx - halfBody, bodyWidth, color);
+            this.drawAnimatedBar(context, progress, zeroY, topY, barHeight, cx - anchorOffset, bodyWidth, color);
           } else {
             const bottomY = yScale.valueToBitmapY(value);
             const barHeight = Math.max(1, bottomY - zeroY);
-            this.drawAnimatedBar(context, progress, zeroY, zeroY, barHeight, cx - halfBody, bodyWidth, color);
+            this.drawAnimatedBar(context, progress, zeroY, zeroY, barHeight, cx - anchorOffset, bodyWidth, color);
           }
         }
       }
@@ -269,6 +273,9 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
     const barWidth = maxVisibleCount <= 2 ? Math.min(sparseCap, naturalBarWidth) : naturalBarWidth;
     const bodyWidth = Math.max(1, Math.round(barWidth * this.options.barWidthRatio) - 2);
     const halfBody = Math.floor(bodyWidth / 2);
+    // anchor='right' draws the body so its right edge sits on the time tick,
+    // letting the rightmost bar fit on canvas with padding.right = 0.
+    const anchorOffset = this.options.anchor === 'right' ? bodyWidth : halfBody;
 
     // Collect all visible data per layer (hidden layers contribute empty data)
     const layers = this.stores.map((store) => (store.isVisible() ? store.getVisibleData(range.from, range.to) : []));
@@ -329,26 +336,26 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
             const topY = yScale.valueToBitmapY(pctTop);
             const bottomY = yScale.valueToBitmapY(pctBase);
             const h = Math.max(1, bottomY - topY);
-            this.drawAnimatedBar(context, progress, bottomY, topY, h, cx - halfBody, bodyWidth, color);
+            this.drawAnimatedBar(context, progress, bottomY, topY, h, cx - anchorOffset, bodyWidth, color);
           } else if (raw < 0 && totalNegative < 0) {
             const pctBase = (baseNegative / totalNegative) * -100;
             const pctTop = ((baseNegative + raw) / totalNegative) * -100;
             const topY = yScale.valueToBitmapY(pctBase);
             const bottomY = yScale.valueToBitmapY(pctTop);
             const h = Math.max(1, bottomY - topY);
-            this.drawAnimatedBar(context, progress, topY, topY, h, cx - halfBody, bodyWidth, color);
+            this.drawAnimatedBar(context, progress, topY, topY, h, cx - anchorOffset, bodyWidth, color);
           }
         } else {
           if (raw > 0) {
             const topY = yScale.valueToBitmapY(basePositive + raw);
             const bottomY = yScale.valueToBitmapY(basePositive);
             const h = Math.max(1, bottomY - topY);
-            this.drawAnimatedBar(context, progress, bottomY, topY, h, cx - halfBody, bodyWidth, color);
+            this.drawAnimatedBar(context, progress, bottomY, topY, h, cx - anchorOffset, bodyWidth, color);
           } else {
             const topY = yScale.valueToBitmapY(baseNegative);
             const bottomY = yScale.valueToBitmapY(baseNegative + raw);
             const h = Math.max(1, bottomY - topY);
-            this.drawAnimatedBar(context, progress, topY, topY, h, cx - halfBody, bodyWidth, color);
+            this.drawAnimatedBar(context, progress, topY, topY, h, cx - anchorOffset, bodyWidth, color);
           }
         }
       }
