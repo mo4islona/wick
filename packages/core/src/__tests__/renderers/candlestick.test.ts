@@ -402,4 +402,112 @@ describe('CandlestickRenderer.render', () => {
       expect(Number.isFinite(x)).toBe(true);
     }
   });
+
+  it('drops bars with NaN / Infinity OHLC fields and renders the rest (regression: NaN gradient crash)', () => {
+    // Bug: introducing gradient bodies (`createLinearGradient`) made the
+    // renderer throw mid-paint on `NaN` Y-coordinates, taking down the whole
+    // frame. The partition step now filters poisoned bars so the rest of
+    // the visible set still renders.
+    const data: OHLCData[] = [
+      { time: 10, ...BULL },
+      { time: 30, open: 10, high: NaN, low: 9, close: 11 },
+      { time: 50, open: 12, high: 13, low: 8, close: Number.POSITIVE_INFINITY },
+      { time: 70, open: 12, high: 13, low: Number.NEGATIVE_INFINITY, close: 9 },
+      { time: 90, ...BEAR },
+    ];
+    const r = new CandlestickRenderer(mkStore(data));
+    const { ctx, spy } = buildRenderContext({ timeRange: { from: 0, to: 100 }, yRange: { min: 0, max: 20 } });
+
+    expect(() => r.render(ctx)).not.toThrow();
+
+    // 2 surviving candles × (wick + body) = 4 fillRects.
+    expect(spy.countOf('fillRect')).toBe(4);
+
+    // No drawn coordinate should be non-finite — proves the poisoned bars
+    // never reached `valueToBitmapY`.
+    for (const call of spy.callsOf('fillRect')) {
+      for (const arg of call.args) {
+        if (typeof arg === 'number') expect(Number.isFinite(arg)).toBe(true);
+      }
+    }
+  });
+
+  it('allows null / undefined OHLC fields through (rendered as flat bars, matching legacy behavior)', () => {
+    // `null` coerces to `0` through `valueToY`'s arithmetic, which yScale
+    // already handles. The pre-`6e76ab5` master branch renders these as
+    // thin bars at the Y origin; the NaN filter must not regress that.
+    const data: OHLCData[] = [
+      { time: 10, ...BULL },
+      // biome-ignore lint/suspicious/noExplicitAny: simulate poisoned upstream JSON
+      { time: 30, open: 10, high: 12, low: 9, close: null as any },
+      // biome-ignore lint/suspicious/noExplicitAny: simulate poisoned upstream JSON
+      { time: 50, open: 12, high: undefined as any, low: 8, close: 9 },
+    ];
+    const r = new CandlestickRenderer(mkStore(data));
+    const { ctx, spy } = buildRenderContext({ timeRange: { from: 0, to: 60 }, yRange: { min: 0, max: 20 } });
+    r.render(ctx);
+
+    // All three candles render: 3 × (wick + body) = 6.
+    expect(spy.countOf('fillRect')).toBe(6);
+  });
+
+  it('warns once per renderer with every poisoned index batched into a single message', () => {
+    // Data: index 0 clean, index 1 NaN.high, index 2 Infinity.close, index 3 NaN.open, index 4 clean.
+    // The warning must list ALL bad indices (1, 2, 3) in one message — not just the first — so the
+    // integrator can audit every dirty bar in one pass.
+    const data: OHLCData[] = [
+      { time: 10, ...BULL },
+      { time: 30, open: 10, high: NaN, low: 9, close: 11 },
+      { time: 50, open: 12, high: 13, low: 8, close: Number.POSITIVE_INFINITY },
+      { time: 70, open: NaN, high: 13, low: 8, close: 9 },
+      { time: 90, ...BULL },
+    ];
+    const r = new CandlestickRenderer(mkStore(data));
+    const { ctx } = buildRenderContext({ timeRange: { from: 0, to: 100 }, yRange: { min: 0, max: 20 } });
+
+    const warns: unknown[][] = [];
+    const orig = console.warn;
+    console.warn = (...args) => {
+      warns.push(args);
+    };
+    try {
+      r.render(ctx);
+      r.render(ctx); // second render — should NOT add a second warn for the same renderer
+    } finally {
+      console.warn = orig;
+    }
+
+    expect(warns).toHaveLength(1);
+    const msg = String(warns[0][0]);
+    expect(msg).toContain('wick-charts');
+    expect(msg).toContain('candlestick');
+    expect(msg).toContain('skipping 3 rows');
+    expect(msg).toContain('indices 1, 2, 3');
+    // First offending bar's time embedded for upstream correlation.
+    expect(msg).toContain('time 30');
+  });
+
+  it('a separately-constructed renderer gets its own warning (closure dedupes per instance, not globally)', () => {
+    const data: OHLCData[] = [
+      { time: 10, ...BULL },
+      { time: 30, open: 10, high: NaN, low: 9, close: 11 },
+    ];
+    const r1 = new CandlestickRenderer(mkStore(data));
+    const r2 = new CandlestickRenderer(mkStore(data));
+    const { ctx } = buildRenderContext({ timeRange: { from: 0, to: 40 }, yRange: { min: 0, max: 20 } });
+
+    const warns: unknown[][] = [];
+    const orig = console.warn;
+    console.warn = (...args) => {
+      warns.push(args);
+    };
+    try {
+      r1.render(ctx);
+      r2.render(ctx);
+    } finally {
+      console.warn = orig;
+    }
+
+    expect(warns).toHaveLength(2);
+  });
 });

@@ -7,6 +7,7 @@ import type { ChartTheme } from '../theme/types';
 import type { CandlestickSeriesOptions, OHLCData, OHLCInput } from '../types';
 import { hexToRgba } from '../utils/color';
 import { clamp, easeOutCubic, lerp } from '../utils/math';
+import { isPoisonedNumber, reportPoisonedData } from '../utils/poisoned-data-reporter';
 import { normalizeOHLCArray, normalizeTime } from '../utils/time';
 import { resolveMs } from './shared-animation';
 import type { SeriesRenderContext, SeriesRenderer } from './types';
@@ -33,6 +34,7 @@ const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
   down: { body: '#ef5350', wick: '#ef5350' },
   bodyWidthRatio: 0.6,
 };
+
 
 /**
  * Normalize caller-supplied candlestick options. Folds the deprecated
@@ -325,11 +327,36 @@ export class CandlestickRenderer implements SeriesRenderer {
     });
 
     // Then candles on top
+    // Filter out poisoned bars whose OHLC fields contain `NaN` or
+    // `±Infinity`. Pre-`6e76ab5` (when bodies used a flat `fillStyle +
+    // fillRect`) NaN coordinates were silently no-op'd by the canvas
+    // API; once gradient bodies landed,
+    // `ctx.createLinearGradient(NaN, ...)` started throwing mid-paint
+    // and aborting the whole frame. `isPoisonedNumber` deliberately
+    // lets `null` / `undefined` pass — they coerce to `0` through
+    // `valueToY`'s arithmetic and master ships working behavior for
+    // those (renders as a thin bar at the Y origin).
     const bullish: OHLCData[] = [];
     const bearish: OHLCData[] = [];
-    for (const candle of visibleData) {
+    const poisonedIndices: number[] = [];
+    let firstPoisonedBar: OHLCData | null = null;
+    for (let i = 0; i < visibleData.length; i++) {
+      const candle = visibleData[i];
+      if (
+        isPoisonedNumber(candle.open) ||
+        isPoisonedNumber(candle.close) ||
+        isPoisonedNumber(candle.high) ||
+        isPoisonedNumber(candle.low)
+      ) {
+        poisonedIndices.push(i);
+        if (firstPoisonedBar === null) firstPoisonedBar = candle;
+        continue;
+      }
       if (candle.close >= candle.open) bullish.push(candle);
       else bearish.push(candle);
+    }
+    if (firstPoisonedBar !== null) {
+      reportPoisonedData(this, 'candlestick', poisonedIndices, `time ${firstPoisonedBar.time}`);
     }
 
     const baseCandleArgs = {
