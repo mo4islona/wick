@@ -54,8 +54,12 @@ export let headerLayout: 'overlay' | 'inline' = 'overlay';
  * Animation control. `true` / omitted uses built-in defaults; `false`
  * disables every category. Per-series options on `<LineSeries>` /
  * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
- * defaults unless the category here is explicitly `false`. Updates
- * after mount call `chart.setAnimations(...)`.
+ * defaults unless the category here is explicitly `false`.
+ *
+ * **Init-only by reference identity.** A new `animations` reference
+ * recreates the underlying `ChartInstance`. Hoist it to a stable
+ * binding (e.g. `const animations = {...}`) — passing inline literals
+ * tears the chart down on every re-render.
  */
 export let animations: boolean | AnimationsConfig | undefined = undefined;
 /**
@@ -199,12 +203,25 @@ $: if (instance && grid !== undefined) {
   instance.setGrid(grid);
 }
 
-// Stringify the animations config so consumers can pass a fresh object identity
-// without thrashing animator state when nothing has actually changed.
-$: animationsKey = JSON.stringify(animations);
-$: if (instance && animations !== undefined) {
-  void animationsKey;
-  instance.setAnimations(animations);
+// Init-only: post-mount `animations` identity changes tear down the
+// instance and rebuild with the new config. Reference equality matters
+// — callers that pass an inline literal will recreate on every render.
+let lastAnimations = animations;
+$: if (instance && animations !== lastAnimations) {
+  lastAnimations = animations;
+  instance.destroy();
+  const opts: ChartOptions = {};
+  if (axis) opts.axis = axis;
+  if (theme) opts.theme = theme;
+  if (padding) opts.padding = padding;
+  if (viewport) opts.viewport = viewport;
+  if (interactive !== undefined) opts.interactive = interactive;
+  if (grid !== undefined) opts.grid = grid;
+  if (perfAtMount !== undefined) opts.perf = perfAtMount;
+  if (onEdgeReachedAtMount) opts.onEdgeReached = onEdgeReachedAtMount;
+  if (animations !== undefined) opts.animations = animations;
+  instance = new ChartInstance(containerEl, opts);
+  chartStore.set(instance);
 }
 
 // Re-apply padding on any input that affects it — including `headerExtra`,

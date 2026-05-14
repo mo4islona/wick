@@ -53,16 +53,16 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
   }, [chart]);
 
   const theme = chart.getTheme();
-  // Sync the tracker before reading its snapshot. Strictly speaking this is
-  // a side effect during React's render phase; we accept it because
-  // `setCurrentTicks` is idempotent (same tick array → no-op, no observable
-  // mutation across StrictMode double-invocations) and we need the snapshot
-  // to reflect the *current* tick set in the very first paint — moving this
-  // into a layout effect would leave the initial render with an empty
-  // snapshot and require a follow-up bump+re-render that DOM consumers
-  // can't observe synchronously.
+  // Seed the tracker so the very first paint after a data swap renders
+  // ticks even before chart.renderMain runs (a React rerender driven by
+  // setSeriesData schedules a RAF, not an inline renderMain). The chart's
+  // `#emitTickFade` keeps its own diff baseline so this idempotent setter
+  // can't starve the engine of a tickFade event — but the tracker's
+  // current-tick array must already point at the new set for `snapshot`
+  // to surface the new values. Opacity per tick still flows from
+  // `state.tickOpacity`, populated when chart.renderMain emits.
   chart.yScale.tickTracker.setCurrentTicks(chart.yScale.niceTickValues());
-  const { entries } = chart.yScale.tickTracker.snapshot();
+  const { entries } = chart.yScale.tickTracker.snapshot(chart.getAnimationState().tickOpacity);
 
   return (
     <div

@@ -191,17 +191,6 @@ describe('Viewport', () => {
     expect(v.visibleRange.from).toBeCloseTo(before.from + 5_000_000);
   });
 
-  it('scrollToEnd pins right edge after animation', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    v.scrollToEnd(20_000_000, 800);
-    // Streaming scrolls use linear easing — tick past the full duration
-    // (default `ANIM.streamTick`, 250ms) for the visual range to reach target.
-    v.tick(performance.now() + 300);
-    expect(v.visibleRange.to).toBeGreaterThanOrEqual(20_000_000);
-  });
-
   it('applyRange accepts small datasets (< 10 bars)', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
@@ -276,53 +265,6 @@ describe('Viewport', () => {
     const afterReverse = v.visibleRange.to - v.visibleRange.from;
     // Range should have roughly doubled (full factor applied).
     expect(afterReverse).toBeCloseTo(overshootRange * 2, -3);
-  });
-
-  it('scrollToEnd mid-animation retargets without restarting animStartTime', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    // Set a non-zero initial range so fitToData animated branch triggers
-    v.fitToData(1_000_000, 18_000_000, { chartWidth: 800 });
-    // Start a 450ms animation via animated fitToData
-    v.fitToData(1_000_000, 20_000_000, { chartWidth: 800, animated: true });
-    expect(v.animating).toBe(true);
-    const startTime = performance.now();
-
-    // Retarget: continues the in-flight ease-out (no fresh 150ms beat).
-    v.scrollToEnd(22_000_000, 800);
-    // Tick past the original 450ms horizon — animation finishes along that
-    // trajectory, with the retargeted end point.
-    v.tick(startTime + 500);
-    expect(v.animating).toBe(false);
-    expect(v.visibleRange.to).toBeGreaterThanOrEqual(22_000_000 - 1);
-  });
-
-  it('scrollToEnd with sub-threshold delta is a no-op while idle', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    expect(v.animating).toBe(false);
-    // scrollToEnd re-applies padding; target shift matches (lastTime - prevLast).
-    // Pending of ~1ms — well below the half-bar / 4px threshold.
-    v.scrollToEnd(18_000_000 + 1, 800);
-    expect(v.animating).toBe(false);
-  });
-
-  it('scrollToEnd with sub-threshold retarget lets the in-flight animation finish', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    // Start a real auto-scroll animation with a visible delta.
-    v.scrollToEnd(20_000_000, 800);
-    expect(v.animating).toBe(true);
-    const animStart = performance.now();
-
-    // Retarget with sub-threshold delta — should NOT kick animStartTime.
-    // We detect this by confirming the animation still finishes in roughly
-    // ANIM.streamTick (250 ms) from the ORIGINAL start.
-    v.scrollToEnd(20_000_000 + INTERVAL * 0.1, 800);
-    v.tick(animStart + 260);
-    expect(v.animating).toBe(false);
   });
 
   it('getVisibleBarsCount returns correct count', () => {
@@ -482,101 +424,43 @@ describe('Viewport', () => {
     expect(v.autoScroll).toBe(false);
   });
 
-  it('startRebound is a no-op when already inside soft bounds', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.setDataStart(0);
-    v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    v.startRebound(800);
-    expect(v.animating).toBe(false);
-  });
-
-  it('startRebound animates back to right soft bound after pan overshoot', () => {
+  it('pan emits edgeReached when overshoot exceeds 10% of range', () => {
+    // Post Phase-2 step 2: rebound is gone — pan itself classifies the
+    // gesture and fires `edgeReached` so hosts can prefetch history. The
+    // viewport stays where the user left it (no auto snap-back); the
+    // engine eases the visual to the committed logical via the
+    // chart-side gesture emit.
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
     v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3); // zoom in so we have pan headroom
-    v.pan(50_000_000, 800); // overshoot right
-
-    expect(v.visibleRange.to).toBeGreaterThan(18_000_000 + 3 * INTERVAL);
-    v.startRebound(800);
-    expect(v.animating).toBe(true);
-
-    // Tick past rebound duration — final range should sit inside soft bounds.
-    v.tick(performance.now() + REBOUND_DURATION_MS + 50);
-    expect(v.animating).toBe(false);
-    expect(v.visibleRange.to).toBeLessThanOrEqual(18_000_000 + 3 * INTERVAL + 1e-6);
-  });
-
-  it('pan during rebound cancels the animation (user keeps interacting)', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.setDataStart(0);
-    v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    v.zoomAt(9_000_000, 0.3);
-    v.pan(50_000_000, 800);
-    v.startRebound(800);
-    expect(v.animating).toBe(true);
-
-    // New user gesture — rebound must yield immediately.
-    v.pan(-INTERVAL, 800);
-    expect(v.animating).toBe(false);
-  });
-
-  it('zoom during rebound cancels the animation', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.setDataStart(0);
-    v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    v.zoomAt(9_000_000, 0.01); // massive overzoom-in → rubber band active
-    v.startRebound(800);
-    expect(v.animating).toBe(true);
-
-    v.zoomAt(9_000_000, 0.5);
-    expect(v.animating).toBe(false);
-  });
-
-  it('startRebound emits edgeReached when overshoot exceeds 10% of range', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.setDataStart(0);
-    v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    v.zoomAt(9_000_000, 0.3);
-    v.pan(50_000_000, 800); // large right overshoot
 
     const events: Array<{ side: string; overshoot: number; boundaryTime: number }> = [];
     v.on('edgeReached', (info) => events.push(info));
-    v.startRebound(800);
+    v.pan(50_000_000, 800); // large right overshoot
+
     expect(events).toHaveLength(1);
     expect(events[0].side).toBe('right');
     expect(events[0].overshoot).toBeGreaterThan(0);
     expect(events[0].boundaryTime).toBe(18_000_000 + 3 * INTERVAL);
   });
 
-  it('startRebound does not emit edgeReached for sub-threshold overshoot', () => {
+  it('pan does not emit edgeReached for sub-threshold overshoot', () => {
     const v = new Viewport();
     v.setDataInterval(INTERVAL);
     v.setDataStart(0);
     v.setDataEnd(18_000_000);
     v.fitToData(0, 18_000_000, { chartWidth: 800 });
     v.zoomAt(9_000_000, 0.3);
-    // Tiny overshoot — well below 10% of visible range.
-    v.pan(INTERVAL * 0.05, 800);
-    const overshootBefore = v.visibleRange.to - (18_000_000 + 3 * INTERVAL);
 
     const events: Array<{ side: string }> = [];
     v.on('edgeReached', (info) => events.push(info));
-    v.startRebound(800);
-    // Either no overshoot or overshoot is sub-threshold — either way: no event.
+    // Tiny overshoot — well below 10% of visible range.
+    v.pan(INTERVAL * 0.05, 800);
+
     expect(events).toHaveLength(0);
-    // Sanity: we did not actually exceed 10% — otherwise the test premise is wrong.
-    expect(Math.max(0, overshootBefore)).toBeLessThan((v.visibleRange.to - v.visibleRange.from) * 0.1);
   });
 
   describe('maxVisibleBars option', () => {
@@ -654,21 +538,4 @@ describe('Viewport', () => {
     });
   });
 
-  it('startRebound after zoom-in overshoot clamps range to softMin', () => {
-    const v = new Viewport();
-    v.setDataInterval(INTERVAL);
-    v.setDataStart(0);
-    v.setDataEnd(18_000_000);
-    v.fitToData(0, 18_000_000, { chartWidth: 800 });
-    v.zoomAt(9_000_000, 0.01); // zoom in past the 10-bar floor
-    const rangeAfterZoom = v.visibleRange.to - v.visibleRange.from;
-    expect(rangeAfterZoom).toBeLessThan(10 * INTERVAL);
-
-    v.startRebound(800);
-    v.tick(performance.now() + REBOUND_DURATION_MS + 50);
-    const rangeAfterRebound = v.visibleRange.to - v.visibleRange.from;
-    expect(rangeAfterRebound).toBeCloseTo(10 * INTERVAL, 0);
-  });
 });
-
-const REBOUND_DURATION_MS = 350;

@@ -42,7 +42,7 @@ function ResetButton({ theme, onClick, label }: { theme: PanelCtx['theme']; onCl
  * sit on the left and incoming ticks fill the empty right side. Once
  * the window fills up, panning takes over.
  */
-function WarmUpComparison({ theme, perfHud }: PanelCtx) {
+function WarmUpComparison({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 5 * INTERVAL, 5), []);
   const [data, setData] = useState<LineData[]>(seed);
   const [running, setRunning] = useState(true);
@@ -83,6 +83,7 @@ function WarmUpComparison({ theme, perfHud }: PanelCtx) {
       <ChartContainer
         theme={theme}
         perf={perfHud}
+        animations={{ y: { transition: yEngine } }}
         interactive={false}
         viewport={{ initialRange: { from: seedRef.current[0].time, bars: cap } }}
       >
@@ -118,7 +119,7 @@ function WarmUpComparison({ theme, perfHud }: PanelCtx) {
  * different chart per tick. Deterministic — phase advances by a fixed step
  * each frame.
  */
-function SharpJumps({ theme, perfHud }: PanelCtx) {
+function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
   const VISIBLE_CAP = 60;
   // Carrier period in ticks — short enough that several oscillations are
   // visible inside the window at any time.
@@ -167,6 +168,7 @@ function SharpJumps({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >
@@ -183,7 +185,7 @@ function SharpJumps({ theme, perfHud }: PanelCtx) {
  * duration should track the interval so the right edge stays close to the
  * latest bar without wobble or overshoot.
  */
-function VariableJitter({ theme, perfHud }: PanelCtx) {
+function VariableJitter({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
   const [data, setData] = useState<LineData[]>(seed);
 
@@ -210,6 +212,7 @@ function VariableJitter({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: 80 } }}
     >
@@ -226,7 +229,7 @@ function VariableJitter({ theme, perfHud }: PanelCtx) {
  * tick must not produce a multi-second slide (idle reset clamps the adaptive
  * duration back to the baseline).
  */
-function BurstThenPause({ theme, perfHud }: PanelCtx) {
+function BurstThenPause({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 30 * INTERVAL, 30), []);
   const [data, setData] = useState<LineData[]>(seed);
   const [phase, setPhase] = useState<'burst' | 'idle'>('burst');
@@ -263,6 +266,7 @@ function BurstThenPause({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: 60 } }}
     >
@@ -283,7 +287,7 @@ function BurstThenPause({ theme, perfHud }: PanelCtx) {
  * Use this panel as the "before" picture for any Y-stability fix in core:
  * the visual movement must reduce noticeably once sticky bounds land.
  */
-function MonotonicRamp({ theme, perfHud }: PanelCtx) {
+function MonotonicRamp({ theme, perfHud, yEngine }: PanelCtx) {
   const VISIBLE_CAP = 60;
   const STEP = 1.5;
 
@@ -318,10 +322,262 @@ function MonotonicRamp({ theme, perfHud }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >
       <Title sub={`value += ${STEP} per tick · ${data.length} points`}>Monotonic ramp</Title>
+      <LineSeries data={[data]} options={{ pulse: false }} />
+      <YAxis />
+      <TimeAxis />
+    </ChartContainer>
+  );
+}
+
+/**
+ * Outlier-rebound case: baseline ~50 with periodic spikes to 200. Spike
+ * interval (40 ticks) is longer than the visible window (20 bars), so each
+ * spike sits on screen for a while then scrolls off the left edge — leaving
+ * a ~20-tick window where the visible data is back to baseline.
+ *
+ * Sticky-Y (`Y_BOUND_CONTRACT_ALPHA` in `animation-constants.ts`) holds the
+ * upper bound elevated after the spike scrolls off, then lerps it back
+ * toward the baseline with an EMA half-life of ~14 ticks. Without sticky,
+ * Y max would snap to ~60 the instant the spike left the window and the
+ * whole chart would reflow on every outlier.
+ */
+function OutlierRebound({ theme, perfHud, yEngine }: PanelCtx) {
+  const VISIBLE_CAP = 20;
+  const SPIKE_EVERY = 40;
+  const BASE = 50;
+  const SPIKE = 200;
+
+  const seed = useMemo(() => makeSeed(Date.now() - 15 * INTERVAL, 15, BASE), []);
+  const [data, setData] = useState<LineData[]>(seed);
+  const tickRef = useRef(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setData((prev) => {
+        const last = prev[prev.length - 1];
+        const t = tickRef.current;
+        tickRef.current += 1;
+
+        const isSpike = t % SPIKE_EVERY === SPIKE_EVERY - 1;
+        const value = isSpike ? SPIKE : BASE + (Math.random() - 0.5) * 4;
+
+        return [...prev, { time: last.time + INTERVAL, value }];
+      });
+    }, 250);
+
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <ChartContainer
+      theme={theme}
+      perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
+      interactive={false}
+      viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
+    >
+      <LineSeries data={[data]} options={{ pulse: false }} />
+      <YAxis />
+      <TimeAxis />
+    </ChartContainer>
+  );
+}
+
+/** Streaming-cadence panel data cap. React's spread `[...prev, next]` is
+ *  linear in `prev.length`; with three charts running on the same panel
+ *  and the fastest at ~16 ticks/sec, unbounded growth dominates the
+ *  render loop within ~30 seconds. The chart only ever renders the
+ *  visible window, so capping the upstream array is a pure perf knob. */
+const CADENCE_MAX_POINTS = 200;
+
+/**
+ * Streaming at three different cadences side-by-side. ~60 ms = fast feed
+ * (sub-frame batches at typical hardware), 250 ms = the default
+ * `x.dataTick` floor, 2000 ms = sparse feed. Each emits the same data
+ * shape; the cadence-EMA inside `StreamingCadence` resolves an adaptive
+ * duration so the slide stays in lockstep with the producer without
+ * per-tick wobble.
+ *
+ * Eye test: all three should feel smooth; the 2 s feed shouldn't stutter
+ * between ticks, the fast feed shouldn't restart its X easing curve on
+ * every micro-shift.
+ */
+function CadenceMatrix({ theme, perfHud, yEngine }: PanelCtx) {
+  const startTime = useMemo(() => Date.now() - 30 * INTERVAL, []);
+
+  const cell = (intervalMs: number, label: string) => (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <CadenceChart
+        theme={theme}
+        perfHud={perfHud}
+        yEngine={yEngine}
+        startTime={startTime}
+        intervalMs={intervalMs}
+        label={label}
+      />
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, height: '100%' }}>
+      {cell(60, 'fast · 60 ms')}
+      {cell(250, 'default · 250 ms')}
+      {cell(2000, 'slow · 2 s')}
+    </div>
+  );
+}
+
+function CadenceChart({
+  theme,
+  perfHud,
+  yEngine,
+  startTime,
+  intervalMs,
+  label,
+}: {
+  theme: PanelCtx['theme'];
+  perfHud: boolean;
+  yEngine: PanelCtx['yEngine'];
+  startTime: number;
+  intervalMs: number;
+  label: string;
+}) {
+  const seed = useMemo(() => makeSeed(startTime, 30), [startTime]);
+  const [data, setData] = useState<LineData[]>(seed);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setData((prev) => {
+        const last = prev[prev.length - 1];
+        const next: LineData = {
+          time: last.time + INTERVAL,
+          value: 100 + Math.sin(prev.length / 6) * 10 + (Math.random() - 0.5) * 1.5,
+        };
+        // Rolling window — keep the spread cost constant.
+        if (prev.length >= CADENCE_MAX_POINTS) {
+          return [...prev.slice(1), next];
+        }
+
+        return [...prev, next];
+      });
+    }, intervalMs);
+
+    return () => clearInterval(id);
+  }, [intervalMs]);
+
+  return (
+    <ChartContainer
+      theme={theme}
+      perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
+      interactive={false}
+      viewport={{ initialRange: { from: seed[0].time, bars: 50 } }}
+    >
+      <Title sub={`${data.length} points`}>{label}</Title>
+      <LineSeries data={[data]} options={{ pulse: false }} />
+      <YAxis />
+      <TimeAxis />
+    </ChartContainer>
+  );
+}
+
+/**
+ * Concurrent events: streaming append + user pan/zoom in the same window.
+ * Engine priority is `gesture (3) > data_tick (1)`; the chart's
+ * `viewport.on('interact')` handler emits gesture X+Y, which preempts
+ * the in-flight data_tick on the X slot and routes the visual to the
+ * gesture's logical destination.
+ *
+ * Eye test: drag-pan during fast streaming — the viewport jumps to where
+ * you released, then streaming resumes from there (right edge starts
+ * sliding away). With `x.gesture: 200ms` set below, the pan should ease
+ * into place rather than snap.
+ */
+function ConcurrentEvents({ theme, perfHud, yEngine }: PanelCtx) {
+  const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
+  const [data, setData] = useState<LineData[]>(seed);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setData((prev) => {
+        const last = prev[prev.length - 1];
+        const next: LineData = {
+          time: last.time + INTERVAL,
+          value: 100 + Math.sin(prev.length / 5) * 12 + (Math.random() - 0.5) * 2,
+        };
+        if (prev.length >= 250) return [...prev.slice(1), next];
+
+        return [...prev, next];
+      });
+    }, 200);
+
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <ChartContainer
+      theme={theme}
+      perf={perfHud}
+      animations={{ y: { transition: yEngine }, x: { gesture: 200 } }}
+      viewport={{ initialRange: { from: seed[0].time, bars: 80 } }}
+    >
+      <Title sub="drag to pan while data appends — gesture preempts data_tick on X">Concurrent events</Title>
+      <LineSeries data={[data]} options={{ pulse: false }} />
+      <YAxis />
+      <TimeAxis />
+    </ChartContainer>
+  );
+}
+
+/**
+ * Background-tab recovery. The browser pauses RAF for inactive tabs;
+ * when the tab regains focus, `requestAnimationFrame` fires with a single
+ * dt that can be several seconds. The engine's `MAX_FRAME_DT = 32 ms`
+ * clamp caps the dt so an `easeOutCubic` curve at the moment of suspend
+ * doesn't teleport to its target on the resume frame.
+ *
+ * Eye test: switch to another browser tab for 5+ seconds, return — the
+ * chart should resume smoothly (no visible jump, no 1-frame blink, no
+ * stale tail).
+ */
+function BackgroundTabRecovery({ theme, perfHud, yEngine }: PanelCtx) {
+  const seed = useMemo(() => makeSeed(Date.now() - 50 * INTERVAL, 50), []);
+  const [data, setData] = useState<LineData[]>(seed);
+  const lastTimeRef = useRef(seed[seed.length - 1].time);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      // Use wall-clock based time so when the tab is backgrounded and the
+      // setInterval drifts, the resume picks up where it should — not from
+      // a stale "tick count" baseline that would visually compress all the
+      // missed ticks into one resume frame.
+      const nextTime = Math.max(lastTimeRef.current + INTERVAL, Date.now());
+      lastTimeRef.current = nextTime;
+      setData((prev) => [
+        ...prev,
+        { time: nextTime, value: 100 + Math.sin(prev.length / 5) * 8 + (Math.random() - 0.5) * 1 },
+      ]);
+    }, 250);
+
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <ChartContainer
+      theme={theme}
+      perf={perfHud}
+      animations={{ y: { transition: yEngine } }}
+      interactive={false}
+      viewport={{ initialRange: { from: seed[0].time, bars: 60 } }}
+    >
+      <Title sub="switch tabs for 5+ seconds and return — engine MAX_FRAME_DT clamps the resume dt">
+        Background-tab recovery
+      </Title>
       <LineSeries data={[data]} options={{ pulse: false }} />
       <YAxis />
       <TimeAxis />
@@ -362,5 +618,45 @@ export const streamingPanels: readonly StressPanel[] = [
     hint: 'Each tick adds a fixed step to value. Y MAX grows every tick; already-drawn points slide downward as the bound expands.',
     note: 'Baseline for Y-stability work — sticky bounds with EMA shrink should make the slide smoother and eliminate per-tick wobble after the initial expansion.',
     render: (ctx) => <MonotonicRamp {...ctx} />,
+  },
+  {
+    id: 'stream-outlier-rebound',
+    title: 'Outlier rebound',
+    hint: 'Baseline ~50 with spikes to 200 every 40 ticks; visible window = 20 bars, so each spike spends ~20 ticks on screen then ~20 ticks off-screen. Sticky-Y keeps the upper bound elevated after the spike scrolls off and lerps it back toward the baseline rather than snapping — no per-spike reflow of the whole panel.',
+    note: 'Demonstrates the sticky-Y contraction trade-off. Left chart = default (α=0.05); right chart = effectively no sticky (α=1.0). Same stream feeds both — compare which feels more readable for noisy data.',
+    render: (ctx) => <OutlierRebound {...ctx} />,
+    minHeight: 360,
+  },
+];
+
+/**
+ * Phase 2 verification panels — separated from the main `streamingPanels`
+ * group so the streaming group stays at its pre-migration weight (the
+ * cadence matrix below spawns three sub-charts, and side-by-side these
+ * panels add ~5 chart instances on top of the existing six). Reached via
+ * the "Animation" group selector on the stress page.
+ */
+export const animationPanels: readonly StressPanel[] = [
+  {
+    id: 'anim-cadence-matrix',
+    title: 'Streaming cadence — three rates side by side',
+    hint: 'Same chart at 60 ms / 250 ms / 2 s update rates. The cadence-EMA inside StreamingCadence adapts the X-slide duration to the producer, so all three should feel smooth.',
+    note: 'Phase 2 acceptance: no per-tick jerks across the three cadences. The 60 ms feed must not restart its X easing curve on every micro-shift (sub-threshold filter); the 2 s feed must not stutter between ticks.',
+    render: (ctx) => <CadenceMatrix {...ctx} />,
+    minHeight: 360,
+  },
+  {
+    id: 'anim-concurrent-events',
+    title: 'Concurrent events — gesture preempts streaming',
+    hint: 'Drag to pan while the chart is streaming. The engine prioritises gesture (3) over data_tick (1) on the X slot, so the pan target wins instantly and streaming resumes from the new position.',
+    note: "`x.gesture: 200ms` is set on this panel so the pan eases into place rather than snapping — exercises the engine's handoff path between two events with different priorities.",
+    render: (ctx) => <ConcurrentEvents {...ctx} />,
+  },
+  {
+    id: 'anim-background-tab',
+    title: 'Background-tab recovery',
+    hint: "Open this panel, then switch to another browser tab for 5+ seconds and return. The engine's MAX_FRAME_DT clamp (32 ms) caps the resume dt so any in-flight easing doesn't teleport.",
+    note: 'Eye test: no visible blink, no Y-range snap on resume. The tail should pick up smoothly from where it was when the tab was hidden.',
+    render: (ctx) => <BackgroundTabRecovery {...ctx} />,
   },
 ];

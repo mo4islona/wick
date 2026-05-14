@@ -45,8 +45,8 @@ export interface PlaygroundChartProps {
   smoothMs: number;
   pulseMs: number;
   reboundMs: number;
-  yAxisMs: number;
   inputResponseMs: number;
+  yEngine: 'hermite' | 'spring' | 'snap';
   headerLayout: HeaderLayout;
   navigatorVisible: boolean;
   navigatorHeight: number;
@@ -130,8 +130,8 @@ function stateToChartProps<TExtra extends object>(
     smoothMs: state.smoothMs,
     pulseMs: state.pulseMs,
     reboundMs: state.reboundMs,
-    yAxisMs: state.yAxisMs,
     inputResponseMs: state.inputResponseMs,
+    yEngine: state.yEngine,
     headerLayout: state.headerLayout,
     navigatorVisible: state.navigatorVisible,
     navigatorHeight: state.navigatorHeight,
@@ -446,17 +446,18 @@ function buildBuiltinSections({
     }
     animRows.push(
       {
-        key: 'yAxisMs',
-        label: 'Y axis ease',
-        hint: 'Y range chase on data updates. 0 snaps every frame.',
+        key: 'yEngine',
+        label: 'Y engine',
+        hint: 'Hermite: fixed-duration cubic. Spring: critically-damped physics. Snap: no animation.',
         render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={400}
-            step={10}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
+          <ToggleGroup<'hermite' | 'spring' | 'snap'>
+            value={v as 'hermite' | 'spring' | 'snap'}
+            options={[
+              { value: 'hermite', label: 'Hermite' },
+              { value: 'spring', label: 'Spring' },
+              { value: 'snap', label: 'Snap' },
+            ]}
+            onChange={onChange as (v: 'hermite' | 'spring' | 'snap') => void}
           />
         ),
       } as RowSpec,

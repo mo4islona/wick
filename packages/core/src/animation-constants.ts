@@ -1,43 +1,56 @@
 /**
- * Shared animation defaults. All time knobs are in milliseconds; the suffix
- * `Ms` is standard across the public API.
+ * Shared animation defaults. All numeric values are milliseconds; the
+ * historical `Ms` suffix has been dropped — the unit is now fixed.
  *
- * These are the *built-in* defaults. Resolution order for any per-series
- * animation field is: per-series option → `ChartOptions.animations.points.*`
- * → these constants.
+ * Resolution order for any per-series animation field is: per-series option
+ * → `ChartOptions.animations.series.<type>.*` → these constants.
  */
+
+// =============================================================================
+// Internal shared defaults
+// =============================================================================
 
 /**
- * Default duration for every coordinated animation knob (entrance, live-value
- * smoothing, Y-range chase, post-gesture rebound, programmatic fit). Sharing
- * one number means a streaming tick's X re-fit, Y range update, and last-
- * point live-track all arrive at their settled state on the same frame —
- * the "lockstep arrival" guarantee from animation-unification.md.
- *
- * The pulse cycle period and the per-event input-response ease deliberately
- * keep their own constants below: pulse is a periodic loop (period, not
- * duration), and input-response defaults to instant-apply for backward
- * compatibility (opt in via `animations.viewport.inputResponseMs`).
+ * Shared baseline for series entry / smoothing. The public per-series-type
+ * constants below alias these — same value today, but separately named so
+ * any one series type can be tuned independently in future without touching
+ * the shared base.
  */
-const DEFAULT_ANIMATION_MS = 250;
+const DEFAULT_SERIES_ENTRY = 250;
+const DEFAULT_SERIES_SMOOTH = 250;
 
-/** Entrance tween duration for a new candle/bar/line point. */
-export const DEFAULT_ENTER_MS = DEFAULT_ANIMATION_MS;
+// =============================================================================
+// Per-series-type defaults (public)
+// =============================================================================
 
-/**
- * Live-value chase duration (ms) for the displayed last point on `updateData`
- * ticks. Animator-driven cubic ease — after `DEFAULT_SMOOTH_MS` ms with no
- * new updates, the displayed value reaches exactly the actual last value.
- */
-export const DEFAULT_SMOOTH_MS = DEFAULT_ANIMATION_MS;
+/** Line entrance tween duration. */
+export const DEFAULT_LINE_ENTRY = DEFAULT_SERIES_ENTRY;
+/** Line live-value chase duration. */
+export const DEFAULT_LINE_SMOOTH = DEFAULT_SERIES_SMOOTH;
+/** Pulse cycle period for the line last-point halo. Periodic loop, not a one-shot transition. */
+export const DEFAULT_LINE_PULSE = 600;
 
-/** Pulse cycle period for the line's last-point halo. One full sine cycle.
- * Distinct from {@link DEFAULT_ANIMATION_MS} — this is a periodic loop, not
- * a one-shot transition. */
-export const DEFAULT_PULSE_MS = 600;
+/** Candlestick entrance tween duration. */
+export const DEFAULT_CANDLESTICK_ENTRY = DEFAULT_SERIES_ENTRY;
+/** Candlestick live OHLC chase duration. */
+export const DEFAULT_CANDLESTICK_SMOOTH = DEFAULT_SERIES_SMOOTH;
 
-/** Rebound (snap-back) animation duration after pan/zoom overshoot. */
-export const DEFAULT_REBOUND_MS = DEFAULT_ANIMATION_MS;
+/** Bar entrance tween duration. */
+export const DEFAULT_BAR_ENTRY = DEFAULT_SERIES_ENTRY;
+/** Bar live-value chase duration. */
+export const DEFAULT_BAR_SMOOTH = DEFAULT_SERIES_SMOOTH;
+
+/** Pie segment entry sweep. Parsed at config-time; wiring lands in a later phase. */
+export const DEFAULT_PIE_ENTRY = 250;
+/** Pie segment data-update chase. Parsed at config-time; wiring lands in a later phase. */
+export const DEFAULT_PIE_UPDATE = 250;
+
+// =============================================================================
+// X / Y / axis defaults
+// =============================================================================
+
+/** Floor duration for streaming X scroll. */
+export const DEFAULT_X_DATA_TICK = 250;
 
 /**
  * Per-event ease applied to user pan/zoom commits. Logical state advances
@@ -46,45 +59,47 @@ export const DEFAULT_REBOUND_MS = DEFAULT_ANIMATION_MS;
  * mouse event isn't a teleport and back-to-back wheel/trackpad events
  * interpolate smoothly through the same animator.
  *
- * Defaults to `0` (instant apply) — opt in via
- * `animations.viewport.inputResponseMs` (suggested value 60). The default is
- * conservative because the animated visual range diverges from the committed
- * target until the ease completes; consumers that read
- * `chart.getVisibleRange()` immediately after a wheel/pan expect the new
- * value, and animating it would surprise existing integrations.
+ * Defaults to `0` (instant apply) — opt in via `animations.x.gesture`
+ * (suggested value 60). The default is conservative because the animated
+ * visual range diverges from the committed target until the ease completes;
+ * consumers reading `chart.getVisibleRange()` synchronously after a wheel/pan
+ * expect the new value.
  */
-export const DEFAULT_INPUT_RESPONSE_MS = 0;
+export const DEFAULT_X_GESTURE = 0;
 
 /**
- * Y-axis range chase duration (ms). Drives the two `Animator<number>`s on
- * the Y bounds — wall-clock cubic ease, settles after this many ms with no
- * new data. `0` / `false` snaps the Y range instantly every frame.
+ * Short-ease applied to the Y animator while a user gesture is active.
+ * The default sticky-Y contract duration (2500 ms) is intentionally long
+ * for streaming feeds — outliers leaving the window shouldn't reflow the
+ * whole chart — but during pan/zoom the user explicitly chose a new view,
+ * so contractions should converge in roughly one frame per wheel tick
+ * instead of crawling over the full contract budget. The chart passes this
+ * as a per-call override to `retarget`; the engine respects it for that
+ * single call and restores its built-in baseline for subsequent (post-
+ * gesture) data updates.
  */
-export const DEFAULT_Y_AXIS_MS = DEFAULT_ANIMATION_MS;
+export const DEFAULT_Y_GESTURE = 100;
 
 /**
- * Y-range chase duration applied to the first frame after a user pan/zoom
- * event. Short enough that each wheel tick converges within ~1 frame (no
- * perceived "rubber" trailing the gesture), long enough that the per-event
- * motion still reads as smooth rather than as discrete teleports. Once the
- * gesture stops, current ≈ target, and the next frame switches back to the
- * full {@link DEFAULT_Y_AXIS_MS} ease without any visible motion.
+ * Default duration for {@link ChartInstance.setSeriesVisible} fade
+ * transitions — the cross-fade applied to the series alpha AND the
+ * one-shot Y-range duration override used for the same toggle, so the
+ * fade and the axis re-fit settle on the same frame.
  */
-export const INTERACT_Y_AXIS_MS = 100;
+export const DEFAULT_Y_VISIBILITY = 250;
 
-/**
- * Cap for the adaptive Y-range chase duration on streaming ticks. A long-
- * interval feed (daily candles, etc.) would otherwise stretch the linear
- * Y ease over hours; we never need the chase to outlast a few seconds of
- * motion to hide the per-tick step. Mirrors `SCROLL_TO_END_MAX_MS` in
- * `viewport.ts`.
- */
-export const STREAMING_Y_MAX_MS = 5_000;
+/** Axis tick label cross-fade duration. */
+export const DEFAULT_AXIS_TICK_FADE = 250;
 
-/**
- * Inter-arrival above this resets the Y streaming measurement to the
- * baseline `yAxisMs` — a long pause means the previous cadence is stale,
- * so the next tick eases over a normal frame instead of a multi-second
- * slide. Mirrors `STREAM_IDLE_RESET_MS` in `viewport.ts`.
- */
-export const STREAMING_Y_IDLE_RESET_MS = 2_000;
+// =============================================================================
+// Y transition factory baselines
+// =============================================================================
+
+/** Outward (expanding) settle time baked into `hermite()` when unset. */
+export const DEFAULT_HERMITE_EXPAND = 250;
+/** Inward (contracting) settle time baked into `hermite()` when unset. */
+export const DEFAULT_HERMITE_CONTRACT = 2_500;
+/** Outward settle time baked into `spring()` when unset. ~99% target after this many ms. */
+export const DEFAULT_SPRING_EXPAND_SPEED = 250;
+/** Inward settle time baked into `spring()` when unset. */
+export const DEFAULT_SPRING_CONTRACT_SPEED = 2_500;

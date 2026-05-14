@@ -102,10 +102,12 @@ describe('chart-level tick-tracker arming', () => {
     // Only one frame — viewport/series may still be animating after this.
     raf.flush(1);
 
-    const ySnap = chart.yScale.tickTracker.snapshot();
+    const ySnap = chart.yScale.tickTracker.snapshot(chart.getAnimationState().tickOpacity);
     expect(ySnap.entries.length).toBeGreaterThan(0);
     // Every seeded tick should be at full opacity — no fade-in during the
-    // mount phase, even though the chart hasn't fully settled yet.
+    // mount phase, even though the chart hasn't fully settled yet. (Engine
+    // emitted the tickFade with duration=0 because the tracker wasn't armed
+    // yet → zero-duration guard → snap.)
     for (const entry of ySnap.entries) {
       expect(entry.opacity).toBe(1);
     }
@@ -149,12 +151,20 @@ describe('chart-level tick-tracker arming', () => {
     raf.flush(50);
     expect(chart.yScale.tickTracker.isArmed).toBe(true);
 
-    // Drive the tracker directly with a new tick set (bypasses the chart's
-    // own setCurrentTicks call so we can check the seed without races with
-    // a follow-up tick). After this call the armed-phase contract says
-    // newcomers are at opacity 0 and the snapshot reports `isAnimating`.
+    // Drive the tracker directly with a new tick set. The chart's
+    // renderMain is what emits the tickFade event; without that emit the
+    // engine map stays at its current values for the prior tick set and
+    // the newcomers' opacity defaults to 1 (the snapshot's "engine hasn't
+    // seen this value" fallback). To assert the armed-fade contract we
+    // pass an explicit opacity map representing "engine just retargeted
+    // the newcomers to 1, but the transition is still at 0".
     chart.yScale.tickTracker.setCurrentTicks([42_000, 43_000, 44_000]);
-    const snap = chart.yScale.tickTracker.snapshot();
+    const op = new Map<number, number>([
+      [42_000, 0],
+      [43_000, 0],
+      [44_000, 0],
+    ]);
+    const snap = chart.yScale.tickTracker.snapshot(op);
     const newcomers = snap.entries.filter((e) => [42_000, 43_000, 44_000].includes(e.value));
     expect(newcomers.length).toBe(3);
     for (const e of newcomers) {
@@ -168,7 +178,9 @@ describe('chart-level tick-tracker arming', () => {
     const id = seedLine(chart, [10, 15, 20, 25, 30]);
     raf.flush(50);
     expect(chart.yScale.tickTracker.isArmed).toBe(true);
-    const armedYTicks = chart.yScale.tickTracker.snapshot().entries.map((e) => e.value);
+    const armedYTicks = chart.yScale.tickTracker
+      .snapshot(chart.getAnimationState().tickOpacity)
+      .entries.map((e) => e.value);
     expect(armedYTicks.length).toBeGreaterThan(0);
 
     // Bulk replace with values far outside the current range. Without the
@@ -184,7 +196,7 @@ describe('chart-level tick-tracker arming', () => {
     // its un-armed snap state (just like a fresh chart) so the next paint
     // shows only the new tick set at full opacity.
     expect(chart.yScale.tickTracker.isArmed).toBe(false);
-    const snap = chart.yScale.tickTracker.snapshot();
+    const snap = chart.yScale.tickTracker.snapshot(chart.getAnimationState().tickOpacity);
     // No leftover from the old [10-30] range.
     const oldTicksStillPresent = snap.entries.filter((e) => armedYTicks.includes(e.value));
     expect(oldTicksStillPresent).toEqual([]);

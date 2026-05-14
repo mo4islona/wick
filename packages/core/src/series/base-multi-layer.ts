@@ -1,5 +1,5 @@
 import { Animator, easeOutCubic } from '../animation';
-import { DEFAULT_ENTER_MS, DEFAULT_SMOOTH_MS } from '../animation-constants';
+import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_SMOOTH } from '../animation-constants';
 import { TimeSeriesStore } from '../data/store';
 import type { TimePoint, TimePointInput } from '../types';
 import { normalizeTime, normalizeTimePointArray } from '../utils/time';
@@ -230,7 +230,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
   protected advanceLiveTracking(now: number): void {
     if (now === this.#lastRenderTime) return;
 
-    const smoothMs = resolveMs(this.getCommonOptions().smoothMs, DEFAULT_SMOOTH_MS);
+    const smoothMs = resolveMs(this.getCommonOptions().smoothMs, DEFAULT_LINE_SMOOTH);
 
     // Anchor `setTarget` on the previous frame so the first tick at the new
     // `now` shows non-zero progress. Clamp to one frame so a long backgrounded-
@@ -267,7 +267,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
   }
 
   protected entranceProgress(layerIndex: number, time: number, now: number): number {
-    const duration = resolveMs(this.getCommonOptions().entryMs, DEFAULT_ENTER_MS);
+    const duration = resolveMs(this.getCommonOptions().entryMs, DEFAULT_LINE_ENTRY);
 
     return computeEntranceProgress(this.entries[layerIndex], time, now, duration);
   }

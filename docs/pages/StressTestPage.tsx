@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import type { ChartTheme } from '@wick-charts/react';
+import { type ChartTheme, hermite, snap, spring } from '@wick-charts/react';
 
 import { Toggle } from '../components/playground/primitives';
 import { themeSurfaceVars } from '../components/playground/themeSurface';
@@ -10,7 +10,7 @@ import { StressPanels } from './stress/panel';
 import { piePanels } from './stress/pie';
 import { reactPanels } from './stress/react';
 import { scalePanels } from './stress/scale';
-import { streamingPanels } from './stress/streaming';
+import { animationPanels, streamingPanels } from './stress/streaming';
 import { themePanels } from './stress/theme';
 import { timeAxisPanels } from './stress/timeaxis';
 import { viewportPanels } from './stress/viewport';
@@ -19,6 +19,7 @@ import { volumePanels } from './stress/volume';
 type GroupId =
   | 'volume'
   | 'streaming'
+  | 'animation'
   | 'data'
   | 'scale'
   | 'timeaxis'
@@ -31,6 +32,7 @@ type GroupId =
 const GROUPS: { id: GroupId; label: string; hint: string }[] = [
   { id: 'volume', label: 'Volume', hint: '10k · 100k points · streaming' },
   { id: 'streaming', label: 'Streaming', hint: 'warm-up · jumps · jitter · pause' },
+  { id: 'animation', label: 'Animation', hint: 'cadence · gesture · bg-tab' },
   { id: 'data', label: 'Data hygiene', hint: 'empty · nulls · NaN · gaps' },
   { id: 'scale', label: 'Scale', hint: 'constant · tiny · giant · negative' },
   { id: 'timeaxis', label: 'Time axis', hint: 'ms · days · years · decades' },
@@ -58,9 +60,19 @@ function readPersistedGroup(): GroupId {
   return 'volume';
 }
 
+type YEngineLabel = 'hermite' | 'spring' | 'snap';
+
+const Y_ENGINE_FACTORIES = {
+  hermite,
+  spring,
+  snap,
+} as const;
+
 export function StressTestPage({ theme }: { theme: ChartTheme }) {
   const [group, setGroup] = useState<GroupId>(readPersistedGroup);
   const [perfHud, setPerfHud] = useState(false);
+  const [yEngineLabel, setYEngineLabel] = useState<YEngineLabel>('hermite');
+  const yEngine = useMemo(() => Y_ENGINE_FACTORIES[yEngineLabel](), [yEngineLabel]);
 
   useEffect(() => {
     try {
@@ -78,6 +90,8 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
         return volumePanels;
       case 'streaming':
         return streamingPanels;
+      case 'animation':
+        return animationPanels;
       case 'data':
         return dataPanels;
       case 'scale':
@@ -111,15 +125,45 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
               <code>#stress-test</code> in any build.
             </p>
           </div>
-          <label
-            style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: theme.tooltip.textColor }}
-          >
-            Perf HUD <Toggle checked={perfHud} onChange={setPerfHud} />
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: theme.tooltip.textColor }}
+            >
+              <span>Y engine</span>
+              <div style={{ display: 'flex', border: `1px solid ${theme.tooltip.borderColor}`, borderRadius: 6 }}>
+                {(['hermite', 'spring', 'snap'] as const).map((kind) => {
+                  const active = kind === yEngineLabel;
+
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => setYEngineLabel(kind)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        fontFamily: 'var(--mono, ui-monospace, monospace)',
+                        color: active ? theme.tooltip.textColor : theme.axis.textColor,
+                        background: active ? theme.crosshair.labelBackground : 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {kind}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <span
+              style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: theme.tooltip.textColor }}
+            >
+              Perf HUD <Toggle checked={perfHud} onChange={setPerfHud} />
+            </span>
+          </div>
         </div>
 
         <nav
-          role="tablist"
           style={{
             display: 'flex',
             gap: 4,
@@ -158,7 +202,7 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
         </nav>
       </header>
 
-      <StressPanels panels={panels} theme={theme} perfHud={perfHud} />
+      <StressPanels panels={panels} theme={theme} perfHud={perfHud} yEngine={yEngine} yEngineLabel={yEngineLabel} />
     </div>
   );
 }

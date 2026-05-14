@@ -1,98 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
-import { AxisTickTracker } from '../tick-tracker';
+import { AxisTickTracker, computeTickFadeDiff } from '../tick-tracker';
 
-const OPACITIES = (t: AxisTickTracker): Record<number, number> => {
-  const out: Record<number, number> = {};
-  for (const { value, opacity } of t.snapshot().entries) out[value] = opacity;
+const EMPTY: ReadonlyMap<number, number> = new Map();
 
-  return out;
-};
-
-describe('AxisTickTracker — snap (pre-arm) phase', () => {
-  it('seeds the initial tick set at full opacity (no fade-in)', () => {
+describe('AxisTickTracker — passive holder', () => {
+  it('starts empty', () => {
     const t = new AxisTickTracker();
-    t.setCurrentTicks([0, 50, 100]);
-
-    expect(OPACITIES(t)).toEqual({ 0: 1, 50: 1, 100: 1 });
+    expect(t.getCurrentTicks()).toEqual([]);
+    expect(t.getPreviousTicks()).toEqual([]);
+    expect(t.snapshot(EMPTY).entries).toEqual([]);
     expect(t.isArmed).toBe(false);
   });
 
-  it('newcomers added while not armed snap to opacity 1', () => {
+  it('setCurrentTicks shifts the previous slot when the array changes', () => {
     const t = new AxisTickTracker();
     t.setCurrentTicks([0, 50, 100]);
-    t.setCurrentTicks([0, 50, 100, 200]);
+    expect(t.getCurrentTicks()).toEqual([0, 50, 100]);
+    expect(t.getPreviousTicks()).toEqual([]);
 
-    expect(OPACITIES(t)).toEqual({ 0: 1, 50: 1, 100: 1, 200: 1 });
+    t.setCurrentTicks([50, 100, 200]);
+    expect(t.getCurrentTicks()).toEqual([50, 100, 200]);
+    expect(t.getPreviousTicks()).toEqual([0, 50, 100]);
   });
 
-  it('departures drop immediately while not armed (no fade-out)', () => {
+  it('setCurrentTicks is idempotent on element-wise equal arrays', () => {
     const t = new AxisTickTracker();
     t.setCurrentTicks([0, 50, 100]);
-    t.setCurrentTicks([0, 50]);
-
-    expect(OPACITIES(t)).toEqual({ 0: 1, 50: 1 });
-  });
-});
-
-describe('AxisTickTracker — armed (fade) phase', () => {
-  it('after markArmed, new ticks fade in from 0 and departures fade out from 1', () => {
-    const t = new AxisTickTracker({ fadeMs: 200 });
     t.setCurrentTicks([0, 50, 100]);
-    t.markArmed();
-
-    t.setCurrentTicks([0, 200]); // 50 + 100 leaving; 200 arriving
-    expect(OPACITIES(t)).toEqual({ 0: 1, 50: 1, 100: 1, 200: 0 });
+    // Previous stays empty — the chart's renderMain + each framework axis
+    // component can call setCurrentTicks per render without colliding.
+    expect(t.getPreviousTicks()).toEqual([]);
   });
 
-  it('tick(now) advances opacities linearly toward target and reports `moved`', () => {
-    const t = new AxisTickTracker({ fadeMs: 200 });
-    t.setCurrentTicks([0, 50]);
-    t.markArmed();
-    t.tick(0); // seed lastTickAt without advancing
-    t.setCurrentTicks([0, 100]); // 50 fades out, 100 fades in
-
-    const first = t.tick(100); // dt=100 ms, step=0.5
-    expect(first.moved).toBe(true);
-    expect(first.animating).toBe(true);
-    expect(OPACITIES(t)).toEqual({ 0: 1, 50: 0.5, 100: 0.5 });
-
-    const second = t.tick(220); // dt=120 ms, step=0.6 → settles
-    expect(second.moved).toBe(true);
-    expect(second.animating).toBe(false);
-    // 50 fully faded out → pruned. 100 reached 1.
-    expect(OPACITIES(t)).toEqual({ 0: 1, 100: 1 });
-  });
-
-  it('a large dt one-shots fade-in to 1 in a single step (moved=true, animating=false)', () => {
-    const t = new AxisTickTracker({ fadeMs: 200 });
-    t.setCurrentTicks([0]);
-    t.markArmed();
-    t.tick(0);
-    t.setCurrentTicks([0, 100]);
-
-    const r = t.tick(10_000);
-    expect(r.moved).toBe(true);
-    expect(r.animating).toBe(false);
-    expect(OPACITIES(t)).toEqual({ 0: 1, 100: 1 });
-  });
-
-  it('fadeMs <= 0 makes every change snap (no animation), still reports `moved`', () => {
-    const t = new AxisTickTracker({ fadeMs: 0 });
-    t.setCurrentTicks([0]);
-    t.markArmed();
-    t.tick(0);
-    t.setCurrentTicks([0, 100]);
-
-    const r = t.tick(16);
-    expect(r.animating).toBe(false);
-    expect(r.moved).toBe(true);
-    expect(OPACITIES(t)).toEqual({ 0: 1, 100: 1 });
-  });
-});
-
-describe('AxisTickTracker — reset()', () => {
-  it('clears state and disarms the tracker so the next paint snaps again', () => {
+  it('markArmed flips isArmed; reset clears the flag and both arrays', () => {
     const t = new AxisTickTracker();
     t.setCurrentTicks([0, 50]);
     t.markArmed();
@@ -100,32 +41,95 @@ describe('AxisTickTracker — reset()', () => {
 
     t.reset();
     expect(t.isArmed).toBe(false);
-    expect(t.snapshot().entries).toEqual([]);
-
-    t.setCurrentTicks([10, 20]);
-    expect(OPACITIES(t)).toEqual({ 10: 1, 20: 1 });
+    expect(t.getCurrentTicks()).toEqual([]);
+    expect(t.getPreviousTicks()).toEqual([]);
   });
 });
 
-describe('AxisTickTracker — snapshot()', () => {
-  it('reports isAnimating=true while any entry is mid-fade', () => {
-    const t = new AxisTickTracker({ fadeMs: 200 });
-    t.setCurrentTicks([0]);
-    t.markArmed();
-    t.tick(0);
-    t.setCurrentTicks([0, 100]);
-
-    expect(t.snapshot().isAnimating).toBe(true);
+describe('AxisTickTracker — snapshot(tickOpacity) joins tracker with engine state', () => {
+  it('current ticks default to opacity 1 when the engine has no entry yet', () => {
+    const t = new AxisTickTracker();
+    t.setCurrentTicks([10, 20, 30]);
+    const snap = t.snapshot(EMPTY);
+    expect(snap.entries).toEqual([
+      { value: 10, opacity: 1 },
+      { value: 20, opacity: 1 },
+      { value: 30, opacity: 1 },
+    ]);
+    expect(snap.isAnimating).toBe(false);
   });
 
-  it('reports isAnimating=false once every entry has reached its target', () => {
-    const t = new AxisTickTracker({ fadeMs: 200 });
-    t.setCurrentTicks([0]);
-    t.markArmed();
-    t.tick(0);
-    t.setCurrentTicks([0, 100]);
-    t.tick(500); // long enough to settle
+  it('current-tick opacity is sourced from the engine map when set', () => {
+    const t = new AxisTickTracker();
+    t.setCurrentTicks([10, 20]);
+    const op = new Map<number, number>([
+      [10, 0.4],
+      [20, 0.8],
+    ]);
+    const snap = t.snapshot(op);
+    expect(snap.entries).toEqual([
+      { value: 10, opacity: 0.4 },
+      { value: 20, opacity: 0.8 },
+    ]);
+    expect(snap.isAnimating).toBe(true);
+  });
 
-    expect(t.snapshot().isAnimating).toBe(false);
+  it('previous-only ticks surface only when the engine still holds a non-zero opacity', () => {
+    const t = new AxisTickTracker();
+    t.setCurrentTicks([10, 20]);
+    t.setCurrentTicks([20, 30]); // 10 exited
+    const op = new Map<number, number>([[10, 0.3]]);
+    const snap = t.snapshot(op);
+    // 20 + 30 from current (default 1.0), 10 from previous at 0.3.
+    const sorted = [...snap.entries].sort((a, b) => a.value - b.value);
+    expect(sorted).toEqual([
+      { value: 10, opacity: 0.3 },
+      { value: 20, opacity: 1 },
+      { value: 30, opacity: 1 },
+    ]);
+    expect(snap.isAnimating).toBe(true);
+  });
+
+  it('previous-only ticks are dropped when their opacity has reached 0', () => {
+    const t = new AxisTickTracker();
+    t.setCurrentTicks([10]);
+    t.setCurrentTicks([20]); // 10 exited
+    const snap = t.snapshot(new Map<number, number>([[10, 0]]));
+    expect(snap.entries).toEqual([{ value: 20, opacity: 1 }]);
+  });
+
+  it('isAnimating=false once every current tick is at full opacity and no fading previous remain', () => {
+    const t = new AxisTickTracker();
+    t.setCurrentTicks([10]);
+    t.setCurrentTicks([20]); // 10 exited, fully drained
+    const snap = t.snapshot(new Map<number, number>([[20, 1]]));
+    expect(snap.entries).toEqual([{ value: 20, opacity: 1 }]);
+    expect(snap.isAnimating).toBe(false);
+  });
+});
+
+describe('computeTickFadeDiff', () => {
+  it('returns disjoint entering / exiting arrays for an unchanged set', () => {
+    const diff = computeTickFadeDiff([0, 50, 100], [0, 50, 100]);
+    expect(diff.entering).toEqual([]);
+    expect(diff.exiting).toEqual([]);
+  });
+
+  it('classifies new values as entering', () => {
+    const diff = computeTickFadeDiff([0, 50, 100, 200], [0, 50, 100]);
+    expect(diff.entering).toEqual([200]);
+    expect(diff.exiting).toEqual([]);
+  });
+
+  it('classifies dropped values as exiting', () => {
+    const diff = computeTickFadeDiff([0, 50], [0, 50, 100]);
+    expect(diff.entering).toEqual([]);
+    expect(diff.exiting).toEqual([100]);
+  });
+
+  it('handles concurrent entering + exiting on a tick-set replacement', () => {
+    const diff = computeTickFadeDiff([100, 200, 300], [0, 100, 200]);
+    expect(diff.entering).toEqual([300]);
+    expect(diff.exiting).toEqual([0]);
   });
 });

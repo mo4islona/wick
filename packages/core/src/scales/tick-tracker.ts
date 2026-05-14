@@ -1,13 +1,19 @@
 /**
- * Per-axis fade tracker for tick values. Both the canvas grid lines and the
- * DOM axis labels read from the same tracker so their opacity is identical
- * frame-for-frame — a new tick appears on the grid and its label at the same
- * pixel-level alpha, and so does a leaving tick.
+ * Per-axis tick-set holder.
  *
- * The tracker is value-keyed (not array-index) so that pans/zooms which
- * shift the tick set still produce stable per-tick identity: a tick that
- * stays in range across two `setCurrentTicks()` calls keeps its current
- * opacity instead of being treated as a fresh fade-in.
+ * Post Phase-2 step 3 the tracker no longer owns opacity state — axis tick
+ * fades drive off the engine's `state.tickOpacity` map, populated by
+ * `bridge.emitDataTick({ tickFade })` events the chart emits in
+ * `renderMain` whenever the current tick set diffs against the previous.
+ * What the tracker still owns:
+ *  - the current tick array (so multiple surfaces — canvas grid, DOM axis
+ *    labels — agree on which values are alive this frame),
+ *  - the previous tick array (so {@link computeTickFadeDiff} can compute
+ *    entering / exiting without the caller stashing it themselves),
+ *  - the "armed" flag separating first-paint snap-in from later eased
+ *    fades (initial layout settles over a few transient niceTickValues
+ *    sets; arming after the first quiescent frame is what stops those
+ *    transient sets from flickering through a long opening fade).
  */
 export interface TickEntry {
   /** Tick value (time or price). */
@@ -17,159 +23,100 @@ export interface TickEntry {
 }
 
 export interface TickTrackerSnapshot {
-  /** Every tick the tracker still considers alive — current ones at full alpha and fading-out ones above 0. */
+  /** Every tick the tracker still considers alive — current ones at their
+   *  resolved opacity (1.0 once any pending fade-in settles) and fading-out
+   *  ones above 0. */
   readonly entries: readonly TickEntry[];
   /** True while at least one entry hasn't reached its target opacity. */
   readonly isAnimating: boolean;
 }
 
-interface TrackedTick {
-  opacity: number;
-  target: 0 | 1;
-}
-
 const EMPTY_SNAPSHOT: TickTrackerSnapshot = { entries: [], isAnimating: false };
 
-export interface AxisTickTrackerOptions {
-  /** Fade duration in ms. Default 250 — matches DEFAULT_ENTER_MS / streamTick. */
-  fadeMs?: number;
+/** Strict-equal element-wise compare for the idempotent `setCurrentTicks`
+ *  short-circuit. The legacy tracker accepted multiple identical calls per
+ *  frame (chart's renderMain + each React axis component); we preserve
+ *  that here so the second call doesn't shift the just-set current value
+ *  into the previous slot. */
+function sameTicks(a: readonly number[], b: readonly number[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+
+  return true;
 }
 
 export class AxisTickTracker {
-  #map = new Map<number, TrackedTick>();
-  #fadeMs: number;
-  #lastTickAt: number | null = null;
+  #current: readonly number[] = [];
+  #previous: readonly number[] = [];
   /**
-   * `false` during the initial mount phase: any tick added via
-   * {@link setCurrentTicks} is seeded at full opacity (no fade-in), and
-   * tick-out departures snap instantly to 0. This covers the case where
-   * the chart's Y/X range is still settling on first paint — niceTickValues
-   * returns slightly different sets across the first few frames, and we
-   * don't want each transient set to flicker through a fade.
-   *
-   * The tracker arms itself the first time {@link tick} sees a fully settled
-   * state (every entry has reached its target). From that point on,
-   * pan/zoom/data-swap churn produces proper fade-in/out.
+   * `false` during the initial mount phase: the chart emits any tickFade
+   * diff with `duration: 0` (engine zero-duration guard → snap), so the
+   * very first niceTickValues sets land at full opacity with no fade.
+   * Armed by the chart after the first quiescent frame.
    */
   #armed = false;
 
-  constructor(options: AxisTickTrackerOptions = {}) {
-    this.#fadeMs = options.fadeMs ?? 250;
-  }
-
   /**
-   * Tell the tracker which ticks are currently in range. While the tracker
-   * is in its initial (un-armed) phase, newcomers are seeded at full opacity
-   * and departures are snapped to 0 — the first paint should not fade in
-   * from black. Once the tracker has been armed (after the first settled
-   * frame), changes animate: new values fade in 0→1 and departures fade out
-   * 1→0.
+   * Record the latest tick set. Idempotent: a call whose argument is
+   * element-wise equal to the current set returns without shifting the
+   * "previous" slot — every chart-driven surface (renderMain, React
+   * YAxis / TimeAxis effect, Svelte / Vue equivalents) can call this on
+   * every render without colliding.
    */
   setCurrentTicks(currentTicks: readonly number[]): void {
-    const initialOpacity = this.#armed ? 0 : 1;
-
-    const seen = new Set<number>();
-    for (const value of currentTicks) {
-      seen.add(value);
-      const entry = this.#map.get(value);
-      if (entry) {
-        entry.target = 1;
-        // While not armed, snap to full opacity rather than easing in from
-        // wherever a previous frame left things.
-        if (!this.#armed) entry.opacity = 1;
-      } else {
-        this.#map.set(value, { opacity: initialOpacity, target: 1 });
-      }
-    }
-
-    for (const [value, entry] of this.#map) {
-      if (!seen.has(value)) {
-        entry.target = 0;
-        if (!this.#armed) {
-          // Drop transient out-of-range ticks instantly during the initial
-          // settling phase so they don't stack into a multi-tick fade-out
-          // on the very first user-visible frame.
-          this.#map.delete(value);
-        }
-      }
-    }
+    if (sameTicks(currentTicks, this.#current)) return;
+    this.#previous = this.#current;
+    this.#current = currentTicks.slice();
   }
 
-  /**
-   * Advance every tick's opacity toward its target. Returns
-   *   - `moved`: at least one opacity changed this frame (caller should
-   *     notify any downstream surface — DOM labels — to re-read state)
-   *   - `animating`: at least one tick still hasn't reached its target
-   *     (caller should schedule another frame).
-   *
-   * The distinction matters when `dt` is large enough to one-shot from 0 to 1
-   * in a single step: the tracker is now settled (`animating=false`) but the
-   * caller still needs to refresh its read since opacities did change.
-   */
-  tick(now: number): { moved: boolean; animating: boolean } {
-    if (this.#lastTickAt === null) {
-      this.#lastTickAt = now;
-
-      return { moved: false, animating: this.#computeAnimating() };
-    }
-    const dt = Math.max(0, now - this.#lastTickAt);
-    this.#lastTickAt = now;
-    if (this.#fadeMs <= 0) {
-      let moved = false;
-      for (const [value, entry] of this.#map) {
-        if (entry.opacity !== entry.target) moved = true;
-        entry.opacity = entry.target;
-        if (entry.opacity <= 0) this.#map.delete(value);
-      }
-
-      return { moved, animating: false };
-    }
-
-    const step = dt / this.#fadeMs;
-    let moved = false;
-    let animating = false;
-    for (const [value, entry] of this.#map) {
-      if (entry.opacity === entry.target) continue;
-      moved = true;
-      if (entry.target === 1) {
-        entry.opacity = Math.min(1, entry.opacity + step);
-      } else {
-        entry.opacity = Math.max(0, entry.opacity - step);
-      }
-      if (entry.opacity !== entry.target) animating = true;
-      // Prune fully-faded entries — they no longer need a DOM node or grid line.
-      else if (entry.target === 0) this.#map.delete(value);
-    }
-
-    return { moved, animating };
+  getCurrentTicks(): readonly number[] {
+    return this.#current;
   }
 
-  /**
-   * Switch the tracker from snap-mode to fade-mode. The caller (chart render
-   * loop) invokes this once the entire chart has reached a settled state —
-   * viewport animation done, no series entrance animations in flight, no
-   * tracker fades in progress. Until then, tick churn from the initial
-   * mount (fitToData, `setVisibleRange`, streaming-pre-roll) all snaps so
-   * users don't see a long opening fade.
-   */
+  getPreviousTicks(): readonly number[] {
+    return this.#previous;
+  }
+
+  /** Whether subsequent tick-set changes should fade-in or snap. */
   markArmed(): void {
     this.#armed = true;
   }
 
-  /** Whether subsequent `setCurrentTicks` will fade newcomers (`true`) or snap them in (`false`). */
   get isArmed(): boolean {
     return this.#armed;
   }
 
-  /** Read-only view for renderers. */
-  snapshot(): TickTrackerSnapshot {
-    if (this.#map.size === 0) return EMPTY_SNAPSHOT;
+  /**
+   * Join the held tick set with the engine's `state.tickOpacity` to build a
+   * renderer-ready snapshot. Current ticks default to opacity 1 when the
+   * engine hasn't seen them yet (fresh mount, or unarmed snap-in);
+   * exiting ticks from the previous set surface only when the engine still
+   * holds a non-zero opacity for them.
+   */
+  snapshot(tickOpacity: ReadonlyMap<number, number>): TickTrackerSnapshot {
+    if (this.#current.length === 0 && this.#previous.length === 0) {
+      return EMPTY_SNAPSHOT;
+    }
 
     const entries: TickEntry[] = [];
     let isAnimating = false;
-    for (const [value, entry] of this.#map) {
-      entries.push({ value, opacity: entry.opacity });
-      if (entry.opacity !== entry.target) isAnimating = true;
+    const currentSet = new Set(this.#current);
+
+    for (const value of this.#current) {
+      const opacity = tickOpacity.get(value) ?? 1;
+      entries.push({ value, opacity });
+      if (opacity < 1) isAnimating = true;
+    }
+
+    for (const value of this.#previous) {
+      if (currentSet.has(value)) continue;
+      const opacity = tickOpacity.get(value);
+      if (opacity === undefined || opacity <= 0) continue;
+      entries.push({ value, opacity });
+      isAnimating = true;
     }
 
     return { entries, isAnimating };
@@ -177,16 +124,39 @@ export class AxisTickTracker {
 
   /** Drop all tracked ticks. Use after dataset swap so stale values don't linger. */
   reset(): void {
-    this.#map.clear();
-    this.#lastTickAt = null;
+    this.#current = [];
+    this.#previous = [];
     this.#armed = false;
   }
+}
 
-  #computeAnimating(): boolean {
-    for (const entry of this.#map.values()) {
-      if (entry.opacity !== entry.target) return true;
-    }
-
-    return false;
+/**
+ * Diff a new tick set against the previous one. Used by the chart to build
+ * the `tickFade` claim on its `bridge.emitDataTick` / `bridge.emitVisibility`
+ * events: `entering` ticks fade `0 → 1`, `exiting` ticks fade `1 → 0`.
+ *
+ * Co-located with the tracker so callers reach for one import. The chart
+ * passes `prev = tracker.getCurrentTicks()` before calling `setCurrentTicks(next)`
+ * so this helper sees the BEFORE/AFTER pair.
+ */
+export function computeTickFadeDiff(
+  current: readonly number[],
+  previous: readonly number[],
+): { entering: readonly number[]; exiting: readonly number[] } {
+  if (sameTicks(current, previous)) {
+    return { entering: [], exiting: [] };
   }
+
+  const curSet = new Set(current);
+  const prevSet = new Set(previous);
+  const entering: number[] = [];
+  const exiting: number[] = [];
+  for (const v of current) {
+    if (!prevSet.has(v)) entering.push(v);
+  }
+  for (const v of previous) {
+    if (!curSet.has(v)) exiting.push(v);
+  }
+
+  return { entering, exiting };
 }

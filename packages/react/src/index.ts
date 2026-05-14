@@ -9,6 +9,7 @@
  */
 
 export type {
+  AnimationTime,
   AnimationsConfig,
   AxisBound,
   AxisConfig,
@@ -25,6 +26,7 @@ export type {
   EdgeReachedInfo,
   EdgeSide,
   EdgeState,
+  HermiteOpts,
   HoverInfo,
   LegendItem,
   /** @deprecated Use {@link TimePoint} instead. */
@@ -44,6 +46,7 @@ export type {
   SeriesType,
   SliceInfo,
   SnapshotSort,
+  SpringOpts,
   StackingMode,
   ThemeConfig,
   ThemePreset,
@@ -54,6 +57,9 @@ export type {
   TooltipFormatter,
   TooltipPosition,
   TooltipPositionArgs,
+  Transition,
+  TransitionContext,
+  TransitionFactory,
   Typography,
   ValueFormatter,
   VisibleRange,
@@ -82,6 +88,7 @@ export {
   githubLight,
   gruvbox,
   handwritten,
+  hermite,
   highContrast,
   isDarkBg,
   lavenderMist,
@@ -95,6 +102,7 @@ export {
   normalizeTime,
   oneDarkPro,
   panda,
+  parseAnimationTime,
   peachCream,
   quietLight,
   resolveAxisFontSize,
@@ -102,7 +110,9 @@ export {
   resolveCandlestickBodyColor,
   rosePineDawn,
   sandDune,
+  snap,
   solarizedLight,
+  spring,
 } from '@wick-charts/core';
 
 export { BarSeries } from './BarSeries';

@@ -1,5 +1,14 @@
 // Chart
 
+export type { AnimationTime, Milliseconds } from './animation/time';
+export { parseAnimationTime } from './animation/time';
+// Y-bound transition contract.
+export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './animation/transition';
+// Built-in Y transitions. Each factory lives in its own module so unused
+// curves tree-shake out — import only the ones you need.
+export { type HermiteOpts, hermite } from './animation/y-range-hermite';
+export { snap } from './animation/y-range-snap';
+export { type SpringOpts, spring } from './animation/y-range-spring';
 export type { AnimationsConfig, ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays
@@ -19,7 +28,7 @@ export type { FrameKind, PercentileSample, PerfMonitorOptions, PerfStats } from 
 export { PerfMonitor } from './perf';
 // Tick fade tracker (read-only types — instances live on chart.timeScale/yScale)
 export type { TickEntry, TickTrackerSnapshot } from './scales/tick-tracker';
-export { AxisTickTracker } from './scales/tick-tracker';
+export { AxisTickTracker, computeTickFadeDiff } from './scales/tick-tracker';
 export type { HoverInfo, SliceInfo } from './series/types';
 export type {
   BuildHoverSnapshotsArgs,

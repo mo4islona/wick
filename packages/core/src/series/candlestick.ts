@@ -1,5 +1,5 @@
 import { Animator, easeOutCubic as easeOutCubicAnim } from '../animation';
-import { DEFAULT_ENTER_MS, DEFAULT_SMOOTH_MS } from '../animation-constants';
+import { DEFAULT_CANDLESTICK_ENTRY, DEFAULT_CANDLESTICK_SMOOTH } from '../animation-constants';
 import { decimateOHLCData } from '../data/decimation';
 import type { TimeSeriesStore } from '../data/store';
 import { resolveCandlestickBodyColor } from '../theme/resolve';
@@ -34,7 +34,6 @@ const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
   down: { body: '#ef5350', wick: '#ef5350' },
   bodyWidthRatio: 0.6,
 };
-
 
 /**
  * Normalize caller-supplied candlestick options. Folds the deprecated
@@ -105,7 +104,7 @@ export class CandlestickRenderer implements SeriesRenderer {
     const time = normalizeTime(p.time);
     this.store.append({ ...p, time });
     const style = this.options.entryAnimation ?? 'unfold';
-    const enterMs = resolveMs(this.options.entryMs, DEFAULT_ENTER_MS);
+    const enterMs = resolveMs(this.options.entryMs, DEFAULT_CANDLESTICK_ENTRY);
     if (style !== 'none' && enterMs > 0) {
       this.entries.set(time, { startTime: performance.now() });
     }
@@ -198,7 +197,7 @@ export class CandlestickRenderer implements SeriesRenderer {
   private entranceProgress(time: number, now: number): number {
     const entry = this.entries.get(time);
     if (!entry) return 1;
-    const duration = resolveMs(this.options.entryMs, DEFAULT_ENTER_MS);
+    const duration = resolveMs(this.options.entryMs, DEFAULT_CANDLESTICK_ENTRY);
     if (duration <= 0) {
       this.entries.delete(time);
       return 1;
@@ -231,7 +230,7 @@ export class CandlestickRenderer implements SeriesRenderer {
     }
 
     const isNewCandle = this.#lastSeededTime !== actualLast.time;
-    const smoothMs = resolveMs(this.options.smoothMs, DEFAULT_SMOOTH_MS);
+    const smoothMs = resolveMs(this.options.smoothMs, DEFAULT_CANDLESTICK_SMOOTH);
 
     // Seed directly when there is nothing to interpolate from, when a new
     // candle just arrived (no cross-candle smoothing — different `time` means
