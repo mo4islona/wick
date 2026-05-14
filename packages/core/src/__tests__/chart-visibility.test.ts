@@ -21,7 +21,16 @@ function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   container.getBoundingClientRect = () =>
     ({ x: 0, y: 0, top: 0, left: 0, bottom: height, right: width, width, height, toJSON: () => ({}) }) as DOMRect;
   document.body.appendChild(container);
-  return { chart: new ChartInstance(container, { interactive: false }), container };
+  // Disable visibility fade so `setSeriesVisible` snaps the Y range and
+  // assertions can read the post-toggle state without driving frames.
+  // The fade itself is exercised in `chart-y-range-animator.test.ts`.
+  return {
+    chart: new ChartInstance(container, {
+      interactive: false,
+      animations: { viewport: { visibilityMs: 0 } },
+    }),
+    container,
+  };
 }
 
 describe('ChartInstance.setSeriesVisible (whole-series toggle)', () => {

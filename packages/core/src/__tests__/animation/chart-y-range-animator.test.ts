@@ -20,6 +20,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { hermiteAnimator, snapAnimator } from '../../animation';
 import { ChartInstance } from '../../chart';
 
 const INTERVAL = 60_000;
@@ -79,9 +80,20 @@ function makeChart(opts: { yAxisMs?: number } = {}): { chart: ChartInstance; con
   Object.defineProperty(container, 'clientHeight', { value: 400, configurable: true });
   document.body.appendChild(container);
 
+  // Tests historically pinned the Y-chase duration via `yAxisMs`. The public
+  // API now lets callers swap the entire Y animator via `yEngine`; the
+  // shortcut here maps `yAxisMs` to a `hermiteAnimator` (default engine)
+  // with the requested expand time, or to `snapAnimator` when 0 — preserves
+  // the existing test semantics without touching every call site.
+  const yEngine =
+    opts.yAxisMs === undefined
+      ? undefined
+      : opts.yAxisMs === 0
+        ? snapAnimator()
+        : hermiteAnimator({ expandMs: opts.yAxisMs, contractMs: opts.yAxisMs });
   const chart = new ChartInstance(container, {
     interactive: false,
-    animations: opts.yAxisMs !== undefined ? { viewport: { yAxisMs: opts.yAxisMs } } : undefined,
+    animations: yEngine !== undefined ? { viewport: { yEngine } } : undefined,
   });
 
   return { chart, container };
@@ -164,53 +176,6 @@ describe('chart Y-range animator', () => {
     raf.flush(40);
     const settled = chart.getYRange();
     expect(settled.min).toBeLessThanOrEqual(-200);
-  });
-
-  it('preserves streaming cadence wall across per-frame renders between ticks', () => {
-    // Regression: per-frame `renderMain → updateScales → updateYRange`
-    // used to wipe `#lastYStreamingWall` because it called with
-    // `streaming` defaulted to false. With tri-state semantics
-    // (`streaming === false` resets, `streaming === undefined` doesn't)
-    // the cadence anchor survives between adjacent streaming ticks so
-    // the adaptive duration actually reflects the inter-arrival
-    // interval instead of always falling back to `yAxisMs`.
-    ({ chart, container } = makeChart({ yAxisMs: 200 }));
-    const id = seedLine(chart, [50, 50, 50, 50, 50]);
-    raf.flush(20);
-
-    // First streaming tick — sets the cadence wall.
-    chart.appendData(id, { time: 1_000_000 + 5 * INTERVAL, value: 60 });
-    const wallAfterFirstTick = chart._lastYStreamingWall;
-    expect(wallAfterFirstTick).toBeGreaterThan(0);
-
-    // Several per-frame renders run between ticks (RAF advancing the
-    // Y-range animator). The wall must survive every one of them.
-    raf.flush(5);
-    expect(chart._lastYStreamingWall).toBe(wallAfterFirstTick);
-
-    // Second streaming tick — wall advances to the new time, but the
-    // important fact is that the FIRST wall wasn't lost mid-flight.
-    chart.appendData(id, { time: 1_000_000 + 6 * INTERVAL, value: 70 });
-    expect(chart._lastYStreamingWall).toBeGreaterThan(wallAfterFirstTick);
-  });
-
-  it('resets streaming cadence wall on explicit non-streaming updateYRange (batch load)', () => {
-    // Tri-state: only an explicit `streaming: false` call (batch load,
-    // bulk replace) wipes the wall. After a fresh setSeriesData the
-    // cadence anchor must be cleared so the next streaming session
-    // starts from a clean measurement instead of inheriting a stale one.
-    ({ chart, container } = makeChart({ yAxisMs: 200 }));
-    const id = seedLine(chart, [50, 50, 50, 50, 50]);
-    raf.flush(20);
-    chart.appendData(id, { time: 1_000_000 + 5 * INTERVAL, value: 100 });
-    expect(chart._lastYStreamingWall).toBeGreaterThan(0);
-
-    // Bulk replace (batch load).
-    chart.setSeriesData(
-      id,
-      Array.from({ length: 10 }, (_, i) => ({ time: 1_000_000 + i * INTERVAL, value: 200 + i })),
-    );
-    expect(chart._lastYStreamingWall).toBe(0);
   });
 
   it('setSeriesData snaps Y synchronously so yScale.getRange() reflects new domain', () => {
@@ -321,13 +286,55 @@ describe('chart Y-range animator', () => {
     const oneFrameAfter = chart.getYRange();
     expect(oneFrameAfter.min).toBeLessThan(50); // still wide, animating
 
-    // But after settling, min has reached the new high window.
-    raf.flush(40);
+    // But after settling, min has reached the new high window. Sticky-Y
+    // contraction is EMA'd at `Y_BOUND_CONTRACT_ALPHA` per `updateYRange`
+    // call (≈0.05, half-life ~14 frames) rather than the 13-frame
+    // `yAxisMs=200` ease the test used to assume, so convergence takes
+    // ~80–100 frames. The semantic invariant — that Y eventually converges
+    // to the new high window once X has snapped — still holds.
+    raf.flush(200);
     const settled = chart.getYRange();
     expect(settled.min).toBeGreaterThanOrEqual(90);
   });
 
-  it('setSeriesVisible snaps Y range (no animated reflow)', () => {
+  it('emits `viewportChange` on every frame Y is mid-tween (DOM axis labels reposition smoothly)', () => {
+    // Regression: DOM axis labels (`<YAxis>`) subscribe to `viewportChange`
+    // via `useYRange()` to re-read yScale and reposition. Previously the
+    // event only fired from the viewport's X 'change' listener — Y animator
+    // ticks advanced silently. On streams where Y was continuously animating
+    // but the tick set hadn't crossed a "nice value" threshold yet, no
+    // `viewportChange` fired between threshold events, and labels stayed
+    // pinned at stale Y while the canvas line slid smoothly underneath.
+    // Result: labels jumped in discrete chunks every ~half-second instead of
+    // sliding.
+    //
+    // Fix: `updateYRange` emits `viewportChange` whenever the Y animator
+    // advances. This test pins that contract: a Y-bound retarget produces
+    // *multiple* viewportChange emissions across the chase, one per frame
+    // while still animating.
+    ({ chart, container } = makeChart({ yAxisMs: 200 }));
+    const id = seedLine(chart, [50, 50, 50, 50, 50]);
+    raf.flush(20);
+
+    let count = 0;
+    chart.on('viewportChange', () => {
+      count++;
+    });
+
+    // Append a point well above current max — triggers a Y retarget that
+    // animates over ~200ms (~12 frames at 16ms each).
+    chart.appendData(id, { time: 1_000_000 + 5 * INTERVAL, value: 200 });
+    raf.flush(15);
+
+    // Each mid-tween frame should emit viewportChange. With a fresh 200ms
+    // chase across ~12 frames, we expect at least ~10 emits before settling.
+    // Anything ≥ 5 proves the per-frame-while-animating contract — we don't
+    // pin the exact number because settled frames legitimately suppress the
+    // emit (and the very first emit fires from setTarget itself).
+    expect(count).toBeGreaterThanOrEqual(5);
+  });
+
+  it('setSeriesVisible eases the Y range over visibilityMs (matches the alpha fade)', () => {
     ({ chart, container } = makeChart({ yAxisMs: 200 }));
     seedLine(chart, [10, 20, 30, 40, 50]);
     const id2 = chart.addLineSeries();
@@ -342,10 +349,16 @@ describe('chart Y-range animator', () => {
     expect(both.min).toBeLessThanOrEqual(10);
     expect(both.max).toBeGreaterThanOrEqual(250);
 
-    // Hide the high-Y series — Y range must snap inward (no animation).
+    // Hide the high-Y series — the chart should EASE down to the new
+    // range (matching the series fade-out), not snap.
     chart.setSeriesVisible(id2, false);
     raf.flush(1);
+    const oneFrame = chart.getYRange();
+    expect(oneFrame.max).toBeLessThan(both.max); // started moving
+    expect(oneFrame.max).toBeGreaterThan(50); // not yet settled
 
+    // After draining, the max settles at the lower series' range.
+    raf.flush(60); // 60 frames × 16 ms = ~960 ms — well past 250 ms visibility default
     const hidden = chart.getYRange();
     expect(hidden.max).toBeLessThan(100);
   });

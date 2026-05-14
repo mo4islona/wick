@@ -46,10 +46,15 @@ export interface CommonState {
   // Animations — viewport category
   /** Post-gesture rebound duration (ms). 0 snaps. */
   reboundMs: number;
-  /** Y-range chase scale (ms). 0 snaps. */
-  yAxisMs: number;
   /** Per-event ease for pan/zoom commits (ms). 0 = instant apply (default). */
   inputResponseMs: number;
+  /**
+   * Y-bound animator engine. The chart's Y motion algorithm — `hermite`
+   * (default) reaches the target in a fixed duration, `spring` uses
+   * critically-damped physics, `snap` disables Y animation entirely.
+   * Maps to `animations.viewport.yEngine`.
+   */
+  yEngine: 'hermite' | 'spring' | 'snap';
   // Navigator
   navigatorVisible: boolean;
   navigatorHeight: number;
@@ -78,8 +83,8 @@ export const COMMON_DEFAULTS: CommonState = {
   smoothMs: 250,
   pulseMs: 600,
   reboundMs: 250,
-  yAxisMs: 250,
   inputResponseMs: 0,
+  yEngine: 'hermite',
   navigatorVisible: false,
   navigatorHeight: 60,
 };

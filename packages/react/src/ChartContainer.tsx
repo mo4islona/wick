@@ -7,6 +7,7 @@ import {
   isValidElement,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -301,15 +302,30 @@ export function ChartContainer({
     }
   }, [axis?.y?.width, axis?.y?.min, axis?.y?.max, axis?.y?.visible, axis?.x?.height, axis?.x?.visible]);
 
+  // JSON.stringify drops functions, so a factory swap on
+  // `animations.viewport.yEngine` wouldn't otherwise re-fire the effect
+  // below. Compare it as a separate dep; chart.setAnimations
+  // short-circuits when the factory reference is unchanged.
+  //
+  // Both deps are memoized by reference identity of `animations` so
+  // callers that memoize the prop pay one stringify per shape change,
+  // not one per render. Stringify of a small object is microsecond-
+  // level, but on a streaming chart that re-renders dozens of times
+  // per second the cost adds up if not cached.
+  const animationsShape = useMemo(() => JSON.stringify(animations), [animations]);
+  const yEngineRef = useMemo(
+    () =>
+      typeof animations === 'object' && animations && typeof animations.viewport === 'object' && animations.viewport
+        ? animations.viewport.yEngine
+        : undefined,
+    [animations],
+  );
   useEffect(() => {
     if (chartRef.current && animations !== undefined) {
       chartRef.current.setAnimations(animations);
     }
-    // Dep array is the JSON shape of the config — covers both the boolean
-    // shorthand and the full object. Cheap to stringify (the object is tiny)
-    // and lets callers pass a fresh reference each render without thrashing
-    // animator state when nothing has actually changed.
-  }, [JSON.stringify(animations)]);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: structural dep computed above
+  }, [animationsShape, yEngineRef]);
 
   // Top-overlay height (title + info bar) — measured below. Declared here so
   // the padding effect can fold it into `padding.top`.

@@ -13,6 +13,7 @@ export type {
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
+  BuiltinEngineOptions,
   /** @deprecated Use {@link StackingMode} instead. */
   BarStacking,
   BuildHoverSnapshotsArgs,
@@ -59,8 +60,12 @@ export type {
   VisibleRange,
   XAxisConfig,
   YAxisConfig,
+  YEngineContext,
+  YEngineFactory,
   YRange,
+  YRangeAnimatorLike,
 } from '@wick-charts/core';
+export { hermiteAnimator, snapAnimator, springAnimator } from '@wick-charts/core';
 export {
   ChartInstance,
   NavigatorController,

@@ -66,6 +66,11 @@ const VAR_REF_NAMES = new Set([
   'layers[0]',
   'sid',
   'series',
+  // Y-bound animator factory calls — rendered as bare identifiers so the
+  // snippet shows `yEngine: springAnimator()` not `yEngine: 'springAnimator()'`.
+  'hermiteAnimator()',
+  'springAnimator()',
+  'snapAnimator()',
 ]);
 
 function isVarRef(v: PropValue): boolean {

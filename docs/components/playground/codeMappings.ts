@@ -1,4 +1,4 @@
-import type { AnimationsConfig } from '@wick-charts/react';
+import { type AnimationsConfig, hermiteAnimator, snapAnimator, springAnimator } from '@wick-charts/react';
 
 import type { PropValue } from '../CodePreview';
 import type { PlaygroundChartProps } from './Playground';
@@ -14,8 +14,19 @@ const ENTRY_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
 const SMOOTH_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
 const PULSE_MS_DEFAULT = 600;
 const REBOUND_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
-const Y_AXIS_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
 const INPUT_RESPONSE_MS_DEFAULT = 0;
+const Y_ENGINE_DEFAULT = 'hermite';
+
+// Module-level memoization so `buildAnimationsProp` returns the SAME factory
+// reference on every call for the same engine label. ChartContainer's
+// setAnimations effect compares by reference; without this cache each render
+// would hand a fresh factory and either thrash the animator (if it ran) or be
+// silently ignored (if dep stayed the same).
+const Y_ENGINE_FACTORIES = {
+  hermite: hermiteAnimator(),
+  spring: springAnimator(),
+  snap: snapAnimator(),
+} as const;
 const ENTRY_ANIM_DEFAULT: Record<CartesianSeriesKind, string> = {
   line: 'grow',
   bar: 'fade-grow',
@@ -62,8 +73,13 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
 
   const viewport: Record<string, PropValue> = {};
   if (s.reboundMs !== REBOUND_MS_DEFAULT) viewport.reboundMs = s.reboundMs;
-  if (s.yAxisMs !== Y_AXIS_MS_DEFAULT) viewport.yAxisMs = s.yAxisMs;
   if (s.inputResponseMs !== INPUT_RESPONSE_MS_DEFAULT) viewport.inputResponseMs = s.inputResponseMs;
+  if (s.yEngine !== Y_ENGINE_DEFAULT) {
+    // Emitted as a bare identifier (`springAnimator()` or `snapAnimator()`)
+    // via the CodePreview VAR_REF_NAMES allow-list, so the snippet shows
+    // the function call instead of a quoted string.
+    viewport.yEngine = `${s.yEngine}Animator()`;
+  }
 
   const animations: Record<string, PropValue> = {};
   if (Object.keys(points).length > 0) animations.points = points;
@@ -88,15 +104,16 @@ export function buildAnimationsProp(s: PlaygroundChartProps): AnimationsConfig |
           ...(s.pulseMs !== PULSE_MS_DEFAULT ? { pulseMs: s.pulseMs } : {}),
         };
 
+  const yEngineFactory = Y_ENGINE_FACTORIES[s.yEngine];
   const viewport: AnimationsConfig['viewport'] extends infer T ? T : never =
     s.reboundMs === REBOUND_MS_DEFAULT &&
-    s.yAxisMs === Y_AXIS_MS_DEFAULT &&
-    s.inputResponseMs === INPUT_RESPONSE_MS_DEFAULT
+    s.inputResponseMs === INPUT_RESPONSE_MS_DEFAULT &&
+    s.yEngine === Y_ENGINE_DEFAULT
       ? undefined
       : {
           ...(s.reboundMs !== REBOUND_MS_DEFAULT ? { reboundMs: s.reboundMs } : {}),
-          ...(s.yAxisMs !== Y_AXIS_MS_DEFAULT ? { yAxisMs: s.yAxisMs } : {}),
           ...(s.inputResponseMs !== INPUT_RESPONSE_MS_DEFAULT ? { inputResponseMs: s.inputResponseMs } : {}),
+          ...(s.yEngine !== Y_ENGINE_DEFAULT ? { yEngine: yEngineFactory } : {}),
         };
 
   if (points === undefined && viewport === undefined) return undefined;

@@ -1,5 +1,16 @@
 // Chart
 
+export type {
+  BuiltinEngineOptions,
+  YEngineContext,
+  YEngineFactory,
+  YRangeAnimatorLike,
+} from './animation';
+// Y-bound animator factories. Built-ins live in separate modules so unused
+// engines tree-shake out — import only the one you need.
+export { hermiteAnimator } from './animation/hermite-animator';
+export { snapAnimator } from './animation/snap-animator';
+export { springAnimator } from './animation/spring-animator';
 export type { AnimationsConfig, ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays

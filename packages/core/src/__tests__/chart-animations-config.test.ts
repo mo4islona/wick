@@ -13,7 +13,6 @@ import {
   DEFAULT_PULSE_MS,
   DEFAULT_REBOUND_MS,
   DEFAULT_SMOOTH_MS,
-  DEFAULT_Y_AXIS_MS,
 } from '../animation-constants';
 import { type AnimationsConfig, ChartInstance, resolveAnimationsConfig } from '../chart';
 import type { CandlestickRenderer } from '../series/candlestick';
@@ -21,39 +20,48 @@ import type { LineRenderer } from '../series/line';
 
 describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {
-    expect(resolveAnimationsConfig(undefined)).toEqual({
+    expect(resolveAnimationsConfig(undefined)).toMatchObject({
       points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
       viewport: {
         reboundMs: DEFAULT_REBOUND_MS,
-        yAxisMs: DEFAULT_Y_AXIS_MS,
         inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
+        yEngine: expect.any(Function),
       },
     });
   });
 
   it('true is equivalent to undefined', () => {
-    expect(resolveAnimationsConfig(true)).toEqual(resolveAnimationsConfig(undefined));
+    const a = resolveAnimationsConfig(true);
+    const b = resolveAnimationsConfig(undefined);
+    // yEngine is a freshly-constructed factory each call (reference inequality
+    // is expected), so compare shape minus the factory and assert separately
+    // that both produced a factory.
+    const { yEngine: aEngine, ...aViewport } = a.viewport;
+    const { yEngine: bEngine, ...bViewport } = b.viewport;
+    expect({ ...a, viewport: aViewport }).toEqual({ ...b, viewport: bViewport });
+    expect(typeof aEngine).toBe('function');
+    expect(typeof bEngine).toBe('function');
   });
 
   it('false collapses every field to 0', () => {
-    expect(resolveAnimationsConfig(false)).toEqual({
+    expect(resolveAnimationsConfig(false)).toMatchObject({
       points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
+      viewport: { reboundMs: 0, inputResponseMs: 0, yEngine: expect.any(Function) },
     });
   });
 
   it('category-level false disables every field in that category', () => {
-    expect(resolveAnimationsConfig({ points: false })).toEqual({
+    expect(resolveAnimationsConfig({ points: false })).toMatchObject({
       points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
       viewport: {
         reboundMs: DEFAULT_REBOUND_MS,
-        yAxisMs: DEFAULT_Y_AXIS_MS,
         inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
+        yEngine: expect.any(Function),
       },
     });
-    expect(resolveAnimationsConfig({ viewport: false })).toEqual({
+    expect(resolveAnimationsConfig({ viewport: false })).toMatchObject({
       points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
-      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
+      viewport: { reboundMs: 0, inputResponseMs: 0, yEngine: expect.any(Function) },
     });
   });
 

@@ -56,35 +56,34 @@ export const DEFAULT_REBOUND_MS = DEFAULT_ANIMATION_MS;
 export const DEFAULT_INPUT_RESPONSE_MS = 0;
 
 /**
- * Y-axis range chase duration (ms). Drives the two `Animator<number>`s on
- * the Y bounds — wall-clock cubic ease, settles after this many ms with no
- * new data. `0` / `false` snaps the Y range instantly every frame.
- */
-export const DEFAULT_Y_AXIS_MS = DEFAULT_ANIMATION_MS;
-
-/**
- * Y-range chase duration applied to the first frame after a user pan/zoom
- * event. Short enough that each wheel tick converges within ~1 frame (no
- * perceived "rubber" trailing the gesture), long enough that the per-event
- * motion still reads as smooth rather than as discrete teleports. Once the
- * gesture stops, current ≈ target, and the next frame switches back to the
- * full {@link DEFAULT_Y_AXIS_MS} ease without any visible motion.
+ * Short-ease applied to the Y animator while a user gesture is active.
+ * The default sticky-Y contract duration (2500 ms) is intentionally long
+ * for streaming feeds — outliers leaving the window shouldn't reflow the
+ * whole chart — but during pan/zoom the user explicitly chose a new
+ * view, so contractions should converge in roughly one frame per wheel
+ * tick instead of crawling over the full contract budget. The chart
+ * passes this as a per-call override to `setTarget`; the engine respects
+ * it for that single retarget and restores its built-in baseline for
+ * subsequent (post-gesture) data updates.
  */
 export const INTERACT_Y_AXIS_MS = 100;
 
 /**
- * Cap for the adaptive Y-range chase duration on streaming ticks. A long-
- * interval feed (daily candles, etc.) would otherwise stretch the linear
- * Y ease over hours; we never need the chase to outlast a few seconds of
- * motion to hide the per-tick step. Mirrors `SCROLL_TO_END_MAX_MS` in
- * `viewport.ts`.
+ * After the last user gesture event we keep treating the chart as
+ * "interactive" for this many ms — i.e. the short-ease override stays
+ * active across the tiny gaps between wheel events on a continuous
+ * trackpad zoom. When the grace window finally elapses, the chart
+ * zeroes the animator's velocity (`snap(current)`) before the next
+ * streaming retarget so the long-baseline ease starts from rest
+ * instead of inheriting the gesture-time velocity (which produces a
+ * visible overshoot on the first post-gesture tick).
  */
-export const STREAMING_Y_MAX_MS = 5_000;
+export const INTERACT_GRACE_MS = 200;
 
 /**
- * Inter-arrival above this resets the Y streaming measurement to the
- * baseline `yAxisMs` — a long pause means the previous cadence is stale,
- * so the next tick eases over a normal frame instead of a multi-second
- * slide. Mirrors `STREAM_IDLE_RESET_MS` in `viewport.ts`.
+ * Default duration (ms) for {@link ChartInstance.setSeriesVisible} fade
+ * transitions — the cross-fade applied to the series alpha AND the
+ * one-shot Y-range duration override used for the same toggle, so the
+ * fade and the axis re-fit settle on the same frame.
  */
-export const STREAMING_Y_IDLE_RESET_MS = 2_000;
+export const DEFAULT_VISIBILITY_MS = 250;
