@@ -1184,21 +1184,32 @@ class AnimationEngineImpl implements AnimationEngine {
       return;
     }
 
+    // `data_tick` is the streaming kind — viewport slides toward the next
+    // tail with a constant-velocity (linear) curve so multiple retargets at
+    // a fast cadence don't pile up cubic decel curves and produce a
+    // hare-tortoise wobble. Every other kind (gesture / visibility) keeps
+    // the eased-out cubic for the natural input-response feel.
+    const isLinear = winner.kind === 'data_tick';
+
     if (slot.activeEvent !== winner) {
       if (slot.activeEvent !== null) {
         const oldEv = slot.activeEvent;
         const oldTarget = pickTarget(oldEv);
         if (oldTarget !== undefined) {
+          const oldLinear = oldEv.kind === 'data_tick';
           const tRaw = (effectiveNow - slot.activatedAt) / oldEv.duration;
           const t = clamp01(tRaw);
-          const eased = easeOutCubic(t);
+          const eased = oldLinear ? t : easeOutCubic(t);
           slot.current.from = slot.from.from + eased * (oldTarget.from - slot.from.from);
           slot.current.to = slot.from.to + eased * (oldTarget.to - slot.from.to);
           if (t >= 1) {
             slot.velocity.from = 0;
             slot.velocity.to = 0;
           } else {
-            const deriv = easeOutCubicDerivative(t);
+            // Linear's derivative is 1 (per-unit-t); cubic uses the
+            // closed-form derivative. Both are still in units/ms via the
+            // duration divisor below.
+            const deriv = oldLinear ? 1 : easeOutCubicDerivative(t);
             slot.velocity.from = (deriv * (oldTarget.from - slot.from.from)) / oldEv.duration;
             slot.velocity.to = (deriv * (oldTarget.to - slot.from.to)) / oldEv.duration;
           }
@@ -1214,14 +1225,14 @@ class AnimationEngineImpl implements AnimationEngine {
 
     const tRaw = (effectiveNow - slot.activatedAt) / winner.duration;
     const t = clamp01(tRaw);
-    const eased = easeOutCubic(t);
+    const eased = isLinear ? t : easeOutCubic(t);
     slot.current.from = slot.from.from + eased * (target.from - slot.from.from);
     slot.current.to = slot.from.to + eased * (target.to - slot.from.to);
     if (t >= 1) {
       slot.velocity.from = 0;
       slot.velocity.to = 0;
     } else {
-      const deriv = easeOutCubicDerivative(t);
+      const deriv = isLinear ? 1 : easeOutCubicDerivative(t);
       slot.velocity.from = (deriv * (target.from - slot.from.from)) / winner.duration;
       slot.velocity.to = (deriv * (target.to - slot.from.to)) / winner.duration;
     }

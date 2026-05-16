@@ -98,10 +98,11 @@ describe('AnimationEngine — handoff', () => {
       targets: { x: { target: { from: 0, to: 1000 } } },
     });
 
-    // Run the data_tick partway.
+    // Run the data_tick partway. `data_tick` rides a linear curve on the
+    // X slot (matches legacy `scrollToEnd`'s constant-velocity slide).
     const before = settle(engine, 160);
     const xBeforePreempt = before.xRange.to;
-    const expectedBefore = easeOutCubic(160 / 200) * 1000;
+    const expectedBefore = (160 / 200) * 1000;
     expect(xBeforePreempt).toBeCloseTo(expectedBefore, 4);
 
     // Preempt with a gesture toward the opposite direction.
@@ -115,7 +116,7 @@ describe('AnimationEngine — handoff', () => {
     // Handoff tick — gesture wins, slot.from frozen to the advanced position
     // of data_tick at t=176, not the stale `0` from the original `from`.
     const handoff = engine.tick(176);
-    const expectedAtHandoff = easeOutCubic(176 / 200) * 1000;
+    const expectedAtHandoff = (176 / 200) * 1000;
     // After handoff, `t = 0` on the new event → current still at handoff `from`.
     expect(handoff.xRange.to).toBeCloseTo(expectedAtHandoff, 3);
   });
@@ -152,7 +153,9 @@ describe('AnimationEngine — handoff', () => {
     });
     const handoff = engine.tick(176);
 
-    const recomputed = easeOutCubic(176 / 200) * 1000;
+    // `data_tick` uses linear easing on the X slot — the handoff's
+    // recomputed-from-effectiveNow position is `t * 1000`.
+    const recomputed = (176 / 200) * 1000;
     expect(handoff.xRange.to).toBeCloseTo(recomputed, 3);
     expect(handoff.xRange.to).toBeGreaterThan(sampledX);
   });
@@ -342,7 +345,7 @@ describe('AnimationEngine — handoff', () => {
   // Velocity units — observable position derivative matches the closed form
   // ---------------------------------------------------------------------------
 
-  it('observed numerical velocity matches easeOutCubic derivative in units/ms', () => {
+  it('observed numerical velocity matches linear derivative in units/ms for data_tick X', () => {
     const { engine } = setup({ xRange: { from: 0, to: 0 } });
 
     engine.emit({
@@ -363,12 +366,9 @@ describe('AnimationEngine — handoff', () => {
     const xB = stateB.xRange.to;
 
     const numerical = (xB - xA) / (tB - tA);
-    // Closed-form: d/dt [easeOutCubic(t/D) · (target − from)] = 3·(1 − t/D)² · (target − from) / D
-    const tMid = (tA + tB) / 2;
-    const oneMinusT = 1 - tMid / 200;
-    const expected = (3 * oneMinusT * oneMinusT * (1000 - 0)) / 200;
+    // data_tick X uses linear easing: d/dt [(t/D) · (target − from)] = (target − from) / D
+    const expected = (1000 - 0) / 200;
 
-    // Numerical derivative trails analytical mid-point by O(dt²); generous tolerance.
-    expect(numerical).toBeCloseTo(expected, 0);
+    expect(numerical).toBeCloseTo(expected, 4);
   });
 });

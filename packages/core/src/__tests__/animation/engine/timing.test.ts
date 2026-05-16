@@ -7,7 +7,6 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { easeOutCubic } from '../../../animation/easing';
 import { settle, setup } from './test-utils';
 
 describe('AnimationEngine — timing', () => {
@@ -28,8 +27,9 @@ describe('AnimationEngine — timing', () => {
     engine.tick(0);
     // One frame later wall-clock says 5 seconds elapsed — bg-tab returned.
     // The clamp should advance effectiveNow by only 32 ms.
+    // data_tick X uses linear easing: current = (t/D) · target.
     const after = engine.tick(5000);
-    const expected = easeOutCubic(32 / 200) * 1000;
+    const expected = (32 / 200) * 1000;
     expect(after.xRange.to).toBeCloseTo(expected, 4);
 
     // Drive a few more frames; effectiveNow advances by 32 ms each time.
@@ -115,9 +115,9 @@ describe('AnimationEngine — timing', () => {
     expect(Number.isNaN(wakeup.xRange.to)).toBe(false);
     expect(wakeup.xRange.to).toBeCloseTo(0, 5);
 
-    // Next frame: 16 ms past wake-up → t = 16/100 of the curve.
+    // Next frame: 16 ms past wake-up → t = 16/100 of the linear curve.
     const second = engine.tick(139);
-    const expected = easeOutCubic(16 / 100) * 1000;
+    const expected = (16 / 100) * 1000;
     expect(second.xRange.to).toBeCloseTo(expected, 4);
   });
 
@@ -152,9 +152,9 @@ describe('AnimationEngine — timing', () => {
     const wakeup = engine.tick(10_116);
     expect(wakeup.xRange.to).toBeCloseTo(500, 4);
 
-    // 16 ms past wake-up: t = 16/100 of the new curve, advancing from 500.
+    // 16 ms past wake-up: t = 16/100 of the new linear curve, advancing from 500.
     const second = engine.tick(10_132);
-    const expected = 500 + easeOutCubic(16 / 100) * (999 - 500);
+    const expected = 500 + (16 / 100) * (999 - 500);
     expect(second.xRange.to).toBeCloseTo(expected, 4);
   });
 

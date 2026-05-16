@@ -1831,13 +1831,15 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       }
     }
 
-    // Snap Y range on batch loads, on first paint (forced to instant inside
-    // `#emitYTarget` when `#yInited` is false), or when the caller signalled
-    // a bulk replace via `#dataReplaceSnapPending`. Streaming ticks ease
-    // through the engine's asymmetric sticky-Y baseline.
+    // Snap Y/X only on a true bulk replace (`chart.setSeriesData` flipped
+    // `#dataReplaceSnapPending`) or on first paint (forced inside
+    // `#emitYAndX` when `#yInited`/`#xInited` are false). React-batched
+    // bursts and `isBatchLoad`-style fits still flow through `data_tick`
+    // so the engine's X slot rides its linear curve into the new tail —
+    // a Phase-2 `instant` here would snap and produce a jump-per-commit
+    // pattern visible as "X teleports between batches".
     const replaceSnap = this.#dataReplaceSnapPending;
     this.#dataReplaceSnapPending = false;
-    const ySnap = isBatchLoad || replaceSnap;
 
     // Capture "was this the first onDataChanged call that actually had
     // data" *before* `#emitYTarget` flips `#yInited`. Initial mounts where
@@ -1864,7 +1866,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#lastEmittedTimeTicks = [];
     }
 
-    const yKind: 'instant' | 'data_tick' = ySnap ? 'instant' : 'data_tick';
+    const yKind: 'instant' | 'data_tick' = replaceSnap ? 'instant' : 'data_tick';
     // Combined Y+X emit. Previously this was two `bridge.emit*` calls each
     // with its own `#applyEngineState` (engine.tick + viewport push +
     // syncScales). Streaming ticks at 60 ms × 8 charts in the stress group
