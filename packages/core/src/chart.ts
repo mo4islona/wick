@@ -2130,10 +2130,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       });
     } else {
       // Streaming `data_tick`. Y carries the asymmetric sticky-Y baseline
-      // (fast expand / slow contract); X slides over the configured
-      // `dataTickMs` (default 250 ms — main's `ANIM.streamTick`). A short
-      // slide + idle period reads as one swoosh per new bar; stretching
-      // duration to match producer cadence sub-pixel-jitters slow feeds.
+      // (fast expand / slow contract); X duration comes from the cadence
+      // EMA so the slide stays in lockstep with the producer.
       const dataTickMs = this.#animationsConfig.x.dataTickMs;
       const xDuration = dataTickMs > 0 ? this.#cadence.pickDuration(dataTickMs) : 0;
       this.#bridge.emitDataTick({

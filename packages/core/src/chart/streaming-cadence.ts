@@ -2,7 +2,9 @@ import type { Milliseconds } from '../animation/time';
 
 /**
  * Real wall-clock gap (ms) at or above which an `observe()` call is treated
- * as the start of a new stream session — no new sample is folded in.
+ * as the start of a new stream session — the EMA is preserved (so the next
+ * normal-cadence tick doesn't snap to a 5-second slide derived from the
+ * pause), but no new sample is folded in.
  */
 const STREAM_IDLE_RESET = 5000;
 
@@ -17,10 +19,19 @@ const MIN_OBSERVE_GAP_MS = 5;
 const CADENCE_EMA_ALPHA = 0.3;
 
 /**
+ * Upper bound for `pickDuration()`. A user-configured floor too long, or an
+ * extreme measured gap, will not drag the streaming ease past this — it'd
+ * stop feeling responsive.
+ */
+const SCROLL_TO_END_MAX = 5000;
+
+/**
  * Tracks the real wall-clock inter-arrival gap between streaming append
- * events. The EMA is exposed for telemetry / future use, but
- * {@link pickDuration} no longer stretches the slide to match it — see
- * the comment there for the reason.
+ * events and exposes an exponentially-smoothed cadence the chart uses to
+ * size the next X autoScroll retarget. EMA over the raw gap keeps the
+ * sliding viewport in lockstep with the producer through small jitter, and
+ * the two-sided gap filter rejects bg-tab bursts and idle pauses without
+ * dropping the smoothing state.
  */
 export class StreamingCadence {
   #lastWall = 0;
@@ -41,20 +52,15 @@ export class StreamingCadence {
   }
 
   /**
-   * Pick a settle duration for the next X retarget. Always returns the
-   * caller-supplied floor.
-   *
-   * Earlier versions stretched the duration to `max(floor, emaMs)` so a
-   * slow-producer slide stayed in lockstep with cadence. That backfired on
-   * candle feeds: at 5 s/bar the slide ran for 5 s too, covering one ~13 px
-   * bar over ~300 frames — visibly sub-pixel-per-frame, which the canvas
-   * rounds into 1 px jumps every ~24 frames (the "jerky slide" the user
-   * reports). A fixed `floor` slides the viewport quickly (≤ 250 ms) and
-   * then idles between bars; the slide is fast enough that pixel
-   * quantization isn't perceptible.
+   * Pick a settle duration for the next X retarget. `floor` is the
+   * user-configured minimum (typically `animations.x.dataTick`). The result
+   * is clamped to `[floor, SCROLL_TO_END_MAX]`; if no EMA has accumulated
+   * yet, the floor is returned as-is.
    */
   pickDuration(floor: Milliseconds): Milliseconds {
-    return floor;
+    if (this.#emaMs === 0) return floor;
+
+    return Math.min(SCROLL_TO_END_MAX, Math.max(floor, this.#emaMs));
   }
 
   /** Test-only — the current EMA. Hidden behind a getter to keep state read-only. */
