@@ -1,18 +1,9 @@
-import { Animator, easeOutCubic } from '../animation';
-import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_SMOOTH } from '../animation-constants';
+import { Animator } from '../animation/animator';
 import { TimeSeriesStore } from '../data/store';
 import type { TimePoint, TimePointInput } from '../types';
 import { normalizeTime, normalizeTimePointArray } from '../utils/time';
-import { computeEntranceProgress, resolveMs } from './shared-animation';
 import { renderedStackPercentTop, renderedStackTop, sumStack } from './stack-math';
-import type { SeriesRenderer } from './types';
-
-/** Per-frame anchor cap: long-idle gaps (backgrounded tab) advance at most
- * this much on the resume frame, to avoid the displayed value snapping to
- * the new target. */
-const FRAME_CAP_MS = 16;
-
-const numLerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+import type { SeriesRenderContext, SeriesRenderer } from './types';
 
 /**
  * Shape of the options that {@link BaseMultiLayerSeries} reads directly from
@@ -26,55 +17,59 @@ export interface CommonSeriesOptions {
   smoothMs?: number | false;
 }
 
-/** Minimum shape for a per-point entrance animation entry. */
-export interface EntryBase {
+/** Per-point entrance animation state — start wall-time so `render` can
+ *  derive progress as `(now - startTime) / entryMs`. */
+interface EntryState {
   startTime: number;
 }
+
+const scalarLerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /**
  * Abstract base for multi-layer time-series renderers (Bar, Line). Concentrates
  * the bookkeeping that those renderers share in full: multi-store ownership,
- * entrance-animation state, live-value smoothing, tooltip snapshots, stacked
- * totals, and lifecycle. Concrete subclasses supply only their options accessor,
- * entry factory, theming, and the actual drawing primitives.
+ * tooltip snapshots, stacked totals, lifecycle, and per-layer entrance /
+ * live-value chase animations.
+ *
+ * Entrance and live-value smoothing are renderer-owned (not engine-routed):
+ *   - `entries[layerIdx]: Map<time, EntryState>` — per-point intros, advanced
+ *      via `(now - startTime) / entryMs` and pruned on settle.
+ *   - `displayedLastValues[layerIdx]: number | null` — the latest rendered Y
+ *      for the layer's last point, with a {@link Animator}-driven chase so
+ *      `updateLastPoint` smooths instead of snapping.
+ *
+ * Concrete subclasses provide entry-style + duration via the three resolver
+ * hooks below.
  */
-export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry extends EntryBase>
-  implements SeriesRenderer
-{
+export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements SeriesRenderer {
   protected readonly stores: TimeSeriesStore<TData>[];
+
+  // --- Animation state (per layer) ----------------------------------------
   /**
-   * Per-layer animator that smooths the displayed last-value toward the actual
-   * `store.last().value` so high-frequency `updateLastPoint` ticks read as a
-   * smooth slide rather than a jump. New points (different `time`) snap
-   * instantly — no cross-point interpolation. `null` per layer until the
-   * first render seeds it. */
-  #liveTrackAnimators: Array<Animator<number> | null>;
-  /** Per-layer `time` of the point currently held by the layer's animator. */
-  #lastSeededTimes: number[];
-  /** Render timestamp of the previous frame, used as the animator's setTarget
-   * anchor; clamped to {@link FRAME_CAP_MS} so a long backgrounded-tab gap
-   * does not snap the displayed value on resume. */
-  #lastRenderTime = 0;
-  /** Per-layer entrance animations keyed by the point's `time`. */
-  protected entries: Array<Map<number, TEntry>>;
-
-  /** Per-layer smoothed last value. Read by tests via cast — exposed as a
-   * derived view of the live-track animators' `current`. `null` for layers
-   * whose animator has not been seeded yet (no data). */
-  protected get displayedLastValues(): Array<number | null> {
-    return this.#liveTrackAnimators.map((a) => a?.current ?? null);
-  }
-
-  /** Read-only view used by {@link effectiveValue} to gate the substitution. */
-  protected get lastSeededTimes(): readonly number[] {
-    return this.#lastSeededTimes;
-  }
+   * Per-point entrance animation registry. Subclasses read it through
+   * {@link entranceProgress}; tests reach in directly via type-cast (kept
+   * `protected` rather than `#` so the existing test helper keeps working).
+   */
+  protected readonly entries: Array<Map<number, EntryState>>;
+  /**
+   * Latest rendered Y for each layer's last point, chased smoothly by
+   * `updateLastPoint`. `null` while the store is empty.
+   */
+  protected readonly displayedLastValues: Array<number | null>;
+  /** Per-layer chase animator. `null` when settled or when smoothing is off. */
+  readonly #liveAnimators: Array<Animator<number> | null>;
+  /**
+   * Series-level alpha for the visibility cross-fade. Starts at 1 — series
+   * are visible by default; chart calls {@link setAlpha} on hide.
+   */
+  readonly #alphaAnimator: Animator<number>;
 
   constructor(layerCount: number) {
     this.stores = Array.from({ length: layerCount }, () => new TimeSeriesStore<TData>());
-    this.#liveTrackAnimators = new Array(layerCount).fill(null);
-    this.#lastSeededTimes = new Array(layerCount).fill(Number.NaN);
-    this.entries = Array.from({ length: layerCount }, () => new Map());
+    this.entries = Array.from({ length: layerCount }, () => new Map<number, EntryState>());
+    this.displayedLastValues = new Array(layerCount).fill(null);
+    this.#liveAnimators = new Array(layerCount).fill(null);
+    this.#alphaAnimator = new Animator<number>({ initial: 1, duration: 0, lerp: scalarLerp });
   }
 
   // --- Subclass hooks -------------------------------------------------------
@@ -82,17 +77,21 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
   /** Return the subset of options that the base class needs to read. */
   protected abstract getCommonOptions(): CommonSeriesOptions;
 
+  /** Resolved entrance duration in ms. `0` disables the entrance animation. */
+  protected abstract resolvedEntryMs(): number;
+
+  /** Resolved live-value chase duration in ms. `0` disables smoothing. */
+  protected abstract resolvedSmoothMs(): number;
+
   /**
-   * Build an entrance-animation entry for a newly appended point. Called
-   * BEFORE the point is appended to the store, so subclasses can peek the
-   * penultimate point via `this.stores[layerIndex].last()`. Return `null` to
-   * opt out of animation (e.g. when style is `'none'` or duration is `0`).
+   * Whether the subclass's entry-animation style is anything other than
+   * `'none'`. Controls registration of new entries on `appendPoint`.
    */
-  protected abstract createEntry(layerIndex: number, time: number, now: number): TEntry | null;
+  protected abstract isEntryEnabled(): boolean;
 
   // --- SeriesRenderer interface (abstract — subclass provides) --------------
 
-  abstract render(ctx: import('./types').SeriesRenderContext): void;
+  abstract render(ctx: SeriesRenderContext): void;
   abstract applyTheme(theme: import('../theme/types').ChartTheme, prev: import('../theme/types').ChartTheme): void;
   // biome-ignore lint/suspicious/noExplicitAny: each renderer narrows this in its concrete signature
   abstract updateOptions(options: any): void;
@@ -115,8 +114,14 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
     const normalized = normalizeTimePointArray((data ?? []) as TimePointInput[]) as unknown as TData[];
     store.setData(normalized);
-    // Bulk loads don't animate — clear any in-flight entries for this layer.
-    this.entries[layerIndex]?.clear();
+
+    // Bulk replace — seed `displayedLast` to the new last value and clear any
+    // in-flight chase / entrance entries so the next render paints the
+    // canonical dataset without leftover animation state.
+    const last = store.last();
+    this.displayedLastValues[layerIndex] = last ? (last as unknown as { value: number }).value : null;
+    this.#liveAnimators[layerIndex] = null;
+    this.entries[layerIndex].clear();
   }
 
   appendPoint(point: unknown, layerIndex = 0): void {
@@ -125,11 +130,20 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
     const p = point as TimePointInput;
     const time = normalizeTime(p.time);
-
-    // Build the entry BEFORE append so `createEntry` can peek penultimate.
-    const entry = this.createEntry(layerIndex, time, performance.now());
     store.append({ ...p, time } as unknown as TData);
-    if (entry) this.entries[layerIndex]?.set(time, entry);
+
+    // Snap `displayedLast` to the freshly-appended point. Live-chase across
+    // distinct points would interpolate the trailing-segment Y between the
+    // previous last and the new one — distinct from the per-point entrance,
+    // which already owns the visual unfurl.
+    const value = p.value as number;
+    this.displayedLastValues[layerIndex] = value;
+    this.#liveAnimators[layerIndex] = null;
+
+    const entryMs = this.resolvedEntryMs();
+    if (this.isEntryEnabled() && entryMs > 0) {
+      this.entries[layerIndex].set(time, { startTime: performance.now() });
+    }
   }
 
   updateLastPoint(point: unknown, layerIndex = 0): void {
@@ -138,6 +152,27 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
     const p = point as TimePointInput;
     store.updateLast({ ...p, time: normalizeTime(p.time) } as unknown as TData);
+
+    const target = p.value as number;
+    const smoothMs = this.resolvedSmoothMs();
+    if (smoothMs <= 0) {
+      this.displayedLastValues[layerIndex] = target;
+      this.#liveAnimators[layerIndex] = null;
+      return;
+    }
+
+    let anim = this.#liveAnimators[layerIndex];
+    if (anim === null) {
+      const initial = this.displayedLastValues[layerIndex] ?? target;
+      anim = new Animator<number>({
+        initial,
+        duration: smoothMs,
+        lerp: scalarLerp,
+      });
+      this.#liveAnimators[layerIndex] = anim;
+    }
+
+    anim.setTarget(target);
   }
 
   keepLast(count: number, layerIndex = 0): void {
@@ -146,17 +181,6 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
     const drop = store.length - count;
     if (drop <= 0) return;
-
-    // Purge entrance-animation entries for the points being dropped — entries
-    // are keyed by `time` (`base-multi-layer.ts` line 59), so the lookup is
-    // safe across the slice operation that follows.
-    const head = store.getAll().slice(0, drop);
-    const entries = this.entries[layerIndex];
-    if (entries) {
-      for (const pt of head) {
-        entries.delete(pt.time);
-      }
-    }
 
     store.trimStart(drop);
   }
@@ -191,94 +215,106 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint, TEntry exten
 
   dispose(): void {
     for (const s of this.stores) s.removeAllListeners();
-    for (const m of this.entries) m.clear();
-    for (let li = 0; li < this.#liveTrackAnimators.length; li++) {
-      this.#liveTrackAnimators[li] = null;
-      this.#lastSeededTimes[li] = Number.NaN;
-    }
-    this.#lastRenderTime = 0;
+  }
+
+  // --- Animation primitives — renderer-owned state --------------------------
+
+  /**
+   * Per-point entrance progress in `[0, 1]`. Reads the local entry registry,
+   * returning `1` for a settled or absent entry (which matches the visual
+   * default: nothing to fade in).
+   */
+  protected entranceProgress(_ctx: SeriesRenderContext, layerIndex: number, time: number): number {
+    const state = this.entries[layerIndex]?.get(time);
+    if (state === undefined) return 1;
+
+    const entryMs = this.resolvedEntryMs();
+    if (entryMs <= 0) return 1;
+
+    const elapsed = performance.now() - state.startTime;
+    if (elapsed <= 0) return 0;
+    if (elapsed >= entryMs) return 1;
+
+    return elapsed / entryMs;
   }
 
   /**
-   * Drop all in-flight per-point entrance animations across every layer.
-   * Displayed-last smoothing is intentionally preserved.
+   * Substitute the renderer-smoothed last value for `rawValue` when the
+   * query `time` matches the layer's current last point. Falls back to
+   * `rawValue` when the store is empty or no smoothing has happened yet.
    */
-  cancelEntranceAnimations(): void {
-    for (const m of this.entries) m.clear();
+  protected effectiveValue(_ctx: SeriesRenderContext, layerIndex: number, time: number, rawValue: number): number {
+    const lastT = this.stores[layerIndex]?.last()?.time;
+    if (lastT === undefined || time !== lastT) return rawValue;
+
+    return this.displayedLastValues[layerIndex] ?? rawValue;
   }
 
-  /** True while any entrance is active OR any layer's live-track animator is mid-flight. */
-  get needsAnimation(): boolean {
-    for (const m of this.entries) if (m.size > 0) return true;
+  // --- Animation lifecycle --------------------------------------------------
 
-    for (const a of this.#liveTrackAnimators) {
-      if (a?.animating) return true;
+  /**
+   * Advance owned animators against `now` and prune fully-settled entries.
+   * Called by the subclass's `render()` once per frame, before drawing. The
+   * subclass passes its own clock so test harnesses (which stub
+   * `performance.now`) can drive progression deterministically.
+   */
+  protected tickAnimations(now: number): void {
+    this.#alphaAnimator.tick(now);
+
+    for (let li = 0; li < this.stores.length; li++) {
+      const anim = this.#liveAnimators[li];
+      if (anim !== null) {
+        const stillAnimating = anim.tick(now);
+        this.displayedLastValues[li] = anim.current;
+        if (!stillAnimating) this.#liveAnimators[li] = null;
+      }
+
+      const entryMs = this.resolvedEntryMs();
+      if (entryMs <= 0) {
+        this.entries[li].clear();
+        continue;
+      }
+
+      const map = this.entries[li];
+      for (const [time, state] of map) {
+        if (now - state.startTime >= entryMs) map.delete(time);
+      }
+    }
+  }
+
+  /** True while any layer has an active chase, unsettled entry, or alpha fade. */
+  get needsAnimation(): boolean {
+    if (this.#alphaAnimator.animating) return true;
+    for (const anim of this.#liveAnimators) {
+      if (anim !== null) return true;
+    }
+    for (const map of this.entries) {
+      if (map.size > 0) return true;
     }
 
     return false;
   }
 
-  // --- Animation primitives -------------------------------------------------
+  /**
+   * Abort in-flight per-point entrance animations on every layer. Live-value
+   * chase (`displayedLastValues`) is intentionally left alone — its motion
+   * is subtle and shouldn't jump when the viewport moves.
+   */
+  cancelEntranceAnimations(): void {
+    for (const map of this.entries) map.clear();
+  }
 
   /**
-   * Advance smoothed last-value per layer. Seeds directly on first render or
-   * when the last point's time changes; otherwise retargets the layer's
-   * {@link Animator} toward the actual value. Must run at the top of every
-   * render pass (and drawOverlay) so snapshots see fresh state regardless of
-   * which pass ticks first.
+   * Start a fade toward `target` over `durationMs`. `durationMs <= 0` snaps
+   * the alpha to the new value. Idempotent on equal targets.
    */
-  protected advanceLiveTracking(now: number): void {
-    if (now === this.#lastRenderTime) return;
-
-    const smoothMs = resolveMs(this.getCommonOptions().smoothMs, DEFAULT_LINE_SMOOTH);
-
-    // Anchor `setTarget` on the previous frame so the first tick at the new
-    // `now` shows non-zero progress. Clamp to one frame so a long backgrounded-
-    // tab gap doesn't let the animator advance past ~half the curve on resume.
-    const dt = this.#lastRenderTime ? Math.min(now - this.#lastRenderTime, FRAME_CAP_MS) : 0;
-    const anchorNow = now - dt;
-
-    for (let li = 0; li < this.stores.length; li++) {
-      const actualLast = this.stores[li].last();
-      if (!actualLast) {
-        this.#liveTrackAnimators[li] = null;
-        this.#lastSeededTimes[li] = Number.NaN;
-        continue;
-      }
-
-      const isNewPoint = this.#lastSeededTimes[li] !== actualLast.time;
-      const animator = this.#liveTrackAnimators[li];
-      if (animator === null || isNewPoint || smoothMs <= 0) {
-        this.#liveTrackAnimators[li] = new Animator<number>({
-          initial: actualLast.value,
-          duration: smoothMs > 0 ? smoothMs : 0,
-          easing: easeOutCubic,
-          lerp: numLerp,
-        });
-        this.#lastSeededTimes[li] = actualLast.time;
-        continue;
-      }
-
-      animator.setTarget(actualLast.value, { duration: smoothMs, now: anchorNow });
-      animator.tick(now);
-    }
-
-    this.#lastRenderTime = now;
+  setAlpha(target: number, durationMs: number): void {
+    this.#alphaAnimator.setTarget(target, { duration: durationMs });
   }
 
-  protected entranceProgress(layerIndex: number, time: number, now: number): number {
-    const duration = resolveMs(this.getCommonOptions().entryMs, DEFAULT_LINE_ENTRY);
-
-    return computeEntranceProgress(this.entries[layerIndex], time, now, duration);
-  }
-
-  /** The effective Y-value to render for (layer, time) — substitutes smoothed value for the live last point. */
-  protected effectiveValue(layerIndex: number, time: number, rawValue: number): number {
-    if (this.#lastSeededTimes[layerIndex] !== time) return rawValue;
-    const displayed = this.#liveTrackAnimators[layerIndex]?.current;
-    if (displayed === undefined) return rawValue;
-
-    return displayed;
+  /** Latest rendered alpha. Chart applies as `globalAlpha *= getAlpha()`. */
+  getAlpha(): number {
+    return this.#alphaAnimator.current;
   }
 
   // --- Data queries ---------------------------------------------------------

@@ -21,7 +21,6 @@ const DEFAULT_LABELS: Required<PieLabelsOptions> = {
   // 1.8 gives each label room to breathe without spreading so aggressively
   // that PAV collapses into a centered block on dense datasets.
   labelGap: 1.8,
-  balanceSides: true,
 };
 
 const DEFAULT_OPTIONS: PieSeriesOptions = {

@@ -2,7 +2,7 @@
  * Shared demo datasets used across dashboard, playground, and individual pages.
  * Generated once at module load — deterministic per session.
  */
-import type { LineData } from '@wick-charts/react';
+import type { TimePoint } from '@wick-charts/react';
 
 import {
   DEMO_INTERVAL,
@@ -26,7 +26,7 @@ export const ohlcVolatile = generateOHLCData(300, 100, DEMO_INTERVAL);
 export const ohlcTrending = generateOHLCData(300, 1500, DEMO_INTERVAL);
 
 // ── Lines ────────────────────────────────────────────────────
-export const areaLine: LineData[] = ohlcETH.map((c) => ({ time: c.time, value: c.close }));
+export const areaLine: TimePoint[] = ohlcETH.map((c) => ({ time: c.time, value: c.close }));
 export const upperBand = generateBandLine(ohlcETH, 1.0);
 export const lowerBand = generateBandLine(ohlcETH, -1.0);
 
@@ -35,7 +35,7 @@ export const multiLines = Array.from({ length: 10 }, () =>
 );
 
 // ── Waves ────────────────────────────────────────────────────
-export function makeWaves(count: number, layerCount: number, interval = DEMO_INTERVAL): LineData[][] {
+export function makeWaves(count: number, layerCount: number, interval = DEMO_INTERVAL): TimePoint[][] {
   return Array.from({ length: layerCount }, (_, i) =>
     generateWaveData(count, {
       base: 5,

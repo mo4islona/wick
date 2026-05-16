@@ -5,9 +5,11 @@
  *   2. {@link ChartInstance} — confirms the resolved config propagates to
  *      series defaults (observed via renderer state).
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AnimationConfig,
+  type AnimationsConfig,
   DEFAULT_CANDLESTICK_ENTRY,
   DEFAULT_CANDLESTICK_SMOOTH,
   DEFAULT_LINE_ENTRY,
@@ -15,10 +17,11 @@ import {
   DEFAULT_LINE_SMOOTH,
   DEFAULT_X_GESTURE,
   DEFAULT_Y_VISIBILITY,
-} from '../animation-constants';
-import { type AnimationsConfig, ChartInstance, resolveAnimationsConfig } from '../chart';
+} from '../animation/config';
+import { ChartInstance } from '../chart';
 import type { CandlestickRenderer } from '../series/candlestick';
-import type { LineRenderer } from '../series/line';
+
+const resolveAnimationsConfig = (input: boolean | AnimationsConfig | undefined) => AnimationConfig.resolve(input);
 
 describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {
@@ -103,6 +106,20 @@ describe('resolveAnimationsConfig', () => {
 });
 
 describe('ChartInstance.animations propagation', () => {
+  // Pin `performance.now()` so the chart's `#applyEngineState` ticks land on
+  // the same clock the test's direct `engine.tick(now)` calls use. Without
+  // this the engine's `effectiveNow` walks past the wall clock the chart
+  // captures inside `emit*`, and zero-duration instant emits get pruned
+  // before their slot processor sees them.
+  let nowMs = 0;
+  beforeEach(() => {
+    nowMs = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   function makeChart(animations?: boolean | AnimationsConfig): ChartInstance {
     const container = document.createElement('div');
     return new ChartInstance(container, { animations });
@@ -123,41 +140,66 @@ describe('ChartInstance.animations propagation', () => {
     return entry.renderer;
   }
 
+  /**
+   * Route data through the chart so the bridge emits entrance + live-track
+   * events into the engine. Read the resolved state to see if entrance fired
+   * and whether the live OHLC slot snapped to the new close (smoothing off)
+   * vs eased toward it (smoothing on). `hasEntry` is true when the chart
+   * actually claimed an `entry` slot for the appended candle's time.
+   */
+  /**
+   * Route data through the chart so the bridge emits entrance + live-track
+   * events into the engine. Drive the engine forward 1 ms past the emit to
+   * resolve zero-duration claims (`entryMs: 0` / `smoothMs: 0`) into their
+   * final state; non-zero durations land partway and the assertion below
+   * picks that up.
+   */
   function addAndAppendCandle(chart: ChartInstance): { hasEntry: boolean; snappedOnUpdate: boolean } {
-    const r = candleRenderer(chart);
-    r.setData([{ time: 10, open: 10, high: 12, low: 9, close: 11 }]);
-    r.appendPoint({ time: 20, open: 10, high: 12, low: 9, close: 11 });
-    const hasEntry = (r as unknown as { entries: Map<number, unknown> }).entries.size > 0;
+    const seriesId = chart.addCandlestickSeries();
+    chart.setSeriesData(seriesId, [{ time: 10, open: 10, high: 12, low: 9, close: 11 }]);
+    chart.appendData(seriesId, { time: 20, open: 10, high: 12, low: 9, close: 11 });
 
-    // Seed displayedLast, update, advance one frame. Distinguishes smoothing on
-    // (partial close) from smoothing off (full snap).
-    const advance = (t: number) =>
-      (r as unknown as { advanceLiveTracking: (t: number) => void }).advanceLiveTracking(t);
-    advance(1);
-    r.updateLastPoint({ time: 20, open: 10, high: 18, low: 9, close: 18 });
-    advance(17);
-    const dl = (r as unknown as { displayedLast: { close: number } }).displayedLast;
-    const snappedOnUpdate = dl.close === 18;
+    // Renderer owns the entry registry now; reach in directly to assert
+    // whether the chart's appendData routed through the entrance path.
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: CandlestickRenderer }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === seriesId)?.renderer as unknown as {
+      entries: Map<number, unknown>;
+      displayedLast: { close: number } | null;
+    };
+    const hasEntry = renderer.entries.has(20);
+
+    chart.updateData(seriesId, { time: 20, open: 10, high: 18, low: 9, close: 18 });
+    // Drive a render frame so the renderer's `tickAnimations(performance.now())`
+    // advances the live-OHLC chase exactly one step.
+    nowMs += 1;
+    const snappedOnUpdate = renderer.displayedLast?.close === 18;
 
     return { hasEntry, snappedOnUpdate };
   }
 
   function addLineAndAppend(chart: ChartInstance): { hasEntry: boolean } {
     const id = chart.addLineSeries();
-    const entry = (
-      chart as unknown as {
-        listSeriesForTest: () => Array<{ id: string; renderer: LineRenderer }>;
-      }
-    )
-      .listSeriesForTest()
-      .find((s) => s.id === id)!;
-    const r = entry.renderer;
-    r.setData([
+    chart.setSeriesData(id, [
       { time: 10, value: 5 },
       { time: 20, value: 6 },
     ]);
-    r.appendPoint({ time: 30, value: 8 });
-    const hasEntry = (r as unknown as { entries: Array<Map<number, unknown>> }).entries[0].size > 0;
+    chart.appendData(id, { time: 30, value: 8 });
+
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id)?.renderer as unknown as {
+      entries: Array<Map<number, unknown>>;
+    };
+    const hasEntry = renderer.entries[0]?.has(30) ?? false;
 
     return { hasEntry };
   }
@@ -181,17 +223,13 @@ describe('ChartInstance.animations propagation', () => {
   });
 
   it('animations.series.candlestick.entry: false disables only entrance', () => {
-    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(
-      makeChart({ series: { candlestick: { entry: false } } }),
-    );
+    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(makeChart({ series: { candlestick: { entry: false } } }));
     expect(hasEntry).toBe(false);
     expect(snappedOnUpdate).toBe(false);
   });
 
   it('animations.series.candlestick.smooth: false disables only live-tracking', () => {
-    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(
-      makeChart({ series: { candlestick: { smooth: false } } }),
-    );
+    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(makeChart({ series: { candlestick: { smooth: false } } }));
     expect(hasEntry).toBe(true);
     expect(snappedOnUpdate).toBe(true);
   });
@@ -203,14 +241,14 @@ describe('ChartInstance.animations propagation', () => {
 
   it('chart-level entry acts as default when series omits it', () => {
     const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }));
-    const opts = (r as unknown as { options: { enterMs?: number } }).options;
-    expect(opts.enterMs).toBe(800);
+    const opts = (r as unknown as { options: { entryMs?: number } }).options;
+    expect(opts.entryMs).toBe(800);
   });
 
-  it('per-series enterMs wins over chart-level default', () => {
-    const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }), { enterMs: 200 });
-    const opts = (r as unknown as { options: { enterMs?: number } }).options;
-    expect(opts.enterMs).toBe(200);
+  it('per-series entryMs wins over chart-level default', () => {
+    const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }), { entryMs: 200 });
+    const opts = (r as unknown as { options: { entryMs?: number } }).options;
+    expect(opts.entryMs).toBe(200);
   });
 
   it('chart-level smooth: false forces snap even if per-series sets a number', () => {

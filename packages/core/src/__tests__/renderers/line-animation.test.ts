@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LineRenderer } from '../../series/line';
-import type { LineData } from '../../types';
+import type { TimePoint } from '../../types';
 import { buildRenderContext } from '../helpers/render-context';
 
-const DATA: LineData[] = [
+const DATA: TimePoint[] = [
   { time: 10, value: 5 },
   { time: 20, value: 6 },
 ];
@@ -97,8 +97,8 @@ describe('LineRenderer — animation', () => {
     expect(r.needsAnimation).toBe(true);
   });
 
-  it("enterAnimation: 'none' skips entry registration", () => {
-    const r = new LineRenderer(1, { enterAnimation: 'none' });
+  it("entryAnimation: 'none' skips entry registration", () => {
+    const r = new LineRenderer(1, { entryAnimation: 'none' });
     r.setData(DATA);
     renderFrame(r);
 
@@ -106,8 +106,8 @@ describe('LineRenderer — animation', () => {
     expect(entries(r).size).toBe(0);
   });
 
-  it('entrance completes after enterMs and clears the entry', () => {
-    const r = new LineRenderer(1, { enterMs: 250 });
+  it('entrance completes after entryMs and clears the entry', () => {
+    const r = new LineRenderer(1, { entryMs: 250 });
     r.setData(DATA);
     renderFrame(r);
 
@@ -233,8 +233,8 @@ describe('LineRenderer — animation', () => {
       const r = new LineRenderer(2, {
         stacking: 'normal',
         area: { visible: false },
-        enterAnimation: 'grow',
-        enterMs: 400,
+        entryAnimation: 'grow',
+        entryMs: 400,
       });
       r.setData(
         [
@@ -277,8 +277,8 @@ describe('LineRenderer — animation', () => {
       const r = new LineRenderer(2, {
         stacking: 'normal',
         area: { visible: false },
-        enterAnimation: 'grow',
-        enterMs: 200,
+        entryAnimation: 'grow',
+        entryMs: 200,
       });
       r.setData(
         [
@@ -321,8 +321,8 @@ describe('LineRenderer — animation', () => {
       const r = new LineRenderer(2, {
         stacking: 'normal',
         area: { visible: false },
-        enterAnimation: 'fade',
-        enterMs: 400,
+        entryAnimation: 'fade',
+        entryMs: 400,
       });
       r.setData(
         [
@@ -361,8 +361,8 @@ describe('LineRenderer — animation', () => {
       const r = new LineRenderer(2, {
         stacking: 'normal',
         area: { visible: false },
-        enterAnimation: 'grow',
-        enterMs: 400,
+        entryAnimation: 'grow',
+        entryMs: 400,
       });
       r.setData(
         [
@@ -408,8 +408,8 @@ describe('LineRenderer — animation', () => {
       const r = new LineRenderer(2, {
         stacking: 'normal',
         area: { visible: true },
-        enterAnimation: 'grow',
-        enterMs: 400,
+        entryAnimation: 'grow',
+        entryMs: 400,
       });
       r.setData(
         [
@@ -567,8 +567,8 @@ describe('LineRenderer — animation', () => {
     it("'grow' entrance: pulse X is between penultimate and new X during the animation", () => {
       const r = new LineRenderer(1, {
         pulse: true,
-        enterAnimation: 'grow',
-        enterMs: 400,
+        entryAnimation: 'grow',
+        entryMs: 400,
       });
       r.setData(DATA);
       renderFrame(r);
@@ -598,8 +598,8 @@ describe('LineRenderer — animation', () => {
     it('pulse dot X lands at the raw last-point X after the entrance completes', () => {
       const r = new LineRenderer(1, {
         pulse: true,
-        enterAnimation: 'grow',
-        enterMs: 250,
+        entryAnimation: 'grow',
+        entryMs: 250,
       });
       r.setData(DATA);
       renderFrame(r);
@@ -624,10 +624,10 @@ describe('LineRenderer — animation', () => {
       expect(Math.abs(arcX - lastX)).toBeLessThan(1);
     });
 
-    it("'enterAnimation: none' — pulse dot X snaps to the new X on the first frame", () => {
+    it("'entryAnimation: none' — pulse dot X snaps to the new X on the first frame", () => {
       const r = new LineRenderer(1, {
         pulse: true,
-        enterAnimation: 'none',
+        entryAnimation: 'none',
       });
       r.setData(DATA);
       renderFrame(r);
@@ -655,7 +655,7 @@ describe('LineRenderer — animation', () => {
       // Seed data whose penultimate point is NaN. Without the guard,
       // `lerp(penulY, lastRawY, progress)` feeds NaN into the Y and the
       // pulse-dot overlay renders at (NaN, NaN), which poisons canvas calls.
-      const r = new LineRenderer(1, { enterMs: 250 });
+      const r = new LineRenderer(1, { entryMs: 250 });
       r.setData([
         { time: 10, value: 5 },
         { time: 20, value: Number.NaN as unknown as number },

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BarRenderer } from '../../series/bar';
-import type { LineData } from '../../types';
+import type { TimePoint } from '../../types';
 import { buildRenderContext } from '../helpers/render-context';
 
-const DATA: LineData[] = [{ time: 10, value: 5 }];
+const DATA: TimePoint[] = [{ time: 10, value: 5 }];
 
 /** Read per-layer displayed-last values (smoothed toward store.last().value). */
 function displayed(r: BarRenderer): Array<number | null> {
@@ -96,8 +96,8 @@ describe('BarRenderer — animation', () => {
     expect(r.needsAnimation).toBe(true);
   });
 
-  it("enterAnimation: 'none' skips entry registration", () => {
-    const r = new BarRenderer(1, { enterAnimation: 'none' });
+  it("entryAnimation: 'none' skips entry registration", () => {
+    const r = new BarRenderer(1, { entryAnimation: 'none' });
     r.setData(DATA);
     renderFrame(r);
 
@@ -140,7 +140,7 @@ describe('BarRenderer — animation', () => {
   });
 
   it("'slide' entrance offsets X and fades the entering bar", () => {
-    const r = new BarRenderer(1, { enterAnimation: 'slide' });
+    const r = new BarRenderer(1, { entryAnimation: 'slide' });
     r.setData(DATA);
     renderFrame(r);
 
@@ -155,7 +155,7 @@ describe('BarRenderer — animation', () => {
   });
 
   it("'grow' alone (no fade) keeps alpha=1 but shrinks height", () => {
-    const r = new BarRenderer(1, { enterAnimation: 'grow' });
+    const r = new BarRenderer(1, { entryAnimation: 'grow' });
     r.setData(DATA);
     renderFrame(r);
 
@@ -169,8 +169,8 @@ describe('BarRenderer — animation', () => {
     expect(faded.length).toBe(0);
   });
 
-  it('reaches full state after enterMs and clears entries', () => {
-    const r = new BarRenderer(1, { enterMs: 250 });
+  it('reaches full state after entryMs and clears entries', () => {
+    const r = new BarRenderer(1, { entryMs: 250 });
     r.setData(DATA);
     renderFrame(r);
 

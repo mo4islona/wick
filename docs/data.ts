@@ -1,4 +1,4 @@
-import type { LineData, OHLCData } from '@wick-charts/react';
+import type { OHLCData, TimePoint } from '@wick-charts/react';
 
 // ── Sampler protocol ─────────────────────────────────────────
 //
@@ -17,7 +17,7 @@ export interface SamplerCtx<T> {
   prev: T | null;
 }
 
-export type LineSampler = (ctx: SamplerCtx<LineData>) => LineData;
+export type LineSampler = (ctx: SamplerCtx<TimePoint>) => TimePoint;
 export type OHLCSampler = (ctx: SamplerCtx<OHLCData>) => OHLCData;
 
 export interface LineStrategy {
@@ -165,11 +165,11 @@ export function bandStrategy(ohlc: OHLCData[], offset: number, noiseScale = 0.00
 
 // ── Historical generators (walk the sampler N times) ──────
 
-function walkLine(count: number, interval: number, strategy: LineStrategy): LineData[] {
+function walkLine(count: number, interval: number, strategy: LineStrategy): TimePoint[] {
   const now = Math.floor(Date.now() / interval) * interval;
   const startTime = now - count * interval;
-  const out: LineData[] = [];
-  let prev: LineData | null = null;
+  const out: TimePoint[] = [];
+  let prev: TimePoint | null = null;
   for (let i = 0; i < count; i++) {
     const next = strategy.boundary({ index: i, time: startTime + i * interval, prev });
     out.push(next);
@@ -201,19 +201,19 @@ export function generateOHLCData(count: number, startPrice = 100, interval = DEM
   return walkOHLC(count, interval, ohlcStrategy(startPrice));
 }
 
-export function generateLineData(count: number, startValue = 100, interval = DEMO_INTERVAL): LineData[] {
+export function generateLineData(count: number, startValue = 100, interval = DEMO_INTERVAL): TimePoint[] {
   return walkLine(count, interval, lineDriftStrategy(startValue));
 }
 
-export function generateBarData(count: number, interval = DEMO_INTERVAL): LineData[] {
+export function generateBarData(count: number, interval = DEMO_INTERVAL): TimePoint[] {
   return walkLine(count, interval, barStrategy(100));
 }
 
-export function generateLayerData(count: number, base: number, interval = DEMO_INTERVAL): LineData[] {
+export function generateLayerData(count: number, base: number, interval = DEMO_INTERVAL): TimePoint[] {
   return walkLine(count, interval, layerStrategy(base));
 }
 
-export function generateWaveData(count: number, opts: WaveOpts & { interval?: number } = {}): LineData[] {
+export function generateWaveData(count: number, opts: WaveOpts & { interval?: number } = {}): TimePoint[] {
   const { interval = DEMO_INTERVAL, ...rest } = opts;
   return walkLine(count, interval, waveStrategy({ ...rest, totalHint: rest.totalHint ?? count }));
 }
@@ -223,7 +223,7 @@ export function generateMonotonicData(
   startValue: number,
   step: number,
   interval = DEMO_INTERVAL,
-): LineData[] {
+): TimePoint[] {
   const out = walkLine(count, interval, monotonicStrategy(step));
 
   // walkLine starts from `prev = null` → first point is just step+noise. Shift
@@ -235,7 +235,7 @@ export function generateMonotonicData(
   return out;
 }
 
-export function generateBandLine(ohlc: OHLCData[], offset: number, noiseScale = 0.003): LineData[] {
+export function generateBandLine(ohlc: OHLCData[], offset: number, noiseScale = 0.003): TimePoint[] {
   const interval = ohlc.length > 1 ? (ohlc[1].time as number) - (ohlc[0].time as number) : 60_000;
   return walkLine(ohlc.length, interval, bandStrategy(ohlc, offset, noiseScale));
 }
@@ -344,11 +344,7 @@ class BaseStream<T extends { time: number }, S extends AnyStrategy<T>> {
       this.lastIntraEmit = realNow;
     }
 
-    if (
-      this.boundaryCrossed &&
-      this.strategy.intra &&
-      realNow - this.lastIntraEmit >= BaseStream.INTRA_EMIT_MS
-    ) {
+    if (this.boundaryCrossed && this.strategy.intra && realNow - this.lastIntraEmit >= BaseStream.INTRA_EMIT_MS) {
       this.last = this.strategy.intra({ index: this.index, time: this.last.time, prev: this.last });
       this.emit(this.last);
       this.lastIntraEmit = realNow;
@@ -356,7 +352,7 @@ class BaseStream<T extends { time: number }, S extends AnyStrategy<T>> {
   }
 }
 
-export class LineStream extends BaseStream<LineData, LineStrategy> {}
+export class LineStream extends BaseStream<TimePoint, LineStrategy> {}
 export class OHLCStream extends BaseStream<OHLCData, OHLCStrategy> {}
 
 // ── Legacy aliases ────────────────────────────────────────

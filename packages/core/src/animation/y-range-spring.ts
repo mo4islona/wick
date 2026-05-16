@@ -1,5 +1,5 @@
-import { DEFAULT_SPRING_CONTRACT_SPEED, DEFAULT_SPRING_EXPAND_SPEED } from '../animation-constants';
 import type { YRange } from '../types';
+import { DEFAULT_SPRING_CONTRACT_SPEED, DEFAULT_SPRING_EXPAND_SPEED } from './config';
 import { type AnimationTime, resolveAnimationTime } from './time';
 import type { RetargetOptions, Transition, TransitionFactory } from './transition';
 

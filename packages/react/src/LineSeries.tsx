@@ -102,9 +102,7 @@ export function LineSeries({ data, options, id: idProp }: LineSeriesProps) {
     options?.pulse,
     options?.stacking,
     options?.entryAnimation,
-    options?.enterAnimation,
     options?.entryMs,
-    options?.enterMs,
     options?.smoothMs,
   ]);
 

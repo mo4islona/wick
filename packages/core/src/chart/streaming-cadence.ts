@@ -1,4 +1,4 @@
-import type { Milliseconds } from '../animation/time';
+import type { Milliseconds } from '../animation';
 
 /**
  * Real wall-clock gap (ms) at or above which an `observe()` call is treated
@@ -63,7 +63,10 @@ export class StreamingCadence {
     return Math.min(SCROLL_TO_END_MAX, Math.max(floor, this.#emaMs));
   }
 
-  /** Test-only — the current EMA. Hidden behind a getter to keep state read-only. */
+  /**
+   * Current EMA value. Hidden behind a getter to keep state read-only.
+   * @internal Test-only; not part of the production API.
+   */
   get emaMs(): number {
     return this.#emaMs;
   }

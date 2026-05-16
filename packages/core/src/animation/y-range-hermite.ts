@@ -1,5 +1,5 @@
-import { DEFAULT_HERMITE_CONTRACT, DEFAULT_HERMITE_EXPAND } from '../animation-constants';
 import type { YRange } from '../types';
+import { DEFAULT_HERMITE_CONTRACT, DEFAULT_HERMITE_EXPAND } from './config';
 import { type AnimationTime, resolveAnimationTime } from './time';
 import type { RetargetOptions, Transition, TransitionFactory } from './transition';
 

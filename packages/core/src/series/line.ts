@@ -1,4 +1,4 @@
-import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_PULSE } from '../animation-constants';
+import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_PULSE, DEFAULT_LINE_SMOOTH } from '../animation/config';
 import { decimateLineData } from '../data/decimation';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
@@ -18,35 +18,20 @@ const DEFAULT_OPTIONS: LineSeriesOptions = {
 };
 
 /**
- * Normalize caller-supplied line options onto the new shape. Deprecated
- * aliases (`areaFill`, `enterAnimation`, `enterMs`) are folded into their
- * renamed counterparts so the rest of the renderer only reads the canonical
- * fields.
+ * Normalize caller-supplied line options. Folds the legacy flat `areaFill`
+ * boolean (still used by `<Sparkline>` and React's `<LineSeries>` for
+ * back-compat) into the structured `area` shape so the rest of the renderer
+ * only reads the canonical field.
  */
 function normalizeLineOptions(input?: Partial<LineSeriesOptions>): Partial<LineSeriesOptions> {
   if (!input) return {};
+  const legacyAreaFill = (input as { areaFill?: boolean }).areaFill;
+  if (legacyAreaFill === undefined || input.area !== undefined) return input;
 
-  const out: Partial<LineSeriesOptions> = { ...input };
-  if ((input as { areaFill?: boolean }).areaFill !== undefined && input.area === undefined) {
-    out.area = { visible: !!(input as { areaFill?: boolean }).areaFill };
-  }
-  if (input.enterAnimation !== undefined && input.entryAnimation === undefined) {
-    out.entryAnimation = input.enterAnimation;
-  }
-  if (input.enterMs !== undefined && input.entryMs === undefined) {
-    out.entryMs = input.enterMs;
-  }
-
-  return out;
+  return { ...input, area: { visible: !!legacyAreaFill } };
 }
 
-interface LineEntry {
-  startTime: number;
-  /** Time of the penultimate point at append — used for the grow-in reveal. */
-  fromTime: number;
-}
-
-export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
+export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
   private options: LineSeriesOptions;
   private areaGradientCache = new Map<string, { gradient: CanvasGradient; bottomY: number; color: string }>();
 
@@ -72,21 +57,6 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     return this.options;
   }
 
-  protected createEntry(layerIndex: number, time: number, now: number): LineEntry | null {
-    const style = this.options.entryAnimation ?? 'grow';
-    const enterMs = resolveMs(this.options.entryMs, DEFAULT_LINE_ENTRY);
-    if (style === 'none' || enterMs <= 0) return null;
-
-    // `createEntry` runs BEFORE the new point is appended, so `store.last()`
-    // here IS the penultimate we want to lerp from during a 'grow' entrance.
-    const penultimate = this.stores[layerIndex]?.last();
-
-    return {
-      startTime: now,
-      fromTime: penultimate ? penultimate.time : time,
-    };
-  }
-
   applyTheme(theme: ChartTheme, prev: ChartTheme): void {
     if (this.stores.length === 1) {
       // Single-layer: update color only if it matches the previous theme default
@@ -106,13 +76,21 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     }
   }
 
-  private peekEntry(layerIndex: number, time: number): LineEntry | undefined {
-    return this.entries[layerIndex]?.get(time);
-  }
-
   /** Resolved pulse period in ms. 0 disables the pulse entirely. */
   private resolvedPulseMs(): number {
     return resolveMs(this.options.pulseMs, DEFAULT_LINE_PULSE);
+  }
+
+  protected resolvedEntryMs(): number {
+    return resolveMs(this.options.entryMs, DEFAULT_LINE_ENTRY);
+  }
+
+  protected resolvedSmoothMs(): number {
+    return resolveMs(this.options.smoothMs, DEFAULT_LINE_SMOOTH);
+  }
+
+  protected isEntryEnabled(): boolean {
+    return (this.options.entryAnimation ?? 'grow') !== 'none';
   }
 
   get hasPulse(): boolean {
@@ -142,7 +120,8 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
   }
 
   render(ctx: SeriesRenderContext): void {
-    this.advanceLiveTracking(performance.now());
+    this.tickAnimations(performance.now());
+
     if (this.options.stacking === 'off') {
       this.renderOff(ctx);
     } else {
@@ -153,34 +132,32 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
   /**
    * Bitmap coordinates for the trailing endpoint of a layer — i.e. where the
    * last visible point should be drawn *right now*. Accounts for live-tracking
-   * smoothing on Y (via {@link effectiveValue}) and the `'grow'` entrance
-   * animation, which lerps (X, Y) from the penultimate point to the new point
-   * over the entry's duration.
+   * smoothing on Y (via {@link BaseMultiLayerSeries.effectiveValue}) and the
+   * `'grow'` entrance animation, which lerps (X, Y) from the penultimate
+   * point to the new point over the engine-driven entry progress.
    *
    * Shared between `renderOff` (last `lineTo` of the polyline) and `drawOverlay`
    * (pulse dot) so the pulse glides in sync with the trailing segment instead
    * of teleporting to the raw last.time while the line still unfurls.
    */
   private trailingEndpoint(
+    ctx: SeriesRenderContext | OverlayRenderContext,
     layerIndex: number,
-    timeScale: import('../scales/time-scale').TimeScale,
-    yScale: import('../scales/y-scale').YScale,
-    now: number,
   ): { x: number; y: number } | null {
     const store = this.stores[layerIndex];
     const last = store.last();
     if (!last) return null;
 
+    const { timeScale, yScale } = ctx;
     const lastRawX = timeScale.timeToBitmapX(last.time);
-    const lastRawY = yScale.valueToBitmapY(this.effectiveValue(layerIndex, last.time, last.value));
+    const lastRawY = yScale.valueToBitmapY(this.effectiveValue(ctx, layerIndex, last.time, last.value));
 
     const style = this.options.entryAnimation ?? 'grow';
-    const entry = this.peekEntry(layerIndex, last.time);
-    if (!entry || style !== 'grow') {
+    if (style !== 'grow') {
       return { x: lastRawX, y: lastRawY };
     }
 
-    const progress = this.entranceProgress(layerIndex, last.time, now);
+    const progress = this.entranceProgress(ctx, layerIndex, last.time);
     if (progress >= 1) {
       return { x: lastRawX, y: lastRawY };
     }
@@ -210,7 +187,6 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     const { verticalPixelRatio } = scope;
     const hasStroke = this.options.strokeWidth > 0;
     const lineWidth = Math.max(1, Math.round(this.options.strokeWidth * verticalPixelRatio));
-    const now = performance.now();
     const style = this.options.entryAnimation ?? 'grow';
 
     for (let li = 0; li < this.stores.length; li++) {
@@ -231,12 +207,11 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
       // alpha. Sharing `trailingEndpoint` with the overlay pulse keeps the dot
       // in sync with the line head instead of teleporting during entrance.
       const last = data[data.length - 1];
-      const entry = this.peekEntry(li, last.time);
-      const progress = this.entranceProgress(li, last.time, now);
-      const trailingFade = entry && style === 'fade' && progress < 1;
-      const endpoint = this.trailingEndpoint(li, timeScale, yScale, now) ?? {
+      const progress = this.entranceProgress(ctx, li, last.time);
+      const trailingFade = style === 'fade' && progress < 1;
+      const endpoint = this.trailingEndpoint(ctx, li) ?? {
         x: timeScale.timeToBitmapX(last.time),
-        y: yScale.valueToBitmapY(this.effectiveValue(li, last.time, last.value)),
+        y: yScale.valueToBitmapY(this.effectiveValue(ctx, li, last.time, last.value)),
       };
       const trailingX = endpoint.x;
       const trailingY = endpoint.y;
@@ -385,7 +360,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     // otherwise the stacked head would jump on every live tick.
     const valueMaps: Map<number, number>[] = layers.map((layer, li) => {
       const m = new Map<number, number>();
-      for (const d of layer) m.set(d.time, this.effectiveValue(li, d.time, d.value));
+      for (const d of layer) m.set(d.time, this.effectiveValue(ctx, li, d.time, d.value));
       return m;
     });
 
@@ -421,11 +396,10 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     // we lerp the trailing segment's geometry directly off the cumulative arrays.
     //
     // Animation only fires when (a) the appended point is the rightmost time in
-    // the visible `times` window AND (b) the entry's `fromTime` sits exactly at
-    // the previous index. Anywhere else, lerping `xy[length-1]` would distort an
-    // already-superseded segment or pull an off-screen point into the on-screen
-    // tail.
-    const now = performance.now();
+    // the visible `times` window AND (b) the previous time in `times` is the
+    // layer's penultimate point. Anywhere else, lerping `xy[length-1]` would
+    // distort an already-superseded segment or pull an off-screen point into
+    // the on-screen tail.
     const style = this.options.entryAnimation ?? 'grow';
     const timeIdx = new Map<number, number>();
     for (let i = 0; i < times.length; i++) timeIdx.set(times[i], i);
@@ -437,16 +411,22 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
       const last = this.stores[li].last();
       if (!last) continue;
 
-      const entry = this.peekEntry(li, last.time);
-      if (!entry) continue;
+      const progress = this.entranceProgress(ctx, li, last.time);
+      if (progress >= 1) continue;
 
       const toIdx = timeIdx.get(last.time);
       if (toIdx !== lastVisibleIdx) continue;
 
-      const fromIdx = timeIdx.get(entry.fromTime);
+      // Penultimate point time must occupy the immediately-previous slot in
+      // the times list — otherwise lerping the tail would re-shape a stable
+      // earlier segment instead of just unfurling the new tip.
+      const all = this.stores[li].getAll();
+      if (all.length < 2) continue;
+      const penultimateTime = all[all.length - 2].time;
+      const fromIdx = timeIdx.get(penultimateTime);
       if (fromIdx !== toIdx - 1) continue;
 
-      layerProgress[li] = this.entranceProgress(li, last.time, now);
+      layerProgress[li] = progress;
     }
 
     // Lerp the last entry of an XY array between the prior point and the
@@ -532,15 +512,16 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
    * Chart invokes this during the overlay pass for any renderer that implements it.
    */
   drawOverlay(ctx: OverlayRenderContext): void {
-    const { scope, timeScale, yScale, crosshair, dataInterval, state, seriesId } = ctx;
+    this.tickAnimations(performance.now());
+
+    const { scope, timeScale, yScale, crosshair, dataInterval } = ctx;
     const size = scope;
     const pulseMs = this.resolvedPulseMs();
-    // Engine pulse phase ∈ [0, 1). When the chart hasn't registered this
-    // series (`state` absent or no entry), fall back to a wall-clock-derived
-    // phase that matches the legacy formula. Both produce the same halo
-    // rate at the default settings.
-    const enginePhase = seriesId !== undefined ? state?.pulsePhase.get(seriesId) : undefined;
-    const pulsePhase = enginePhase ?? (pulseMs > 0 ? (performance.now() / (pulseMs * 2 * Math.PI)) % 1 : 0);
+    // Closed-form pulse phase ∈ [0, 1). One full cycle per `pulseMs * 2π`
+    // wall-clock window — kept inline here (rather than routed through the
+    // viewport engine) so the renderer carries no cross-module state for a
+    // value derivable from `performance.now()`.
+    const pulsePhase = pulseMs > 0 ? (performance.now() / (pulseMs * 2 * Math.PI)) % 1 : 0;
 
     // Crosshair nearest-point dots
     if (crosshair) {
@@ -613,8 +594,6 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     // or `animations: false`) disables the halo entirely; per-series `pulse`
     // still controls whether the dot is ever drawn.
     if (this.hasPulse && pulseMs > 0) {
-      const now = performance.now();
-      this.advanceLiveTracking(now);
       const stacking = this.options.stacking;
       for (let li = 0; li < this.stores.length; li++) {
         if (!this.stores[li].isVisible()) continue;
@@ -625,7 +604,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
           // `trailingEndpoint` returns the interpolated (x, y) during a 'grow'
           // entrance so the dot glides from penultimate toward the new point in
           // lockstep with the line's trailing segment.
-          const endpoint = this.trailingEndpoint(li, timeScale, yScale, now);
+          const endpoint = this.trailingEndpoint(ctx, li);
           if (!endpoint) continue;
 
           this.drawPulse({
@@ -656,7 +635,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
             const point = lj === li && queryT === t ? last : this.stores[lj].findNearest(queryT, 0);
             if (!point || point.time !== queryT) return 0;
 
-            return this.effectiveValue(lj, queryT, point.value);
+            return this.effectiveValue(ctx, lj, queryT, point.value);
           };
           let total = 0;
           if (percent) {
@@ -680,14 +659,20 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
         let pulseY = yScale.valueToBitmapY(cumulativeAt(t));
 
         const appendStyle = this.options.entryAnimation ?? 'grow';
-        const entry = this.peekEntry(li, t);
-        if (appendStyle === 'grow' && entry) {
-          const progress = this.entranceProgress(li, t, now);
-          if (progress < 1 && entry.fromTime !== t) {
-            const prevX = timeScale.timeToBitmapX(entry.fromTime);
-            const prevY = yScale.valueToBitmapY(cumulativeAt(entry.fromTime));
-            pulseX = lerp(prevX, pulseX, progress);
-            pulseY = lerp(prevY, pulseY, progress);
+        if (appendStyle === 'grow') {
+          const progress = this.entranceProgress(ctx, li, t);
+          if (progress < 1) {
+            // Penultimate point's time → fromTime for the grow lerp. Skip the
+            // animation when the layer has < 2 points or when the penultimate
+            // shares a time with the last (degenerate).
+            const all = this.stores[li].getAll();
+            const penultimate = all.length >= 2 ? all[all.length - 2] : null;
+            if (penultimate !== null && penultimate.time !== t) {
+              const prevX = timeScale.timeToBitmapX(penultimate.time);
+              const prevY = yScale.valueToBitmapY(cumulativeAt(penultimate.time));
+              pulseX = lerp(prevX, pulseX, progress);
+              pulseY = lerp(prevY, pulseY, progress);
+            }
           }
         }
 

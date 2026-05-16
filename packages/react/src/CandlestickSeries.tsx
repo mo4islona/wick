@@ -99,9 +99,7 @@ export function CandlestickSeries({ data, options, id: idProp }: CandlestickSeri
     options?.down?.wick,
     options?.bodyWidthRatio,
     options?.entryAnimation,
-    options?.enterAnimation,
     options?.entryMs,
-    options?.enterMs,
     options?.smoothMs,
   ]);
 

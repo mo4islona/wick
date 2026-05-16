@@ -22,7 +22,10 @@ export class TimeSeriesStore<T extends { time: number }> extends EventEmitter<St
   setData(data: T[]): void {
     let sorted = true;
     for (let i = 1; i < data.length; i++) {
-      if (data[i].time < data[i - 1].time) { sorted = false; break; }
+      if (data[i].time < data[i - 1].time) {
+        sorted = false;
+        break;
+      }
     }
     this.data = sorted ? data.slice() : [...data].sort((a, b) => a.time - b.time);
     this.cachedRange = null;

@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { StreamingCadence } from '../../../chart/streaming-cadence';
+import { StreamingCadence } from '../../chart/streaming-cadence';
 
 describe('StreamingCadence', () => {
   // ---------------------------------------------------------------------------

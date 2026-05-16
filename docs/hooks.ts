@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { LineData, OHLCData } from '@wick-charts/react';
+import type { OHLCData, TimePoint } from '@wick-charts/react';
 
 import {
   DEMO_INTERVAL,
@@ -41,7 +41,7 @@ export interface LineStreamOpts extends BaseStreamOpts {
   kind?: LineStreamKind;
   /** Per-series strategy factory. Takes precedence over `kind`; lets callers
    * continue specialised generators (wave, band) with their original shape. */
-  strategy?: (series: LineData[], index: number) => LineStrategy;
+  strategy?: (series: TimePoint[], index: number) => LineStrategy;
 }
 
 function useLiveRef<T>(value: T) {
@@ -131,7 +131,7 @@ export function useOHLCStream(allData: OHLCData[], opts: OHLCStreamOpts = {}) {
   return { data, phase };
 }
 
-function pickLineStrategy(kind: LineStreamKind, series: LineData[]): LineStrategy {
+function pickLineStrategy(kind: LineStreamKind, series: TimePoint[]): LineStrategy {
   switch (kind) {
     case 'bar': {
       const amplitude = Math.max(100, ...series.map((p) => Math.abs(p.value))) * 1.2;
@@ -146,7 +146,7 @@ function pickLineStrategy(kind: LineStreamKind, series: LineData[]): LineStrateg
   }
 }
 
-export function useLineStreams(allData: LineData[][], opts: LineStreamOpts = {}) {
+export function useLineStreams(allData: TimePoint[][], opts: LineStreamOpts = {}) {
   const startDelay = opts.startDelay ?? 50;
   const dataInterval = opts.interval ?? DEMO_INTERVAL;
   const kind: LineStreamKind = opts.kind ?? 'line';
@@ -158,7 +158,7 @@ export function useLineStreams(allData: LineData[][], opts: LineStreamOpts = {})
   const seriesCount = allData.length;
   const historyLength = allData[0]?.length ?? 0;
 
-  const [datasets, setDatasets] = useState<LineData[][]>(() => allData.map(() => []));
+  const [datasets, setDatasets] = useState<TimePoint[][]>(() => allData.map(() => []));
   const [phase, setPhase] = useState<'loading' | 'live'>('loading');
   const datasetsRef = useLiveRef(datasets);
 

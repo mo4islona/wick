@@ -1,15 +1,27 @@
 // Chart
 
+export type { AnimationsConfig } from './animation/config';
 export type { AnimationTime, Milliseconds } from './animation/time';
 export { parseAnimationTime } from './animation/time';
 // Y-bound transition contract.
 export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './animation/transition';
+// Push-model viewport state machine — owns X / Y range animation and exposes
+// `getAnimationState` / `getTarget` to renderers and scales.
+export {
+  type AnimationState,
+  type PanZoomOptions,
+  type ProgrammaticZoomOptions,
+  type SnapTarget,
+  type ViewportEngine,
+  type ViewportEngineOptions,
+  createViewportEngine,
+} from './animation/viewport-engine';
 // Built-in Y transitions. Each factory lives in its own module so unused
 // curves tree-shake out — import only the ones you need.
 export { type HermiteOpts, hermite } from './animation/y-range-hermite';
 export { snap } from './animation/y-range-snap';
 export { type SpringOpts, spring } from './animation/y-range-spring';
-export type { AnimationsConfig, ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
+export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays
 export type { LegendItem } from './legend';
@@ -38,8 +50,6 @@ export type {
 } from './snapshots';
 export { buildHoverSnapshots, buildLastSnapshots } from './snapshots';
 // Data
-export { darkTheme } from './theme/dark';
-export { lightTheme } from './theme/light';
 export type { ThemeConfig, ThemePreset } from './theme/palettes';
 export { autoGradient, createTheme, isDarkBg } from './theme/palettes';
 export { resolveAxisFontSize, resolveAxisTextColor, resolveCandlestickBodyColor } from './theme/resolve';
@@ -76,13 +86,10 @@ export type {
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
-  /** @deprecated Use {@link StackingMode} instead. */
-  BarStacking,
   CandlestickSeriesOptions,
   ChartLayout,
   CrosshairPosition,
-  /** @deprecated Use {@link TimePoint} instead. */
-  LineData,
+  HorizontalPadding,
   LineSeriesOptions,
   OHLCData,
   OHLCInput,
@@ -104,4 +111,3 @@ export type {
 export type { TooltipField, TooltipFormatter, ValueFormatter } from './utils/format';
 export { formatCompact, formatPriceAdaptive } from './utils/format';
 export { detectInterval, formatDate, formatTime, normalizeTime } from './utils/time';
-export type { HorizontalPadding } from './viewport';

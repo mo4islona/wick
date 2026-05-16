@@ -1,33 +1,50 @@
-import { Animator, easeOutCubic as easeOutCubicAnim } from '../animation';
-import { DEFAULT_CANDLESTICK_ENTRY, DEFAULT_CANDLESTICK_SMOOTH } from '../animation-constants';
+import { Animator } from '../animation/animator';
+import { DEFAULT_CANDLESTICK_ENTRY, DEFAULT_CANDLESTICK_SMOOTH } from '../animation/config';
 import { decimateOHLCData } from '../data/decimation';
 import type { TimeSeriesStore } from '../data/store';
 import { resolveCandlestickBodyColor } from '../theme/resolve';
 import type { ChartTheme } from '../theme/types';
 import type { CandlestickSeriesOptions, OHLCData, OHLCInput } from '../types';
 import { hexToRgba } from '../utils/color';
-import { clamp, easeOutCubic, lerp } from '../utils/math';
+import { lerp } from '../utils/math';
 import { isPoisonedNumber, reportPoisonedData } from '../utils/poisoned-data-reporter';
 import { normalizeOHLCArray, normalizeTime } from '../utils/time';
 import { resolveMs } from './shared-animation';
 import type { SeriesRenderContext, SeriesRenderer } from './types';
 
-const ohlcLerp = (a: OHLCData, b: OHLCData, t: number): OHLCData => ({
-  time: b.time,
-  open: a.open + (b.open - a.open) * t,
-  high: a.high + (b.high - a.high) * t,
-  low: a.low + (b.low - a.low) * t,
-  close: a.close + (b.close - a.close) * t,
-  volume: a.volume === undefined || b.volume === undefined ? b.volume : a.volume + (b.volume - a.volume) * t,
-});
+/** Per-candle entrance state — start wall-time so progress is `(now - startTime) / entryMs`. */
+interface EntryState {
+  startTime: number;
+}
 
-const ohlcEquals = (a: OHLCData, b: OHLCData): boolean =>
-  a.time === b.time &&
-  a.open === b.open &&
-  a.high === b.high &&
-  a.low === b.low &&
-  a.close === b.close &&
-  a.volume === b.volume;
+/** Component-wise lerp for an OHLC quadruple; lerps `volume` too when either side carries one. */
+function ohlcLerp(a: OHLCData, b: OHLCData, t: number): OHLCData {
+  const r: OHLCData = {
+    time: b.time,
+    open: a.open + (b.open - a.open) * t,
+    high: a.high + (b.high - a.high) * t,
+    low: a.low + (b.low - a.low) * t,
+    close: a.close + (b.close - a.close) * t,
+  };
+  if (a.volume !== undefined || b.volume !== undefined) {
+    const va = a.volume ?? 0;
+    const vb = b.volume ?? 0;
+    r.volume = va + (vb - va) * t;
+  }
+
+  return r;
+}
+
+function ohlcEquals(a: OHLCData, b: OHLCData): boolean {
+  return (
+    a.time === b.time &&
+    a.open === b.open &&
+    a.high === b.high &&
+    a.low === b.low &&
+    a.close === b.close &&
+    (a.volume ?? 0) === (b.volume ?? 0)
+  );
+}
 
 const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
   up: { body: '#26a69a', wick: '#26a69a' },
@@ -35,56 +52,48 @@ const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
   bodyWidthRatio: 0.6,
 };
 
-/**
- * Normalize caller-supplied candlestick options. Folds the deprecated
- * `enterAnimation` and `enterMs` aliases into `entryAnimation` and `entryMs`.
- */
-function normalizeCandlestickOptions(input?: Partial<CandlestickSeriesOptions>): Partial<CandlestickSeriesOptions> {
-  if (!input) return {};
-
-  const out: Partial<CandlestickSeriesOptions> = { ...input };
-  if (input.enterAnimation !== undefined && input.entryAnimation === undefined) {
-    out.entryAnimation = input.enterAnimation;
-  }
-  if (input.enterMs !== undefined && input.entryMs === undefined) {
-    out.entryMs = input.enterMs;
-  }
-
-  return out;
-}
-
 export class CandlestickRenderer implements SeriesRenderer {
   readonly store: TimeSeriesStore<OHLCData>;
   private options: CandlestickSeriesOptions;
-  /**
-   * Animates the displayed OHLC of the **live last candle** toward the
-   * actual `store.last()` so high-frequency `updateLastPoint` ticks read as a
-   * smooth slide rather than a jump. New candles (different `time`) snap
-   * instantly — there is no cross-candle interpolation. `null` until the
-   * first render seeds it. */
-  #liveTrackAnimator: Animator<OHLCData> | null = null;
-  /** `time` of the candle currently held by {@link #liveTrackAnimator}. Detects new-candle transitions. */
-  #lastSeededTime = Number.NaN;
-  /** Render timestamp of the previous frame; used as the animator's setTarget
-   * anchor so the first frame after an update shows non-zero progress, and
-   * clamped to one frame (16 ms) so a long backgrounded-tab gap doesn't cause
-   * the displayed value to snap to the new target on resume. */
-  #lastRenderTime = 0;
-  /** Per-candle entrance animations. Keyed by candle `time`; entries are deleted once progress reaches 1. */
-  private entries: Map<number, { startTime: number }> = new Map();
 
-  /** Smoothed OHLC of the live last candle. Null until first render. */
-  get displayedLast(): OHLCData | null {
-    return this.#liveTrackAnimator?.current ?? null;
-  }
+  // --- Animation state ----------------------------------------------------
+  /** Smoothed OHLC for the live last candle. Reset on `appendPoint` (new
+   *  candle → identity snap) and chased on `updateLastPoint`. */
+  protected displayedLast: OHLCData | null = null;
+  /** Per-candle entrance registry. Single-layer, so no per-layer split. */
+  protected readonly entries: Map<number, EntryState> = new Map();
+  #liveAnimator: Animator<OHLCData> | null = null;
+  /** Series-level alpha for visibility cross-fade. Chart calls {@link setAlpha} on hide. */
+  readonly #alphaAnimator: Animator<number> = new Animator<number>({
+    initial: 1,
+    duration: 0,
+    lerp: (a, b, t) => a + (b - a) * t,
+  });
 
   constructor(store: TimeSeriesStore<OHLCData>, options?: Partial<CandlestickSeriesOptions>) {
     this.store = store;
-    this.options = { ...DEFAULT_OPTIONS, ...normalizeCandlestickOptions(options) };
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    // Seed `displayedLast` from the (possibly pre-populated) store — `setData`
+    // doesn't run when the caller pre-loaded the store before construction,
+    // so without this seed the first `updateLastPoint` would lazily anchor
+    // its chase at the target and visually snap.
+    this.displayedLast = store.last() ?? null;
+  }
+
+  private resolvedEntryMs(): number {
+    return resolveMs(this.options.entryMs, DEFAULT_CANDLESTICK_ENTRY);
+  }
+
+  private resolvedSmoothMs(): number {
+    return resolveMs(this.options.smoothMs, DEFAULT_CANDLESTICK_SMOOTH);
+  }
+
+  private isEntryEnabled(): boolean {
+    return (this.options.entryAnimation ?? 'unfold') !== 'none';
   }
 
   updateOptions(options: Partial<CandlestickSeriesOptions>): void {
-    this.options = { ...this.options, ...normalizeCandlestickOptions(options) };
+    this.options = { ...this.options, ...options };
   }
 
   getColor(): string {
@@ -95,24 +104,59 @@ export class CandlestickRenderer implements SeriesRenderer {
 
   setData(data: unknown): void {
     this.store.setData(normalizeOHLCArray((data ?? []) as OHLCInput[]));
-    // Bulk loads never animate — every candle is "already there".
+
+    // Bulk replace — seed `displayedLast` to the new last candle, drop any
+    // in-flight chase and per-candle entries so the next render paints the
+    // canonical dataset with no leftover animation.
+    const last = this.store.last();
+    this.displayedLast = last ?? null;
+    this.#liveAnimator = null;
     this.entries.clear();
   }
 
   appendPoint(point: unknown): void {
     const p = point as OHLCInput;
     const time = normalizeTime(p.time);
-    this.store.append({ ...p, time });
-    const style = this.options.entryAnimation ?? 'unfold';
-    const enterMs = resolveMs(this.options.entryMs, DEFAULT_CANDLESTICK_ENTRY);
-    if (style !== 'none' && enterMs > 0) {
+    const candle: OHLCData = { ...p, time };
+    this.store.append(candle);
+
+    // Identity snap on append: a new candle's first frame must show its
+    // exact OHLC, not an interpolation from the previous candle's close.
+    this.displayedLast = candle;
+    this.#liveAnimator = null;
+
+    const entryMs = this.resolvedEntryMs();
+    if (this.isEntryEnabled() && entryMs > 0) {
       this.entries.set(time, { startTime: performance.now() });
     }
   }
 
   updateLastPoint(point: unknown): void {
     const p = point as OHLCInput;
-    this.store.updateLast({ ...p, time: normalizeTime(p.time) });
+    const time = normalizeTime(p.time);
+    const target: OHLCData = { ...p, time };
+    this.store.updateLast(target);
+
+    const smoothMs = this.resolvedSmoothMs();
+    if (smoothMs <= 0) {
+      this.displayedLast = target;
+      this.#liveAnimator = null;
+      return;
+    }
+
+    let anim = this.#liveAnimator;
+    if (anim === null) {
+      const initial = this.displayedLast ?? target;
+      anim = new Animator<OHLCData>({
+        initial,
+        duration: smoothMs,
+        lerp: ohlcLerp,
+        equals: ohlcEquals,
+      });
+      this.#liveAnimator = anim;
+    }
+
+    anim.setTarget(target);
   }
 
   keepLast(count: number): void {
@@ -120,12 +164,6 @@ export class CandlestickRenderer implements SeriesRenderer {
 
     const drop = this.store.length - count;
     if (drop <= 0) return;
-
-    // entries are keyed by candle `time` — purge before mutating the store.
-    const head = this.store.getAll().slice(0, drop);
-    for (const c of head) {
-      this.entries.delete(c.time);
-    }
 
     this.store.trimStart(drop);
   }
@@ -160,10 +198,51 @@ export class CandlestickRenderer implements SeriesRenderer {
 
   dispose(): void {
     this.store.removeAllListeners();
-    this.#liveTrackAnimator = null;
-    this.#lastSeededTime = Number.NaN;
-    this.#lastRenderTime = 0;
+  }
+
+  // --- Animation lifecycle ------------------------------------------------
+
+  /**
+   * Advance the live-OHLC chase + alpha fade against `now` and prune
+   * fully-settled entrance entries. Called from `render()` once per frame.
+   */
+  private tickAnimations(now: number): void {
+    this.#alphaAnimator.tick(now);
+
+    const anim = this.#liveAnimator;
+    if (anim !== null) {
+      const stillAnimating = anim.tick(now);
+      this.displayedLast = anim.current;
+      if (!stillAnimating) this.#liveAnimator = null;
+    }
+
+    const entryMs = this.resolvedEntryMs();
+    if (entryMs <= 0) {
+      this.entries.clear();
+      return;
+    }
+
+    for (const [time, state] of this.entries) {
+      if (now - state.startTime >= entryMs) this.entries.delete(time);
+    }
+  }
+
+  /** True while OHLC chase, any per-candle entrance, or alpha fade is unsettled. */
+  get needsAnimation(): boolean {
+    return this.#alphaAnimator.animating || this.#liveAnimator !== null || this.entries.size > 0;
+  }
+
+  /** Abort in-flight per-candle entrance animations. Live-OHLC chase is left intact. */
+  cancelEntranceAnimations(): void {
     this.entries.clear();
+  }
+
+  setAlpha(target: number, durationMs: number): void {
+    this.#alphaAnimator.setTarget(target, { duration: durationMs });
+  }
+
+  getAlpha(): number {
+    return this.#alphaAnimator.current;
   }
 
   getLastValue(): number | null {
@@ -175,133 +254,50 @@ export class CandlestickRenderer implements SeriesRenderer {
     return this.store.findNearest(time, interval);
   }
 
-  /** Drop all in-flight per-candle entrance animations. Displayed-last smoothing
-   * (the real-time halo/price lerp) is intentionally preserved. */
-  cancelEntranceAnimations(): void {
-    this.entries.clear();
-  }
-
-  /** True while any entrance animation is active or the displayed last candle hasn't converged. */
-  get needsAnimation(): boolean {
-    if (this.entries.size > 0) return true;
-    if (this.#liveTrackAnimator?.animating) return true;
-
-    return false;
-  }
-
-  /**
-   * Compute the entrance progress for a candle's `time`, in [0, 1]. Returns 1 for
-   * candles not in the entry map. When the entrance completes, the entry is pruned
-   * and subsequent renders short-circuit to identity (progress=1).
-   */
-  private entranceProgress(time: number, now: number): number {
-    const entry = this.entries.get(time);
-    if (!entry) return 1;
-    const duration = resolveMs(this.options.entryMs, DEFAULT_CANDLESTICK_ENTRY);
-    if (duration <= 0) {
-      this.entries.delete(time);
-      return 1;
-    }
-    const t = clamp((now - entry.startTime) / duration, 0, 1);
-    const progress = easeOutCubic(t);
-    if (t >= 1) this.entries.delete(time);
-    return progress;
-  }
-
-  /**
-   * Advance the smoothed last-candle state. Seeds directly on first render or
-   * when the last candle's `time` changes (new candle); otherwise retargets
-   * the {@link liveTrackAnimator} toward the actual OHLC so back-to-back
-   * `updateLastPoint` ticks interpolate instead of jumping.
-   *
-   * The animator advances `current` to `now` internally on each `setTarget`
-   * call (preserving visual continuity), then `tick(now)` advances the same
-   * frame's render. Because the animator has a finite `smoothMs` duration,
-   * after `smoothMs` ms with no new updates the displayed value converges to
-   * exactly the actual last value — `needsAnimation` flips to `false` and
-   * the render loop stops scheduling frames.
-   */
-  private advanceLiveTracking(now: number): void {
-    const actualLast = this.store.last();
-    if (!actualLast) {
-      this.#liveTrackAnimator = null;
-      this.#lastSeededTime = Number.NaN;
-      return;
-    }
-
-    const isNewCandle = this.#lastSeededTime !== actualLast.time;
-    const smoothMs = resolveMs(this.options.smoothMs, DEFAULT_CANDLESTICK_SMOOTH);
-
-    // Seed directly when there is nothing to interpolate from, when a new
-    // candle just arrived (no cross-candle smoothing — different `time` means
-    // different identity), or when smoothing is disabled.
-    if (this.#liveTrackAnimator === null || isNewCandle || smoothMs <= 0) {
-      this.#liveTrackAnimator = new Animator<OHLCData>({
-        initial: { ...actualLast },
-        duration: smoothMs > 0 ? smoothMs : 0,
-        easing: easeOutCubicAnim,
-        lerp: ohlcLerp,
-        equals: ohlcEquals,
-      });
-      this.#lastSeededTime = actualLast.time;
-      this.#lastRenderTime = now;
-      return;
-    }
-
-    // Same candle, animated retarget toward the latest OHLC.
-    //
-    // Anchor `setTarget` on the previous frame so the first tick at the new
-    // `now` shows non-zero progress, matching the frame-rate-driven smoothing
-    // that the legacy `smoothToward` exhibited. Clamp the gap to one typical
-    // frame (16 ms) so a long idle (backgrounded tab) does not let the
-    // animator advance past ~50% of the curve on the resume frame — the
-    // visual effect we want is "smooth catch-up over the next few frames",
-    // not "almost-snap on resume".
-    const FRAME_CAP_MS = 16;
-    const dt = Math.min(now - this.#lastRenderTime, FRAME_CAP_MS);
-    const anchorNow = now - dt;
-    this.#liveTrackAnimator.setTarget(actualLast, { duration: smoothMs, now: anchorNow });
-    this.#liveTrackAnimator.tick(now);
-    this.#lastRenderTime = now;
-  }
-
   render(ctx: SeriesRenderContext): void {
+    this.tickAnimations(performance.now());
+
     const { scope, timeScale, yScale, dataInterval } = ctx;
     const { context, horizontalPixelRatio } = scope;
     const range = timeScale.getRange();
-
-    const now = performance.now();
-    this.advanceLiveTracking(now);
 
     let visibleData = this.store.getVisibleData(range.from, range.to);
     const pixelWidth = scope.mediaSize.width;
     const decimated = visibleData.length > pixelWidth * 2;
     if (decimated) {
       visibleData = decimateOHLCData(visibleData, Math.round(pixelWidth * 1.5));
-      // Decimation loses per-`time` identity — active entries won't line up with
-      // rendered candles, and the last-candle smoothing substitute won't either.
-      this.entries.clear();
     }
     if (visibleData.length === 0) return;
 
-    // Substitute the smoothed OHLC for the live last candle so its body and wick
-    // track the real last value without jumping.
-    if (!decimated && this.displayedLast) {
+    // Substitute the smoothed OHLC for the live last candle so its body and
+    // wick track the real last value without jumping. Decimation loses per-
+    // `time` identity, so substitution is skipped on those frames.
+    const displayedLast = this.displayedLast;
+    if (!decimated && displayedLast !== null) {
       const lastIdx = visibleData.length - 1;
-      if (visibleData[lastIdx].time === this.displayedLast.time) {
-        visibleData = [...visibleData.slice(0, lastIdx), this.displayedLast];
+      if (visibleData[lastIdx].time === displayedLast.time) {
+        visibleData = [...visibleData.slice(0, lastIdx), displayedLast];
       }
     }
 
-    // Snapshot entrance progress per candle up-front so drawCandles batches (bulls +
-    // bears) see a consistent progress value and we don't re-evaluate easeOutCubic
-    // twice per candle (once for the wick, once for the body).
-    const entranceByTime: Map<number, number> | null = this.entries.size > 0 ? new Map() : null;
-    if (entranceByTime) {
+    // Snapshot entrance progress per candle up-front so drawCandles batches
+    // (bulls + bears) see a consistent value and we don't probe the entry
+    // map twice per candle. `null` means no active entries this frame —
+    // downstream branches read `entranceByTime?.get(time) ?? 1` and fast-path.
+    let entranceByTime: Map<number, number> | null = null;
+    if (this.entries.size > 0) {
+      const entryMs = this.resolvedEntryMs();
+      const now = performance.now();
       for (const c of visibleData) {
-        if (this.entries.has(c.time)) {
-          entranceByTime.set(c.time, this.entranceProgress(c.time, now));
-        }
+        const state = this.entries.get(c.time);
+        if (state === undefined) continue;
+
+        const elapsed = now - state.startTime;
+        const progress = entryMs <= 0 ? 1 : Math.min(1, Math.max(0, elapsed / entryMs));
+        if (progress >= 1) continue;
+
+        if (entranceByTime === null) entranceByTime = new Map();
+        entranceByTime.set(c.time, progress);
       }
     }
 
@@ -610,7 +606,7 @@ interface CandleTransformOutput {
  */
 function applyCandleTransform(
   progress: number,
-  style: NonNullable<CandlestickSeriesOptions['enterAnimation']>,
+  style: NonNullable<CandlestickSeriesOptions['entryAnimation']>,
   g: CandleTransformInput,
 ): CandleTransformOutput {
   switch (style) {

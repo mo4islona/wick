@@ -15,7 +15,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChartInstance } from '../../chart';
-import type { CandlestickRenderer } from '../../series/candlestick';
 
 const INTERVAL = 60_000;
 
@@ -77,19 +76,6 @@ function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   return { chart: new ChartInstance(container, { interactive: false }), container };
 }
 
-function rendererFor(chart: ChartInstance, id: string): CandlestickRenderer {
-  const series = (
-    chart as unknown as {
-      listSeriesForTest: () => Array<{ id: string; renderer: CandlestickRenderer }>;
-    }
-  )
-    .listSeriesForTest()
-    .find((s) => s.id === id);
-  if (!series) throw new Error('series not found');
-
-  return series.renderer;
-}
-
 describe('streaming coordination — unified animation', () => {
   let chart: ChartInstance;
   let container: HTMLElement;
@@ -146,11 +132,18 @@ describe('streaming coordination — unified animation', () => {
     expect(yRange.min).toBeLessThanOrEqual(dataMin);
     expect(yRange.max).toBeGreaterThanOrEqual(dataMax);
 
-    // Live-track: settled at the actual last candle's OHLC.
-    const r = rendererFor(chart, id);
-    const displayedLast = (r as unknown as { displayedLast: { close: number } }).displayedLast;
+    // Live-track: settled at the actual last candle's OHLC. Renderer owns
+    // the smoothing — read from its protected `displayedLast` directly.
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id)?.renderer as unknown as { displayedLast: { close: number } | null };
     const expectedClose = 100 + Math.sin(49 * 0.5) * 10;
-    expect(Math.abs(displayedLast.close - expectedClose)).toBeLessThan(0.01);
+    expect(renderer.displayedLast).not.toBeNull();
+    expect(Math.abs((renderer.displayedLast?.close ?? Number.NaN) - expectedClose)).toBeLessThan(0.01);
   });
 
   it('per-point entrance animations are independent of the streaming retarget', () => {
@@ -171,17 +164,24 @@ describe('streaming coordination — unified animation', () => {
     chart.appendData(id, { time: 1_000_000 + INTERVAL, open: 101, high: 106, low: 100, close: 105 });
 
     // After 12 frames (~192 ms) the entrance is still in flight (192 < 250);
-    // the entry stays in `entries` until the per-point animator settles.
+    // the renderer's per-candle `entries` map carries the start time until
+    // `tickAnimations` prunes it on settle.
     raf.flush(12);
 
-    const r = rendererFor(chart, id);
-    const entries = (r as unknown as { entries: Map<number, unknown> }).entries;
-    expect(entries.has(1_000_000 + INTERVAL)).toBe(true);
+    const newTime = 1_000_000 + INTERVAL;
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id)?.renderer as unknown as { entries: Map<number, unknown> };
+    expect(renderer.entries.has(newTime)).toBe(true);
 
-    // Drain another 30 frames (well past 250 ms) — entrance settles and the
-    // per-point animator releases the entry.
+    // Drain another 30 frames (well past 250 ms) — entrance settles and
+    // the entry is pruned from the registry.
     raf.flush(30);
-    expect(entries.has(1_000_000 + INTERVAL)).toBe(false);
+    expect(renderer.entries.has(newTime)).toBe(false);
   });
 
   it('a new high mid-stream eases Y outward toward the new extreme', () => {

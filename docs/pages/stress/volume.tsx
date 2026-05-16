@@ -1,13 +1,6 @@
-import {
-  BarSeries,
-  CandlestickSeries,
-  ChartContainer,
-  LineSeries,
-  TimeAxis,
-  Title,
-  YAxis,
-} from '@wick-charts/react';
 import { useMemo } from 'react';
+
+import { BarSeries, CandlestickSeries, ChartContainer, LineSeries, TimeAxis, Title, YAxis } from '@wick-charts/react';
 
 import { DEMO_INTERVAL, generateBarData, generateLineData, generateOHLCData } from '../../data';
 import { useOHLCStream } from '../../hooks';

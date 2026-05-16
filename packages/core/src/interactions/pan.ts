@@ -1,12 +1,12 @@
 import type { TimeScale } from '../scales/time-scale';
-import type { Viewport } from '../viewport';
+import type { PanZoomTarget } from './pan-zoom-target';
 
 export class PanHandler {
   private dragging = false;
   private lastX = 0;
 
   constructor(
-    private viewport: Viewport,
+    private target: PanZoomTarget,
     private timeScale: TimeScale,
     private canvas: HTMLCanvasElement,
   ) {}
@@ -23,7 +23,7 @@ export class PanHandler {
     const deltaX = e.clientX - this.lastX;
     this.lastX = e.clientX;
     const timeDelta = this.timeScale.pixelDeltaToTimeDelta(-deltaX);
-    this.viewport.pan(timeDelta, this.timeScale.getMediaWidth());
+    this.target.pan(timeDelta, this.timeScale.getMediaWidth());
   }
 
   handleMouseUp(): void {

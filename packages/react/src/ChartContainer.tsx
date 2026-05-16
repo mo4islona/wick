@@ -268,6 +268,15 @@ export function ChartContainer({
   // `animations` changes by reference: chart-level animation timings, the
   // Y transition factory and per-series timings are init-only contracts
   // in Phase 2, so a new `animations` object is a full rebuild.
+  //
+  // TODO(api): this identity-based init-only contract is fragile — any
+  // streaming caller that forgets to wrap `animations` in useMemo gets
+  // a destroy+recreate on every tick (see docs/pages/stress/streaming.tsx
+  // for the worked example: ~30 rebuilds/sec at 32ms intervals). Either
+  // diff structurally here, or split the init-only sub-fields (the Y
+  // transition factory and per-series timings) into a separate prop with
+  // a name that signals "stable identity required", so the common
+  // chart-level timings can stay live-updatable.
   useLayoutEffect(() => {
     if (!containerRef.current) return;
 

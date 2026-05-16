@@ -84,25 +84,25 @@ describe('updateSeriesOptions honors chart-level animation gates', () => {
   it('candlestick: chart-level animations: false cannot be re-enabled by updateSeriesOptions', () => {
     const chart = makeChart(false);
     const { id, renderer } = candleRenderer(chart);
-    const opts = () => (renderer as unknown as { options: { enterMs?: number; smoothMs?: number } }).options;
+    const opts = () => (renderer as unknown as { options: { entryMs?: number; smoothMs?: number } }).options;
 
-    expect(opts().enterMs).toBe(0);
+    expect(opts().entryMs).toBe(0);
     expect(opts().smoothMs).toBe(0);
 
-    chart.updateSeriesOptions(id, { enterMs: 400, smoothMs: 500 });
+    chart.updateSeriesOptions(id, { entryMs: 400, smoothMs: 500 });
 
-    expect(opts().enterMs).toBe(0);
+    expect(opts().entryMs).toBe(0);
     expect(opts().smoothMs).toBe(0);
   });
 
   it('line: chart-level series.line.entry: false holds across updateSeriesOptions', () => {
     const chart = makeChart({ series: { line: { entry: false } } });
     const { id, renderer } = lineRenderer(chart);
-    const opts = () => (renderer as unknown as { options: { enterMs?: number } }).options;
+    const opts = () => (renderer as unknown as { options: { entryMs?: number } }).options;
 
-    expect(opts().enterMs).toBe(0);
-    chart.updateSeriesOptions(id, { enterMs: 600 });
-    expect(opts().enterMs).toBe(0);
+    expect(opts().entryMs).toBe(0);
+    chart.updateSeriesOptions(id, { entryMs: 600 });
+    expect(opts().entryMs).toBe(0);
   });
 
   it('bar: chart-level series.bar.smooth: false holds across updateSeriesOptions', () => {
@@ -151,10 +151,15 @@ describe('engine-driven lockstep', () => {
 
     chart.setSeriesVisible(big, false);
 
-    // visibilityMs=0 routes through the engine's zero-duration guard: alpha
-    // for `big` snaps to 0 AND state.yRange snaps to the small-only range,
-    // both visible to synchronous readers (no RAF in between).
-    expect(chart.getAnimationState().seriesAlpha.get(big)).toBe(0);
+    // visibilityMs=0 routes through the engine's zero-duration guard for
+    // the Y reflow; the renderer-owned alpha animator snaps to 0
+    // synchronously.
+    const renderer = (
+      chart as unknown as { listSeriesForTest: () => Array<{ id: string; renderer: { getAlpha?: () => number } }> }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === big);
+    expect(renderer?.renderer.getAlpha?.()).toBe(0);
     expect(chart.getYRange().max).toBeLessThan(combinedMax);
   });
 
@@ -181,21 +186,5 @@ describe('engine-driven lockstep', () => {
     expect(afterX.to).toBeGreaterThan(beforeX);
     expect(afterY.max).toBeGreaterThan(beforeY);
     expect(afterY.max).toBeGreaterThanOrEqual(2000);
-  });
-
-  it('per-series alpha map and pulsePhase map share state — same engine reference, in-place mutation (P2 contract)', () => {
-    const chart = makeSizedChart();
-    const id = chart.addLineSeries();
-    chart.setSeriesData(id, [
-      { time: 1, value: 1 },
-      { time: 2, value: 2 },
-    ]);
-
-    const stateA = chart.getAnimationState();
-    const stateB = chart.getAnimationState();
-    expect(stateA).toBe(stateB);
-    expect(stateA.seriesAlpha).toBe(stateB.seriesAlpha);
-    expect(stateA.pulsePhase).toBe(stateB.pulsePhase);
-    expect(stateA.tickOpacity).toBe(stateB.tickOpacity);
   });
 });

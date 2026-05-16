@@ -9,7 +9,7 @@ describe('PerfMonitor', () => {
 
     expect(stats.mainRendersPerSec).toBe(0);
     expect(stats.overlayRendersPerSec).toBe(0);
-    expect(stats.fps).toBe(0);
+    expect(stats.mainRendersPerSec).toBe(0);
     expect(stats.mainFrameMs).toEqual({ last: 0, p50: 0, p95: 0 });
     expect(stats.overlayFrameMs).toEqual({ last: 0, p50: 0, p95: 0 });
     expect(stats.frameCount).toEqual({ main: 0, overlay: 0 });
@@ -48,7 +48,7 @@ describe('PerfMonitor', () => {
     const stats = m.getStats();
     expect(stats.mainRendersPerSec).toBeCloseTo(62.5, 2);
     // `fps` aliases mainRendersPerSec for back-compat.
-    expect(stats.fps).toBeCloseTo(62.5, 2);
+    expect(stats.mainRendersPerSec).toBeCloseTo(62.5, 2);
   });
 
   it('tracks overlay renders/sec separately from main', () => {
