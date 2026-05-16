@@ -532,9 +532,15 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
    * Chart invokes this during the overlay pass for any renderer that implements it.
    */
   drawOverlay(ctx: OverlayRenderContext): void {
-    const { scope, timeScale, yScale, crosshair, dataInterval } = ctx;
+    const { scope, timeScale, yScale, crosshair, dataInterval, state, seriesId } = ctx;
     const size = scope;
     const pulseMs = this.resolvedPulseMs();
+    // Engine pulse phase ∈ [0, 1). When the chart hasn't registered this
+    // series (`state` absent or no entry), fall back to a wall-clock-derived
+    // phase that matches the legacy formula. Both produce the same halo
+    // rate at the default settings.
+    const enginePhase = seriesId !== undefined ? state?.pulsePhase.get(seriesId) : undefined;
+    const pulsePhase = enginePhase ?? (pulseMs > 0 ? (performance.now() / (pulseMs * 2 * Math.PI)) % 1 : 0);
 
     // Crosshair nearest-point dots
     if (crosshair) {
@@ -628,7 +634,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
             y: endpoint.y,
             color,
             pixelRatio: size.horizontalPixelRatio,
-            pulseMs,
+            phase: pulsePhase,
           });
           continue;
         }
@@ -691,7 +697,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
           y: pulseY,
           color,
           pixelRatio: size.horizontalPixelRatio,
-          pulseMs,
+          phase: pulsePhase,
         });
       }
     }
@@ -703,22 +709,18 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
     y,
     color,
     pixelRatio,
-    pulseMs,
+    phase,
   }: {
     ctx: CanvasRenderingContext2D;
     x: number;
     y: number;
     color: string;
     pixelRatio: number;
-    pulseMs: number;
+    /** Engine-driven pulse phase ∈ [0, 1). `Math.abs(Math.sin(phase·2π))` ramps the halo at one full visible cycle per period. */
+    phase: number;
   }): void {
     const dotRadius = 3 * pixelRatio;
-    // Legacy formulation preserved for backward visual compatibility:
-    // `sin(t / pulseMs)` → higher `pulseMs` = slower pulse. A full visible
-    // cycle of |sin| lands at ≈ π · pulseMs ms (≈1.9s at the default 600).
-    // Callers gate on `pulseMs > 0` before invoking; this function therefore
-    // assumes a positive period.
-    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(performance.now() / pulseMs));
+    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(phase * 2 * Math.PI));
     const glowRadius = dotRadius + 4 * pixelRatio * pulse;
 
     ctx.beginPath();

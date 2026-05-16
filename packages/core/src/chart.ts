@@ -1,5 +1,7 @@
 import { Animator } from './animation/animator';
 import { easeOutCubic } from './animation/easing';
+import type { AnimationState } from './animation/engine';
+import { type AnimationEngine, createAnimationEngine } from './animation/engine';
 import { type AnimationTime, resolveAnimationTime } from './animation/time';
 import type { Transition, TransitionFactory } from './animation/transition';
 import { hermite } from './animation/y-range-hermite';
@@ -23,6 +25,9 @@ import {
   INTERACT_GRACE_MS,
 } from './animation-constants';
 import { CanvasManager } from './canvas-manager';
+import { AnimationBridge } from './chart/animation-bridge';
+import { KeyCache } from './chart/key-cache';
+import { StreamingCadence } from './chart/streaming-cadence';
 import { renderCrosshair } from './components/crosshair';
 import { renderEdgeIndicator } from './components/edge-indicator';
 import { renderGrid } from './components/grid';
@@ -57,7 +62,6 @@ import type {
   TimePointInput,
   VisibleRange,
   VisibleRangeSpec,
-  YRange,
 } from './types';
 import { detectInterval, normalizeTime } from './utils/time';
 import { type HorizontalPadding, Viewport } from './viewport';
@@ -569,6 +573,23 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   /** Resolved animation config derived from `options.animations` at construction. */
   #animationsConfig: ResolvedAnimationsConfig;
 
+  /**
+   * Owner of every chart-level animation timeline post Phase 2. Currently
+   * runs alongside the legacy `#yAnimator` + `#seriesAlpha` paths — driven
+   * for pulse + `getAnimationState()` only. The data_tick / visibility /
+   * gesture emit paths are migrated in follow-ups; once those land the
+   * legacy state fields go away and this becomes authoritative.
+   */
+  readonly #engine: AnimationEngine;
+  /** Pure adapter routing chart-side events into {@link #engine}. Phase 2 holds it for streaming/visibility migration; reads land in follow-ups. */
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: chart-side migration target — wiring lands in follow-up commits.
+  readonly #bridge: AnimationBridge;
+  /** EMA-smoothed real-wall-clock cadence between streaming appends. */
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: chart-side migration target — wiring lands in follow-up commits.
+  readonly #cadence: StreamingCadence;
+  /** Stable composite-key strings for live-value / entry-progress map lookups. */
+  readonly #keys: KeyCache;
+
   /** Active performance monitor, or `null` when instrumentation is disabled (the default). */
   #perfMonitor: PerfMonitor | null;
   /** When true, `destroy()` tears down the monitor; false for caller-supplied monitors we must not destroy. */
@@ -587,6 +608,20 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.#grid = options?.grid?.visible !== false;
     this.#animationsConfig = resolveAnimationsConfig(options?.animations);
     this.#yAnimator = this.#animationsConfig.y.transition({ initial: { min: 0, max: 0 } });
+
+    // The engine and its adapters run alongside the legacy animators until
+    // the migration finishes. Phase 2 keeps them dormant on Y/X/alpha (no
+    // emits land here yet) but actively drives pulsePhase per registered
+    // line series so the renderer can read from `state.pulsePhase`.
+    this.#engine = createAnimationEngine({
+      initial: { yRange: { min: 0, max: 0 }, xRange: { from: 0, to: 0 } },
+      yTransition: this.#animationsConfig.y.transition({ initial: { min: 0, max: 0 } }),
+      onWake: () => this.#mainScheduler?.markDirty(),
+    });
+    this.#bridge = new AnimationBridge({ engine: this.#engine });
+    this.#cadence = new StreamingCadence();
+    this.#keys = new KeyCache();
+
     this.#onEdgeReached = options?.onEdgeReached;
     this.#initialVisibleRange = options?.viewport?.initialRange;
 
@@ -841,7 +876,19 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       ...this.#seriesAnimationForceOff('line'),
     });
 
-    return this.#registerSeries(renderer, renderer.store, rest);
+    const id = this.#registerSeries(renderer, renderer.store, rest);
+
+    // Drive the pulse halo from engine state. Period is scaled so that the
+    // engine's `phase = (effectiveNow / period) % 1` produces the same
+    // visible rate as the legacy `Math.sin(now / pulseMs)`: full cycle of
+    // `Math.sin(phase * 2π)` lands at `period` ms — for parity with the old
+    // argument-advance rate (1/pulseMs per ms) we need period = 2π · pulseMs.
+    const pulseMs = this.#animationsConfig.series.line.pulseMs;
+    if (pulseMs > 0) {
+      this.#engine.registerSeriesPulse(id, pulseMs * 2 * Math.PI);
+    }
+
+    return id;
   }
 
   /** Add a bar series and return its unique ID. */
@@ -899,11 +946,24 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
       this.#seriesAlpha.delete(id);
+      this.#engine.unregisterSeriesPulse(id);
+      this.#keys.dropSeries(id);
       this.updateViewportPadding();
       this.#mainScheduler.markDirty();
       this.emit('seriesChange');
       this.#bumpOverlayVersion();
     }
+  }
+
+  /**
+   * Read-only snapshot of every chart-level animation timeline driven by
+   * the engine. Renderers in the new architecture read `state.pulsePhase`,
+   * `state.entryProgress`, `state.liveValues` etc. from this. The same
+   * reference is returned every frame (P2 contract) — do not cache it
+   * across frames; read the values inside the current render pass.
+   */
+  getAnimationState(): AnimationState {
+    return this.#engine.getAnimationState();
   }
 
   /**
@@ -2204,6 +2264,15 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#mainScheduler.markDirty();
     }
 
+    // Advance the engine first so renderers reading `ctx.state` see this
+    // frame's slot positions. Phase 2 wiring drives pulsePhase only; the
+    // other slots remain unclaimed until the bridge starts emitting
+    // data_tick / visibility events in the upcoming chart-side migration.
+    const animationState = this.#engine.tick(now);
+    if (animationState.animating) {
+      this.#mainScheduler.markDirty();
+    }
+
     // Advance per-series alpha animators (show/hide fades). Any that's
     // still mid-fade keeps the render loop running. Settled animators
     // tick to no-op.
@@ -2290,6 +2359,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           theme: this.#theme,
           dataInterval: this.#dataInterval,
           padding,
+          state: animationState,
+          seriesId: entry.id,
         };
 
         const prevAlpha = context.globalAlpha;
@@ -2389,6 +2460,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       // Dispatch to each renderer's overlay hook — crosshair dots, pulses, etc.
       const ovpad = this.#viewport.getPadding();
       const overlayPadding = { top: ovpad.top, bottom: ovpad.bottom };
+      const overlayState = this.#engine.getAnimationState();
       for (const entry of this.#series) {
         if (!entry.visible) continue;
         entry.renderer.drawOverlay?.({
@@ -2399,6 +2471,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           dataInterval: this.#dataInterval,
           padding: overlayPadding,
           crosshair: this.#crosshairPos,
+          state: overlayState,
+          seriesId: entry.id,
         });
       }
 

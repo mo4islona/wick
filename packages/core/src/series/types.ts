@@ -1,3 +1,4 @@
+import type { AnimationState } from '../animation/engine';
 import type { BitmapCoordinateSpace } from '../canvas-manager';
 import type { TimeScale } from '../scales/time-scale';
 import type { YScale } from '../scales/y-scale';
@@ -30,6 +31,18 @@ export interface SeriesRenderContext {
   dataInterval: number;
   /** Vertical padding in **CSS pixels** — see {@link RenderPadding}. */
   padding: RenderPadding;
+  /**
+   * Engine-owned animation state — pulse phase, live values, entry
+   * progress. Optional during the Phase 2 migration: renderers that
+   * haven't been ported yet keep reading their own state and ignore this.
+   */
+  state?: AnimationState;
+  /**
+   * The id under which the chart registered this series — used by
+   * stateful per-series lookups (`state.pulsePhase.get(seriesId)`,
+   * `state.seriesAlpha.get(seriesId)`).
+   */
+  seriesId?: string;
 }
 
 /** Overlay render state passed to {@link SeriesRenderer.drawOverlay}. */
@@ -43,6 +56,13 @@ export interface OverlayRenderContext {
   padding: RenderPadding;
   /** Current crosshair position, or null when none. */
   crosshair: { mediaX: number; mediaY: number; time: number; y: number } | null;
+  /**
+   * Engine-owned animation state. Pulse renderers read `state.pulsePhase`
+   * here so the halo cycles off the same clock the rest of the chart uses.
+   */
+  state?: AnimationState;
+  /** The chart-side id for this series. See {@link SeriesRenderContext.seriesId}. */
+  seriesId?: string;
 }
 
 /** Shape returned by {@link SeriesRenderer.getHoverInfo} / per-slice entries of {@link SeriesRenderer.getSliceInfo}. */
