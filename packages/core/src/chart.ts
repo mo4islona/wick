@@ -1831,13 +1831,15 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       }
     }
 
-    // Snap Y range on batch loads, on first paint (forced to instant inside
-    // `#emitYTarget` when `#yInited` is false), or when the caller signalled
-    // a bulk replace via `#dataReplaceSnapPending`. Streaming ticks ease
-    // through the engine's asymmetric sticky-Y baseline.
+    // Snap Y/X only on a true bulk replace (`chart.setSeriesData` flipped
+    // `#dataReplaceSnapPending`) or on first paint (forced inside
+    // `#emitYAndX` when `#yInited`/`#xInited` are false). React-batched
+    // bursts and `isBatchLoad`-style fits still flow through `data_tick`
+    // so the engine's X slot rides its linear curve into the new tail —
+    // a Phase-2 `instant` here would snap and produce a jump-per-commit
+    // pattern visible as "X teleports between batches".
     const replaceSnap = this.#dataReplaceSnapPending;
     this.#dataReplaceSnapPending = false;
-    const ySnap = isBatchLoad || replaceSnap;
 
     // Capture "was this the first onDataChanged call that actually had
     // data" *before* `#emitYTarget` flips `#yInited`. Initial mounts where
@@ -1864,14 +1866,15 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#lastEmittedTimeTicks = [];
     }
 
-    const yKind: 'instant' | 'data_tick' = ySnap ? 'instant' : 'data_tick';
-    this.#emitYTarget({ kind: yKind });
-    if (xTarget !== null) {
-      // `instant` for first paint + bulk replace; `data_tick` for the
-      // streaming append and the autoScroll batch-load fit so the viewport
-      // slides smoothly into the new tail.
-      this.#emitXTarget({ kind: yKind, xTarget });
-    }
+    const yKind: 'instant' | 'data_tick' = replaceSnap ? 'instant' : 'data_tick';
+    // Combined Y+X emit. Previously this was two `bridge.emit*` calls each
+    // with its own `#applyEngineState` (engine.tick + viewport push +
+    // syncScales). Streaming ticks at 60 ms × 8 charts in the stress group
+    // turn that into 480 redundant engine ticks / second — combining the
+    // claims into a single event keeps the engine merge algorithm intact
+    // (Y and X are independent slot processors anyway) and halves the
+    // per-data-point engine work.
+    this.#emitYAndX({ kind: yKind, xTarget });
     // Re-sync scales so React components read correct yScale values.
     this.syncScales();
 
@@ -2090,6 +2093,58 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#bridge.emitGesture({
         duration: gestureMs,
         yTarget: { target },
+        startWall: now,
+      });
+    }
+
+    this.#applyEngineState(now);
+  }
+
+  /**
+   * Single-event Y + X emit, used by the streaming / bulk-replace data
+   * ingest path where both targets land on the same `effectiveNow`.
+   * Replaces two back-to-back `#emitYTarget` + `#emitXTarget` calls (each
+   * with their own `engine.tick` + viewport push + `syncScales`) with one
+   * `bridge.emit*` + one `#applyEngineState`. Engine merge resolves the Y
+   * and X slot claims independently per its priority-by-kind rules — the
+   * combined event carries no semantic difference, just lower per-tick
+   * overhead. Pre-`#yInited` / `#xInited` state forces `instant` so first
+   * paint snaps both axes atomically.
+   */
+  #emitYAndX(opts: { kind: 'instant' | 'data_tick'; xTarget: VisibleRange | null }): void {
+    const yTarget = this.#computeYTarget();
+    if (yTarget === null && opts.xTarget === null) return;
+
+    const firstPaint = !this.#yInited || !this.#xInited;
+    if (yTarget !== null) this.#yInited = true;
+    if (opts.xTarget !== null) this.#xInited = true;
+
+    const kind = firstPaint ? 'instant' : opts.kind;
+    const now = performance.now();
+
+    if (kind === 'instant') {
+      this.#bridge.emitInstant({
+        yTarget: yTarget !== null ? { target: yTarget } : undefined,
+        xTarget: opts.xTarget ?? undefined,
+        startWall: now,
+      });
+    } else {
+      // Streaming `data_tick`. Y carries the asymmetric sticky-Y baseline
+      // (fast expand / slow contract); X duration comes from the cadence
+      // EMA so the slide stays in lockstep with the producer.
+      const dataTickMs = this.#animationsConfig.x.dataTickMs;
+      const xDuration = dataTickMs > 0 ? this.#cadence.pickDuration(dataTickMs) : 0;
+      this.#bridge.emitDataTick({
+        duration: xDuration,
+        xTarget: opts.xTarget,
+        yTarget:
+          yTarget !== null
+            ? {
+                target: yTarget,
+                expandMs: DEFAULT_HERMITE_EXPAND,
+                contractMs: DEFAULT_HERMITE_CONTRACT,
+              }
+            : null,
         startWall: now,
       });
     }
