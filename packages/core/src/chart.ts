@@ -1,5 +1,3 @@
-import { Animator } from './animation/animator';
-import { easeOutCubic } from './animation/easing';
 import type { AnimationState } from './animation/engine';
 import { type AnimationEngine, createAnimationEngine } from './animation/engine';
 import { type AnimationTime, resolveAnimationTime } from './animation/time';
@@ -581,11 +579,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * legacy state fields go away and this becomes authoritative.
    */
   readonly #engine: AnimationEngine;
-  /** Pure adapter routing chart-side events into {@link #engine}. Phase 2 holds it for streaming/visibility migration; reads land in follow-ups. */
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: chart-side migration target — wiring lands in follow-up commits.
+  /** Pure adapter routing chart-side events into {@link #engine}. */
   readonly #bridge: AnimationBridge;
   /** EMA-smoothed real-wall-clock cadence between streaming appends. */
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: chart-side migration target — wiring lands in follow-up commits.
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: streaming X migration target — wiring lands in follow-up commits.
   readonly #cadence: StreamingCadence;
   /** Stable composite-key strings for live-value / entry-progress map lookups. */
   readonly #keys: KeyCache;
@@ -945,7 +942,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#series[idx].renderer.dispose();
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
-      this.#seriesAlpha.delete(id);
+      this.#engine.dropSlot('alpha', id);
       this.#engine.unregisterSeriesPulse(id);
       this.#keys.dropSeries(id);
       this.updateViewportPadding();
@@ -1107,38 +1104,24 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       return;
     }
 
+    // Alpha cross-fade rides through the engine. Y reflow stays on the
+    // legacy `updateYRange` path until the asymmetric expand/contract
+    // duration support lands on the engine (preserves sticky-Y).
     const visibilityMs = this.#animationsConfig.y.visibilityMs;
+    this.#bridge.emitVisibility({
+      duration: visibilityMs,
+      seriesId,
+      visible,
+      yTarget: null,
+    });
+
     if (visibilityMs > 0) {
-      // Start (or retarget) the per-series fade.
-      const animator = this.#getOrCreateSeriesAlpha(seriesId);
-      animator.setTarget(visible ? 1 : 0, { duration: visibilityMs });
-      // Y re-fit uses the same duration so fade and axis end together.
       this.#nextYDurationOverride = visibilityMs;
       this.updateYRange();
     } else {
-      // Animations disabled — instant fade equivalent + snap Y.
-      this.#getOrCreateSeriesAlpha(seriesId).snap(visible ? 1 : 0);
       this.updateYRange(true);
     }
     this.#mainScheduler.markDirty();
-  }
-
-  /** Lazily create the per-series alpha animator. Initialised at the
-   *  current alpha (1 by default for fresh series), so a subsequent
-   *  `setSeriesVisible(false)` cross-fades from 1→0 instead of snapping. */
-  #getOrCreateSeriesAlpha(seriesId: string): Animator<number> {
-    let existing = this.#seriesAlpha.get(seriesId);
-    if (!existing) {
-      existing = new Animator<number>({
-        initial: 1,
-        duration: this.#animationsConfig.y.visibilityMs,
-        easing: easeOutCubic,
-        lerp: (a, b, t) => a + (b - a) * t,
-      });
-      this.#seriesAlpha.set(seriesId, existing);
-    }
-
-    return existing;
   }
 
   isSeriesVisible(seriesId: string): boolean {
@@ -1932,19 +1915,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    */
   #initialVisibleRange: VisibleRangeSpec | undefined;
 
-  /**
-   * Set by the viewport `interact` listener on every user pan/zoom event;
-   * read-and-cleared by `updateYRange` on the next frame to apply the short
-   * gesture-time Y chase (`animations.y.gesture`).
-   */
-  /** Per-series opacity animator. Driven by {@link setSeriesVisible}: the
-   *  target alpha rolls from 1→0 (hide) or 0→1 (show) over
-   *  `animations.viewport.visibilityMs`. The render loop reads the current
-   *  value to scale `globalAlpha`, so the line/bar/candle cross-fades
-   *  rather than vanishing. The Y range re-fit uses the same duration
-   *  via {@link #nextYDurationOverride} so the alpha fade and the axis
-   *  ease finish on the same frame. */
-  #seriesAlpha: Map<string, Animator<number>> = new Map();
   /** One-shot per-call duration override applied to the next
    *  {@link #yAnimator.retarget}. Set by paths that want the Y re-fit
    *  to match a specific UX deadline — currently only
@@ -2219,19 +2189,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#mainScheduler.markDirty();
     }
 
-    // Advance per-series alpha animators (show/hide fades). Any that's
-    // still mid-fade keeps the render loop running. Settled animators
-    // tick to no-op.
-    let alphaAnimating = false;
-    for (const animator of this.#seriesAlpha.values()) {
-      if (animator.tick(now)) {
-        alphaAnimating = true;
-      }
-    }
-    if (alphaAnimating) {
-      this.#mainScheduler.markDirty();
-    }
-
     this.updateScales(false, now);
 
     // Tick-tracker animation state — set inside the useMainLayer callback,
@@ -2294,8 +2251,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
         // alpha already at 0 is fully gone — skip. A hidden series
         // mid-fade still renders at its fading alpha; the entry.visible
         // flag exists only to gate Y-range inclusion, not rendering.
-        const alphaAnim = this.#seriesAlpha.get(entry.id);
-        const alpha = alphaAnim ? alphaAnim.current : entry.visible ? 1 : 0;
+        // Engine populates `state.seriesAlpha` on the first visibility
+        // emit for a series; before that the fallback to the boolean
+        // visible flag avoids treating "never toggled" as "alpha 0".
+        const stateAlpha = animationState.seriesAlpha.get(entry.id);
+        const alpha = stateAlpha ?? (entry.visible ? 1 : 0);
         if (alpha <= 0) continue;
 
         const renderArgs = {
