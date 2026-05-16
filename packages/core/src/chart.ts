@@ -1628,60 +1628,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * a wrapper re-applies padding reactively (e.g. in response to a Title /
    * InfoBar ResizeObserver).
    */
-  /**
-   * Replace the chart-level animation configuration at runtime. Updates the
-   * resolved durations and propagates them to every dependent subsystem:
-   *
-   * - viewport: reboundMs (next rebound), inputResponseMs (next pan/zoom).
-   * - per-frame: yAxisMs (next render).
-   * - existing series: only the **hard-disable** signal (0 / false) is pushed
-   *   into renderers — that's the documented contract on
-   *   {@link AnimationsConfig.points}, "chart-level `false` wins over per-
-   *   series". Numeric chart-level changes update the default for *new*
-   *   series but leave existing per-series overrides intact, which avoids
-   *   silently clobbering custom values on every prop update from a React
-   *   wrapper.
-   *
-   * In-flight animations are NOT cancelled — the new durations apply to the
-   * next animation that fires. To force-snap the current animation, call
-   * the relevant API explicitly (e.g. `setRange`) afterwards.
-   */
-  setAnimations(animations: ChartOptions['animations']): void {
-    const next = resolveAnimationsConfig(animations);
-    const prevTransition = this.#animationsConfig.y.transition;
-    this.#animationsConfig = next;
-    this.#viewport.setReboundMs(next.reboundMs);
-    this.#interactions?.setInputResponseMs(next.x.gestureMs);
-
-    // Y transition swap. Built-in factories produced by `hermite()` /
-    // `spring()` / `snap()` are reference-comparable: callers should
-    // memoize so a different reference unambiguously signals "swap the
-    // curve". We seed the new animator with the current Y range so the
-    // motion picks up where the previous one left off instead of snapping
-    // to {0,0}.
-    if (next.y.transition !== prevTransition) {
-      const current = this.#yAnimator.current;
-      this.#yAnimator = next.y.transition({ initial: current });
-    }
-
-    // Hard-disable signal per series type. Numeric updates flow through to
-    // new series via `#seriesAnimationDefaults` at addSeries time; existing
-    // series keep whatever they were configured with.
-    for (const entry of this.#series) {
-      const kind = this.#rendererKind(entry.renderer);
-      if (kind === null) continue;
-
-      const force = this.#seriesAnimationForceOff(kind);
-      if (Object.keys(force).length > 0) {
-        entry.renderer.updateOptions?.(force);
-      }
-    }
-
-    // Y-range smoothing reads its config from `#animationsConfig` on each
-    // frame, so the next render picks up the new duration without a poke.
-    this.#mainScheduler.markDirty();
-  }
-
   setPadding(padding: ChartOptions['padding']): void {
     const prev = this.#viewport.getPadding();
     this.#viewport.setPadding(padding);

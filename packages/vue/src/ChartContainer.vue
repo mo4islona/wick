@@ -77,8 +77,12 @@ const props = withDefaults(
      * Animation control. `true` / omitted uses built-in defaults; `false`
      * disables every category. Per-series options on `<LineSeries>` /
      * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
-     * defaults unless the category here is explicitly `false`. Updates
-     * after mount call `chart.setAnimations(...)`.
+     * defaults unless the category here is explicitly `false`.
+     *
+     * **Init-only by reference identity.** A new `animations` reference
+     * recreates the underlying `ChartInstance`. Hoist the object outside
+     * the render scope — an inline literal tears the chart down on every
+     * re-render.
      */
     animations?: boolean | AnimationsConfig;
     /**
@@ -232,14 +236,25 @@ watch(
   },
 );
 
-// Stringify the animations config so callers can pass a fresh object identity
-// without thrashing animator state when nothing has actually changed.
+// Init-only: post-mount `animations` reference change tears down the
+// instance and rebuilds with the new config. Reference equality matters
+// — passing an inline literal recreates on every render.
 watch(
-  () => JSON.stringify(props.animations),
-  () => {
-    if (chart.value && props.animations !== undefined) {
-      chart.value.setAnimations(props.animations);
-    }
+  () => props.animations,
+  (next) => {
+    if (!chart.value || !containerRef.value) return;
+    chart.value.destroy();
+    const opts: ChartOptions = {};
+    if (props.axis) opts.axis = props.axis;
+    if (props.theme) opts.theme = props.theme;
+    if (props.padding) opts.padding = props.padding;
+    if (props.viewport) opts.viewport = props.viewport;
+    if (props.interactive !== undefined) opts.interactive = props.interactive;
+    if (props.grid !== undefined) opts.grid = props.grid;
+    if (perfAtMount !== undefined) opts.perf = perfAtMount;
+    if (onEdgeReachedAtMount) opts.onEdgeReached = onEdgeReachedAtMount;
+    if (next !== undefined) opts.animations = next;
+    chart.value = new ChartInstance(containerRef.value, opts);
   },
 );
 

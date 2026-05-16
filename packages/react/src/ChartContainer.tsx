@@ -7,7 +7,6 @@ import {
   isValidElement,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -111,8 +110,13 @@ export interface ChartContainerProps {
    * Animation control. `true` / omitted uses built-in defaults; `false`
    * disables every category. Per-series options on `<LineSeries>` /
    * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
-   * defaults unless the category here is explicitly `false`. Updates
-   * after mount call `chart.setAnimations(...)`.
+   * defaults unless the category here is explicitly `false`.
+   *
+   * **Init-only by reference identity.** A new `animations` object
+   * recreates the underlying `ChartInstance` (and its canvas). Wrap the
+   * value in `useMemo(() => ({...}), [deps])` so an unstable parent
+   * render doesn't tear down the chart every commit. In dev mode the
+   * container emits a console warning when it detects >3 recreates / s.
    */
   animations?: boolean | AnimationsConfig;
   /**
@@ -254,10 +258,18 @@ export function ChartContainer({
   const chartRef = useRef<ChartInstance | null>(null);
   const [_, setRevision] = useState(0);
 
-  // useLayoutEffect — synchronous, runs before paint.
+  // Dev-only: warn when `animations` reference identity changes more than
+  // three times per second. The most common cause is a parent re-rendering
+  // with a fresh inline object; ChartInstance is no longer reconfigurable
+  // post-construction, so each new reference is a full canvas teardown.
+  const recreateStampsRef = useRef<number[]>([]);
+
+  // useLayoutEffect — synchronous, runs before paint. Re-runs when
+  // `animations` changes by reference: chart-level animation timings, the
+  // Y transition factory and per-series timings are init-only contracts
+  // in Phase 2, so a new `animations` object is a full rebuild.
   useLayoutEffect(() => {
     if (!containerRef.current) return;
-    if (chartRef.current) return;
 
     const options: ChartOptions = {};
     if (axis) options.axis = axis;
@@ -271,24 +283,31 @@ export function ChartContainer({
     if (onEdgeReachedRef.current) options.onEdgeReached = onEdgeReachedRef.current;
     chartRef.current = new ChartInstance(containerRef.current, options);
 
-    // Note: the init path above already propagated `grid` into the chart. The
-    // effect below handles live updates, but also needs to run on the same
-    // commit so an initial `grid={{visible:false}}` isn't silently reset.
+    if (process.env.NODE_ENV !== 'production') {
+      const now = performance.now();
+      const stamps = recreateStampsRef.current;
+      stamps.push(now);
+      while (stamps.length > 0 && now - stamps[0] > 1000) stamps.shift();
+      if (stamps.length > 3) {
+        console.warn(
+          '[wick-charts] <ChartContainer> recreated the chart >3 times in the last second. ' +
+            'The `animations` prop is init-only — wrap it in useMemo(() => ({...}), [deps]) ' +
+            'so a stable reference identity prevents tear-down on every render.',
+        );
+      }
+    }
+
+    // The init path above already propagated `grid` into the chart. The
+    // effect below also writes it for live updates, but it needs to fire
+    // on the same commit so an initial `grid={{visible:false}}` isn't
+    // silently reset.
     setRevision((r) => r + 1);
 
     return () => {
-      // Destroy synchronously. A previous revision deferred this through
-      // `setTimeout(..., 0)` to "tolerate StrictMode" but the guard was
-      // broken: in the StrictMode remount sequence (cleanup → second mount →
-      // timeout), the check `if (!chartRef.current) instance.destroy()`
-      // always saw the second instance and skipped the destroy — leaking
-      // the first ChartInstance's canvases (hence 4 canvases per chart in
-      // dev). StrictMode exists precisely to exercise cleanup; a correct
-      // `destroy` is cheap enough to run on every cycle.
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-  }, []);
+  }, [animations]);
 
   useEffect(() => {
     if (chartRef.current && resolvedTheme) {
@@ -301,31 +320,6 @@ export function ChartContainer({
       chartRef.current.setAxis(axis);
     }
   }, [axis?.y?.width, axis?.y?.min, axis?.y?.max, axis?.y?.visible, axis?.x?.height, axis?.x?.visible]);
-
-  // JSON.stringify drops functions, so a factory swap on
-  // `animations.y.transition` wouldn't otherwise re-fire the effect
-  // below. Compare it as a separate dep; chart.setAnimations
-  // short-circuits when the factory reference is unchanged.
-  //
-  // Both deps are memoized by reference identity of `animations` so
-  // callers that memoize the prop pay one stringify per shape change,
-  // not one per render. Stringify of a small object is microsecond-
-  // level, but on a streaming chart that re-renders dozens of times
-  // per second the cost adds up if not cached.
-  const animationsShape = useMemo(() => JSON.stringify(animations), [animations]);
-  const yTransitionRef = useMemo(
-    () =>
-      typeof animations === 'object' && animations && typeof animations.y === 'object' && animations.y
-        ? animations.y.transition
-        : undefined,
-    [animations],
-  );
-  useEffect(() => {
-    if (chartRef.current && animations !== undefined) {
-      chartRef.current.setAnimations(animations);
-    }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: structural dep computed above
-  }, [animationsShape, yTransitionRef]);
 
   // Top-overlay height (title + info bar) — measured below. Declared here so
   // the padding effect can fold it into `padding.top`.
