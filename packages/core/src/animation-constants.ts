@@ -81,18 +81,6 @@ export const DEFAULT_X_GESTURE = 0;
 export const DEFAULT_Y_GESTURE = 100;
 
 /**
- * After the last user gesture event we keep treating the chart as
- * "interactive" for this many ms — i.e. the short-ease override stays
- * active across the tiny gaps between wheel events on a continuous
- * trackpad zoom. When the grace window finally elapses, the chart zeroes
- * the animator's velocity (`snap(current)`) before the next streaming
- * retarget so the long-baseline ease starts from rest instead of
- * inheriting the gesture-time velocity (which produces a visible
- * overshoot on the first post-gesture tick).
- */
-export const INTERACT_GRACE_MS = 200;
-
-/**
  * Default duration for {@link ChartInstance.setSeriesVisible} fade
  * transitions — the cross-fade applied to the series alpha AND the
  * one-shot Y-range duration override used for the same toggle, so the
@@ -115,10 +103,3 @@ export const DEFAULT_HERMITE_CONTRACT = 2_500;
 export const DEFAULT_SPRING_EXPAND_SPEED = 250;
 /** Inward settle time baked into `spring()` when unset. */
 export const DEFAULT_SPRING_CONTRACT_SPEED = 2_500;
-
-// =============================================================================
-// Legacy (kept; full removal lands in a later phase)
-// =============================================================================
-
-/** Rebound (snap-back) animation duration after pan/zoom overshoot. */
-export const DEFAULT_REBOUND_MS = 250;

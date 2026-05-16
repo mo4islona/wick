@@ -17,7 +17,6 @@ import {
   DEFAULT_LINE_SMOOTH,
   DEFAULT_PIE_ENTRY,
   DEFAULT_PIE_UPDATE,
-  DEFAULT_REBOUND_MS,
   DEFAULT_X_DATA_TICK,
   DEFAULT_X_GESTURE,
   DEFAULT_Y_GESTURE,
@@ -255,13 +254,6 @@ export interface ResolvedAnimationsConfig {
     pie: { entryMs: number; updateMs: number };
   };
   axis: { tickFadeMs: number };
-  /**
-   * Rebound duration after pan/zoom overshoot. Phase 1 keeps the field — its
-   * config surface is gone (was `viewport.reboundMs`), the value falls back
-   * to the built-in default. Rebound itself is removed in Phase 2.
-   * @internal
-   */
-  reboundMs: number;
 }
 
 export interface ChartOptions {
@@ -390,7 +382,7 @@ export function resolveAnimationsConfig(input: ChartOptions['animations']): Reso
       ? { tickFadeMs: 0 }
       : { tickFadeMs: resolveAnimationTime(rawAxis?.tickFade, DEFAULT_AXIS_TICK_FADE) };
 
-  return { y, x, series, axis, reboundMs: DEFAULT_REBOUND_MS };
+  return { y, x, series, axis };
 }
 
 const ZERO_SERIES_ANIMATIONS: ResolvedAnimationsConfig['series'] = {
@@ -405,7 +397,6 @@ const DISABLED_ANIMATIONS_CONFIG: ResolvedAnimationsConfig = {
   x: { dataTickMs: 0, gestureMs: 0 },
   series: ZERO_SERIES_ANIMATIONS,
   axis: { tickFadeMs: 0 },
-  reboundMs: 0,
 };
 
 function resolveSeriesAnimations(raw: AnimationsConfig['series'] | undefined): ResolvedAnimationsConfig['series'] {
