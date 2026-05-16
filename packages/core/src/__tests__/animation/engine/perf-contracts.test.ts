@@ -78,7 +78,7 @@ describe('AnimationEngine — performance contracts', () => {
     expect(engine.getAnimationState()).toBe(first);
   });
 
-  it('inner Maps and YRange / VisibleRange objects are mutated in place across ticks', () => {
+  it('inner YRange / VisibleRange objects are mutated in place across ticks', () => {
     const { engine } = setup({ xRange: { from: 0, to: 0 } });
 
     engine.emit({
@@ -87,20 +87,18 @@ describe('AnimationEngine — performance contracts', () => {
       startWall: 0,
       targets: {
         x: { target: { from: 0, to: 1000 } },
-        alpha: [{ key: 's', target: 0 }],
+        y: { target: { min: 0, max: 50 } },
       },
     });
 
     const state = engine.tick(0);
     const xRef = state.xRange;
-    const alphaMapRef = state.seriesAlpha;
+    const yRef = state.yRange;
 
     settle(engine, 100);
 
     expect(state.xRange).toBe(xRef);
-    expect(state.seriesAlpha).toBe(alphaMapRef);
-    // Values updated through the same reference.
+    expect(state.yRange).toBe(yRef);
     expect(state.xRange.to).toBeCloseTo(1000, 4);
-    expect(state.seriesAlpha.get('s')).toBeCloseTo(0, 4);
   });
 });

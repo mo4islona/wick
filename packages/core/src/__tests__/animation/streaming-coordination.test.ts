@@ -132,12 +132,18 @@ describe('streaming coordination — unified animation', () => {
     expect(yRange.min).toBeLessThanOrEqual(dataMin);
     expect(yRange.max).toBeGreaterThanOrEqual(dataMax);
 
-    // Live-track: settled at the actual last candle's OHLC. Engine owns
-    // the smoothing — read from `state.liveValues.ohlc.get('<id>:0')`.
-    const displayedLast = chart.getAnimationState().liveValues.ohlc.get(`${id}:0`);
+    // Live-track: settled at the actual last candle's OHLC. Renderer owns
+    // the smoothing — read from its protected `displayedLast` directly.
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id)?.renderer as unknown as { displayedLast: { close: number } | null };
     const expectedClose = 100 + Math.sin(49 * 0.5) * 10;
-    expect(displayedLast).toBeDefined();
-    expect(Math.abs(displayedLast!.close - expectedClose)).toBeLessThan(0.01);
+    expect(renderer.displayedLast).not.toBeNull();
+    expect(Math.abs((renderer.displayedLast?.close ?? Number.NaN) - expectedClose)).toBeLessThan(0.01);
   });
 
   it('per-point entrance animations are independent of the streaming retarget', () => {
@@ -158,26 +164,24 @@ describe('streaming coordination — unified animation', () => {
     chart.appendData(id, { time: 1_000_000 + INTERVAL, open: 101, high: 106, low: 100, close: 105 });
 
     // After 12 frames (~192 ms) the entrance is still in flight (192 < 250);
-    // `state.entryProgress` carries a non-1 value for this candle until the
-    // engine's entry slot settles.
+    // the renderer's per-candle `entries` map carries the start time until
+    // `tickAnimations` prunes it on settle.
     raf.flush(12);
 
     const newTime = 1_000_000 + INTERVAL;
-    const stateMid = chart.getAnimationState();
-    const midProgress = stateMid.entryProgress.get(id)?.get(newTime);
-    expect(midProgress).toBeDefined();
-    expect(midProgress!).toBeGreaterThan(0);
-    expect(midProgress!).toBeLessThan(1);
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id)?.renderer as unknown as { entries: Map<number, unknown> };
+    expect(renderer.entries.has(newTime)).toBe(true);
 
-    // Drain another 30 frames (well past 250 ms) — entrance settles. The
-    // engine retains the progress=1 entry in state until a future trim or
-    // a slot prune pass; assert convergence rather than absence.
+    // Drain another 30 frames (well past 250 ms) — entrance settles and
+    // the entry is pruned from the registry.
     raf.flush(30);
-    const stateSettled = chart.getAnimationState();
-    const settledProgress = stateSettled.entryProgress.get(id)?.get(newTime);
-    if (settledProgress !== undefined) {
-      expect(settledProgress).toBeCloseTo(1, 5);
-    }
+    expect(renderer.entries.has(newTime)).toBe(false);
   });
 
   it('a new high mid-stream eases Y outward toward the new extreme', () => {

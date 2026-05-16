@@ -20,31 +20,29 @@ describe('AnimationEngine — handoff', () => {
   // Frozen `from`
   // ---------------------------------------------------------------------------
 
-  it('keeps `from` frozen at activation value across the entire segment', () => {
-    const { engine } = setup();
+  it('keeps `from` frozen at activation value across the entire segment (X slot)', () => {
+    const { engine } = setup({ xRange: { from: 0, to: 0 } });
 
     engine.emit({
       kind: 'visibility',
       duration: 200,
       startWall: 0,
-      targets: { alpha: [{ key: 's', target: 0 }] },
+      targets: { x: { target: { from: 0, to: 100 } } },
     });
 
-    // Alpha defaults to 1 when no entry exists, so `from = 1`, `target = 0`.
-    // Curve: current(t) = 1 + easeOutCubic(t/200) · (0 − 1) = 1 − easeOutCubic(t/200).
-    // Drive in 16ms increments so MAX_FRAME_DT (32ms) never clamps.
+    // X.to defaults to 0 → 100. current(t) = easeOutCubic(t/200) · 100.
     const samplesAt = [0, 48, 96, 144, 192];
     const observed: number[] = [];
     let lastT = 0;
     for (const t of samplesAt) {
       const state = t === 0 ? engine.tick(0) : settle(engine, t, lastT);
-      observed.push(state.seriesAlpha.get('s') ?? Number.NaN);
+      observed.push(state.xRange.to);
       lastT = t;
     }
 
     for (let i = 0; i < samplesAt.length; i++) {
-      const expected = 1 - easeOutCubic(samplesAt[i] / 200);
-      expect(observed[i]).toBeCloseTo(expected, 5);
+      const expected = easeOutCubic(samplesAt[i] / 200) * 100;
+      expect(observed[i]).toBeCloseTo(expected, 4);
     }
   });
 
@@ -52,35 +50,29 @@ describe('AnimationEngine — handoff', () => {
   // No resurrection — losers stay disqualified for the slot they lost
   // ---------------------------------------------------------------------------
 
-  it('older alpha event added to droppedClaims by a newer same-priority winner does not resurrect on expiry', () => {
-    const { engine } = setup();
+  it('older X event added to droppedClaims by a newer same-priority winner does not resurrect on expiry', () => {
+    const { engine } = setup({ xRange: { from: 0, to: 0 } });
 
-    // First emit: long fade-to-zero on `s`.
     engine.emit({
-      kind: 'visibility',
+      kind: 'data_tick',
       duration: 250,
       startWall: 0,
-      targets: { alpha: [{ key: 's', target: 0 }] },
+      targets: { x: { target: { from: 0, to: 100 } } },
     });
 
-    // Run partway, then preempt with a shorter fade-to-one.
     settle(engine, 50);
     engine.emit({
-      kind: 'visibility',
+      kind: 'data_tick',
       duration: 100,
       startWall: 50,
-      targets: { alpha: [{ key: 's', target: 1 }] },
+      targets: { x: { target: { from: 0, to: 500 } } },
     });
 
-    // The newer startWall wins the tie-break → alpha settles at 1 by t=150.
     const settled = settle(engine, 150, 50);
-    expect(settled.seriesAlpha.get('s')).toBeCloseTo(1, 4);
+    expect(settled.xRange.to).toBeCloseTo(500, 4);
 
-    // Past the first event's deadline (t > 250) the only thing still pending
-    // on the alpha slot is the loser entry in `droppedClaims`. It MUST NOT
-    // resurrect and pull alpha back down to 0.
     const after = settle(engine, 320, 150);
-    expect(after.seriesAlpha.get('s')).toBeCloseTo(1, 4);
+    expect(after.xRange.to).toBeCloseTo(500, 4);
     expect(after.animating).toBe(false);
   });
 

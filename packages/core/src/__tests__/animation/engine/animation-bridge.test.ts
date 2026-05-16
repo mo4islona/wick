@@ -50,14 +50,13 @@ describe('AnimationBridge', () => {
   // emitDataTick — filters sub-threshold X, updates lastXTarget
   // ---------------------------------------------------------------------------
 
-  it('emits y/x/tickFade together on data_tick when targets are present', () => {
+  it('emits y/x together on data_tick when targets are present', () => {
     const { bridge, emitCalls } = setupBridge();
 
     bridge.emitDataTick({
       duration: 250,
       xTarget: { from: 0, to: 1000 },
       yTarget: { target: { min: 0, max: 50 } },
-      tickFade: { entering: [100], exiting: [] },
     });
 
     expect(emitCalls).toHaveLength(1);
@@ -65,7 +64,6 @@ describe('AnimationBridge', () => {
     expect(emitCalls[0].duration).toBe(250);
     expect(emitCalls[0].targets.x?.target).toEqual({ from: 0, to: 1000 });
     expect(emitCalls[0].targets.y?.target).toEqual({ min: 0, max: 50 });
-    expect(emitCalls[0].targets.tickFade?.entering).toEqual([100]);
     expect(bridge.lastXTarget).toEqual({ from: 0, to: 1000 });
   });
 
@@ -107,40 +105,22 @@ describe('AnimationBridge', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // emitVisibility
+  // emitVisibility — Y-only after the renderer-side alpha + axis-tracker fade
   // ---------------------------------------------------------------------------
 
-  it('emitVisibility produces alpha + y + tickFade in lockstep', () => {
+  it('emitVisibility produces a Y retarget under the visibility priority kind', () => {
     const { bridge, emitCalls } = setupBridge();
 
     bridge.emitVisibility({
       duration: 200,
-      seriesId: 's-1',
-      visible: false,
       yTarget: { target: { min: 0, max: 50 } },
-      tickFade: { entering: [], exiting: [100, 200] },
     });
 
     expect(emitCalls).toHaveLength(1);
     const ev = emitCalls[0];
     expect(ev.kind).toBe('visibility');
     expect(ev.duration).toBe(200);
-    expect(ev.targets.alpha).toEqual([{ key: 's-1', target: 0 }]);
     expect(ev.targets.y?.target).toEqual({ min: 0, max: 50 });
-    expect(ev.targets.tickFade?.exiting).toEqual([100, 200]);
-  });
-
-  it('emitVisibility(visible:true) targets alpha=1', () => {
-    const { bridge, emitCalls } = setupBridge();
-
-    bridge.emitVisibility({
-      duration: 200,
-      seriesId: 's-1',
-      visible: true,
-      yTarget: null,
-    });
-
-    expect(emitCalls[0].targets.alpha).toEqual([{ key: 's-1', target: 1 }]);
   });
 
   // ---------------------------------------------------------------------------

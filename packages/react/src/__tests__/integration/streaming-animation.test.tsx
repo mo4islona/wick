@@ -22,18 +22,31 @@ describe('streaming data routes new points through appendData (entrance animatio
   });
 
   /**
-   * Engine-side entrance progress for a series. Phase 3 moved per-point
-   * entrance state from the renderer's `entries: Map<time, ...>` into the
-   * engine's `state.entryProgress[seriesId][time]`. Tests below assert on
-   * the engine state because that is now the single source of truth.
+   * Per-series entrance registry. Renderer-owned again after PR-1 of the
+   * viewport-engine refactor — line/bar use a per-layer array of maps,
+   * candlestick uses a single map (single layer). Reaching in via
+   * type-cast keeps the public API surface untouched.
    */
-  function entranceProgressFor(chart: ReturnType<typeof mountChart>['chart'], id: string): ReadonlyMap<number, number> {
-    const state = (
+  function entranceProgressFor(
+    chart: ReturnType<typeof mountChart>['chart'],
+    id: string,
+  ): ReadonlyMap<number, unknown> {
+    const series = (
       chart as unknown as {
-        getAnimationState: () => { entryProgress: ReadonlyMap<string, ReadonlyMap<number, number>> };
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
       }
-    ).getAnimationState();
-    return state.entryProgress.get(id) ?? new Map();
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id);
+    if (!series) return new Map();
+
+    const renderer = series.renderer as { entries?: Map<number, unknown> | Array<Map<number, unknown>> };
+    const entries = renderer.entries;
+    if (entries === undefined) return new Map();
+    if (entries instanceof Map) return entries;
+    // Multi-layer line / bar — caller-facing surface flattens layer 0 since
+    // these tests append a single point per call.
+    return entries[0] ?? new Map();
   }
 
   it('candlestick: a single new candle streams in via appendData — entrance entry registered', () => {

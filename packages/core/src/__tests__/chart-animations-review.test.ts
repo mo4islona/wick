@@ -151,10 +151,15 @@ describe('engine-driven lockstep', () => {
 
     chart.setSeriesVisible(big, false);
 
-    // visibilityMs=0 routes through the engine's zero-duration guard: alpha
-    // for `big` snaps to 0 AND state.yRange snaps to the small-only range,
-    // both visible to synchronous readers (no RAF in between).
-    expect(chart.getAnimationState().seriesAlpha.get(big)).toBe(0);
+    // visibilityMs=0 routes through the engine's zero-duration guard for
+    // the Y reflow; the renderer-owned alpha animator (PR-1 of the
+    // viewport-engine refactor) snaps to 0 synchronously.
+    const renderer = (
+      chart as unknown as { listSeriesForTest: () => Array<{ id: string; renderer: { getAlpha?: () => number } }> }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === big);
+    expect(renderer?.renderer.getAlpha?.()).toBe(0);
     expect(chart.getYRange().max).toBeLessThan(combinedMax);
   });
 
@@ -183,7 +188,7 @@ describe('engine-driven lockstep', () => {
     expect(afterY.max).toBeGreaterThanOrEqual(2000);
   });
 
-  it('per-series alpha map and pulsePhase map share state — same engine reference, in-place mutation (P2 contract)', () => {
+  it('getAnimationState returns a stable reference across calls (X / Y same Map instance)', () => {
     const chart = makeSizedChart();
     const id = chart.addLineSeries();
     chart.setSeriesData(id, [
@@ -194,8 +199,7 @@ describe('engine-driven lockstep', () => {
     const stateA = chart.getAnimationState();
     const stateB = chart.getAnimationState();
     expect(stateA).toBe(stateB);
-    expect(stateA.seriesAlpha).toBe(stateB.seriesAlpha);
-    expect(stateA.pulsePhase).toBe(stateB.pulsePhase);
-    expect(stateA.tickOpacity).toBe(stateB.tickOpacity);
+    expect(stateA.xRange).toBe(stateB.xRange);
+    expect(stateA.yRange).toBe(stateB.yRange);
   });
 });

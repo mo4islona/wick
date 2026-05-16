@@ -17,7 +17,6 @@ import {
   DEFAULT_Y_VISIBILITY,
 } from '../animation-constants';
 import { type AnimationsConfig, ChartInstance, resolveAnimationsConfig } from '../chart';
-import { getChartEngineForTest } from '../internal/test-handles';
 import type { CandlestickRenderer } from '../series/candlestick';
 
 describe('resolveAnimationsConfig', () => {
@@ -152,39 +151,34 @@ describe('ChartInstance.animations propagation', () => {
    * picks that up.
    */
   function addAndAppendCandle(chart: ChartInstance): { hasEntry: boolean; snappedOnUpdate: boolean } {
-    const engine = getChartEngineForTest(chart);
     const seriesId = chart.addCandlestickSeries();
     chart.setSeriesData(seriesId, [{ time: 10, open: 10, high: 12, low: 9, close: 11 }]);
     chart.appendData(seriesId, { time: 20, open: 10, high: 12, low: 9, close: 11 });
 
-    // Wake the engine; subsequent ticks advance the mocked clock so any
-    // non-zero entry duration shows a partial progress on the slot.
-    // `entryMs <= 0` short-circuits in the bridge — the slot is never
-    // created and `hasEntry` reads false.
-    engine.tick(nowMs);
-    nowMs += 50;
-    engine.tick(nowMs);
-
-    const stateAfterAppend = chart.getAnimationState();
-    const perSeries = stateAfterAppend.entryProgress.get(seriesId);
-    const progress = perSeries?.get(20);
-    const hasEntry = progress !== undefined && progress > 0 && progress < 1;
+    // Renderer owns the entry registry now; reach in directly to assert
+    // whether the chart's appendData routed through the entrance path.
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: CandlestickRenderer }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === seriesId)?.renderer as unknown as {
+      entries: Map<number, unknown>;
+      displayedLast: { close: number } | null;
+    };
+    const hasEntry = renderer.entries.has(20);
 
     chart.updateData(seriesId, { time: 20, open: 10, high: 18, low: 9, close: 18 });
+    // Drive a render frame so the renderer's `tickAnimations(performance.now())`
+    // advances the live-OHLC chase exactly one step.
     nowMs += 1;
-    engine.tick(nowMs);
-    nowMs += 1;
-    engine.tick(nowMs);
-
-    const stateAfterUpdate = chart.getAnimationState();
-    const liveOHLC = stateAfterUpdate.liveValues.ohlc.get(`${seriesId}:0`);
-    const snappedOnUpdate = liveOHLC !== undefined && liveOHLC.close === 18;
+    const snappedOnUpdate = renderer.displayedLast?.close === 18;
 
     return { hasEntry, snappedOnUpdate };
   }
 
   function addLineAndAppend(chart: ChartInstance): { hasEntry: boolean } {
-    const engine = getChartEngineForTest(chart);
     const id = chart.addLineSeries();
     chart.setSeriesData(id, [
       { time: 10, value: 5 },
@@ -192,13 +186,16 @@ describe('ChartInstance.animations propagation', () => {
     ]);
     chart.appendData(id, { time: 30, value: 8 });
 
-    engine.tick(nowMs);
-    nowMs += 50;
-    engine.tick(nowMs);
-    const state = chart.getAnimationState();
-    const perSeries = state.entryProgress.get(id);
-    const progress = perSeries?.get(30);
-    const hasEntry = progress !== undefined && progress > 0 && progress < 1;
+    const renderer = (
+      chart as unknown as {
+        listSeriesForTest: () => Array<{ id: string; renderer: unknown }>;
+      }
+    )
+      .listSeriesForTest()
+      .find((s) => s.id === id)?.renderer as unknown as {
+      entries: Array<Map<number, unknown>>;
+    };
+    const hasEntry = renderer.entries[0]?.has(30) ?? false;
 
     return { hasEntry };
   }

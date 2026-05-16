@@ -1,4 +1,4 @@
-import type { OHLCData, VisibleRange, YRange } from '../types';
+import type { VisibleRange, YRange } from '../types';
 import { easeOutCubic } from './easing';
 import type { Milliseconds } from './time';
 import type { Transition } from './transition';
@@ -49,36 +49,6 @@ export const KIND_PRIORITY: Record<TransitionKind, number> = {
   entrance: 0,
 };
 
-export interface AlphaTarget {
-  key: string;
-  target: number;
-}
-
-export interface EntryTarget {
-  seriesId: string;
-  layerIdx: number;
-  time: number;
-}
-
-export interface LiveScalarTarget {
-  seriesId: string;
-  layerIdx: number;
-  target: number;
-}
-
-export interface LiveOHLCTarget {
-  seriesId: string;
-  layerIdx: number;
-  target: OHLCData;
-}
-
-export interface TickFadeTarget {
-  /** Tick values that just became visible (opacity 0 → 1). */
-  entering: readonly number[];
-  /** Tick values that just left (opacity 1 → 0). */
-  exiting: readonly number[];
-}
-
 /**
  * Single emission into the engine. Any number of target types may be
  * populated — the engine resolves each `(target, key)` slot independently,
@@ -106,11 +76,6 @@ export interface AnimationEvent {
      */
     y?: { target: YRange; expandMs?: Milliseconds; contractMs?: Milliseconds };
     x?: { target: VisibleRange };
-    alpha?: readonly AlphaTarget[];
-    entry?: readonly EntryTarget[];
-    liveScalar?: readonly LiveScalarTarget[];
-    liveOHLC?: readonly LiveOHLCTarget[];
-    tickFade?: TickFadeTarget;
   };
 }
 
@@ -123,19 +88,11 @@ export interface AnimationEvent {
 export interface AnimationState {
   readonly yRange: YRange;
   readonly xRange: VisibleRange;
-  readonly seriesAlpha: ReadonlyMap<string, number>;
-  readonly entryProgress: ReadonlyMap<string, ReadonlyMap<number, number>>;
-  readonly liveValues: {
-    readonly scalar: ReadonlyMap<string, number>;
-    readonly ohlc: ReadonlyMap<string, OHLCData>;
-  };
-  readonly tickOpacity: ReadonlyMap<number, number>;
-  readonly pulsePhase: ReadonlyMap<string, number>;
   readonly animating: boolean;
 }
 
 /** Slot identifier accepted by {@link AnimationEngine.dropSlot}. */
-export type SlotTarget = 'y' | 'x' | 'alpha' | 'tickFade' | 'liveScalar' | 'liveOHLC' | 'entry';
+export type SlotTarget = 'y' | 'x' | 'alpha';
 
 export interface AnimationEngineOptions {
   initial: { yRange: YRange; xRange: VisibleRange };
@@ -158,9 +115,6 @@ export interface AnimationEngine {
   tick(now: number): AnimationState;
   getAnimationState(): AnimationState;
   flush(): void;
-  registerSeriesPulse(seriesId: string, period: Milliseconds): void;
-  unregisterSeriesPulse(seriesId: string): void;
-  dropEntry(seriesId: string, layerIdx: number, time: number): void;
   dropSlot(target: SlotTarget, key?: string | number): void;
 }
 
@@ -206,16 +160,6 @@ interface RangeSlot {
   droppedClaims: Set<number>;
 }
 
-interface OHLCSlot {
-  current: OHLCData;
-  velocity: { open: number; high: number; low: number; close: number };
-  activeEvent: SealedEvent | null;
-  from: OHLCData;
-  fromVelocity: { open: number; high: number; low: number; close: number };
-  activatedAt: number;
-  droppedClaims: Set<number>;
-}
-
 /**
  * Y slot is a thin wrapper — the canonical current/velocity live inside the
  * injected `Transition` (`YRangeHermite` / `YRangeSpring` / `YRangeSnap`).
@@ -231,14 +175,6 @@ interface YSlot {
 interface MutableAnimationState {
   yRange: YRange;
   xRange: VisibleRange;
-  seriesAlpha: Map<string, number>;
-  entryProgress: Map<string, Map<number, number>>;
-  liveValues: {
-    scalar: Map<string, number>;
-    ohlc: Map<string, OHLCData>;
-  };
-  tickOpacity: Map<number, number>;
-  pulsePhase: Map<string, number>;
   animating: boolean;
 }
 
@@ -328,14 +264,6 @@ function createRangeSlot(initial: VisibleRange): RangeSlot {
   };
 }
 
-function entryKey(seriesId: string, layerIdx: number, time: number): string {
-  return `${seriesId}:${layerIdx}:${time}`;
-}
-
-function liveKey(seriesId: string, layerIdx: number): string {
-  return `${seriesId}:${layerIdx}`;
-}
-
 // =============================================================================
 // Implementation
 // =============================================================================
@@ -370,19 +298,6 @@ class AnimationEngineImpl implements AnimationEngine {
   #lastYTarget: YRange | null = null;
   /** Single global X viewport slot. */
   readonly #xSlot: RangeSlot;
-  /** Per-series alpha cross-fade (visibility toggle). Key: `seriesId`. */
-  readonly #alphaSlots = new Map<string, ScalarSlot>();
-  /** Per-tick-value axis label opacity (entering 0→1, exiting 1→0). Key: numeric tick timestamp. */
-  readonly #tickFadeSlots = new Map<number, ScalarSlot>();
-  /** Live-value chase for scalar (line / bar) series. Key: composite `"seriesId:layerIdx"`. */
-  readonly #liveScalarSlots = new Map<string, ScalarSlot>();
-  /** Live-value chase for OHLC (candlestick) layers. Key: composite `"seriesId:layerIdx"`. */
-  readonly #liveOHLCSlots = new Map<string, OHLCSlot>();
-  /** Per-point entrance fade-in progress (target always 1). Key: composite `"seriesId:layerIdx:time"`. */
-  readonly #entrySlots = new Map<string, ScalarSlot>();
-
-  /** Registered line-series pulse periods. Key: `seriesId`, value: period ms. */
-  readonly #pulseRegistry = new Map<string, number>();
 
   constructor(opts: AnimationEngineOptions) {
     this.#yTransition = opts.yTransition;
@@ -391,11 +306,6 @@ class AnimationEngineImpl implements AnimationEngine {
     this.#state = {
       yRange: { min: opts.initial.yRange.min, max: opts.initial.yRange.max },
       xRange: { from: opts.initial.xRange.from, to: opts.initial.xRange.to },
-      seriesAlpha: new Map(),
-      entryProgress: new Map(),
-      liveValues: { scalar: new Map(), ohlc: new Map() },
-      tickOpacity: new Map(),
-      pulsePhase: new Map(),
       animating: false,
     };
 
@@ -455,8 +365,8 @@ class AnimationEngineImpl implements AnimationEngine {
     // RAF because the renderer (entrance fades, per-series live track that
     // hasn't migrated yet) reports `needsAnimation`. Allocating 7 per-slot
     // candidate Maps + filtering `inFlight` (empty) on each of those frames
-    // is pure waste — they'd all produce 0 work. Skip straight to pulse
-    // (closed-form, no allocation) and return the same state reference.
+    // is pure waste — they'd all produce 0 work. Return the same state
+    // reference immediately.
     //
     // `#lastEffectiveNow` intentionally stays where it was — the wake-up
     // branch below pins it to `now` on the next real emit, so the dt-clamp
@@ -467,13 +377,6 @@ class AnimationEngineImpl implements AnimationEngine {
       this.#pendingEmits.length === 0 &&
       !this.#yTransition.animating
     ) {
-      if (this.#pulseRegistry.size > 0) {
-        for (const [id, period] of this.#pulseRegistry) {
-          if (period > 0) {
-            this.#state.pulsePhase.set(id, (now / period) % 1);
-          }
-        }
-      }
       this.#state.animating = false;
 
       return this.#state;
@@ -525,22 +428,7 @@ class AnimationEngineImpl implements AnimationEngine {
     // 5. Per-slot processing.
     this.#processYSlot(effectiveNow);
     this.#processXSlot(effectiveNow);
-    this.#processAlphaSlots(effectiveNow);
-    this.#processTickFadeSlots(effectiveNow);
-    this.#processLiveScalarSlots(effectiveNow);
-    this.#processLiveOHLCSlots(effectiveNow);
-    this.#processEntrySlots(effectiveNow);
-
-    // 6. Pulse — a single closed-form formula, not a per-event slot.
-    if (this.#pulseRegistry.size > 0) {
-      for (const [id, period] of this.#pulseRegistry) {
-        if (period > 0) {
-          this.#state.pulsePhase.set(id, (effectiveNow / period) % 1);
-        }
-      }
-    }
-
-    // 7. Advance Y transition. The transition holds canonical current — copy
+    // 6. Advance Y transition. The transition holds canonical current — copy
     //    its values into our stable state.yRange reference (P2 contract).
     this.#yTransition.tick(effectiveNow);
     const yCurrent = this.#yTransition.current;
@@ -549,10 +437,7 @@ class AnimationEngineImpl implements AnimationEngine {
     this.#state.xRange.from = this.#xSlot.current.from;
     this.#state.xRange.to = this.#xSlot.current.to;
 
-    // 8. tickOpacity prune — fully-settled slots leave the public state map.
-    this.#pruneTickOpacity();
-
-    // 9. droppedClaims sweep — eventIds that pruned out can be removed.
+    // 7. droppedClaims sweep — eventIds that pruned out can be removed.
     this.#cleanDroppedClaims();
 
     // 10. Post-process zero-duration events. The startup prune (step 4)
@@ -613,14 +498,6 @@ class AnimationEngineImpl implements AnimationEngine {
     this.#state.xRange.from = this.#xSlot.current.from;
     this.#state.xRange.to = this.#xSlot.current.to;
 
-    this.#flushKeyedScalarSlots(
-      this.#alphaSlots,
-      this.#state.seriesAlpha,
-      (ev, key) => ev.targets.alpha?.find((a) => a.key === key)?.target,
-    );
-
-    // Other slot families stay empty in Phase 2 (chart-side wiring lands in Phase 3).
-
     // 2. Drop queues and dropped-claims sets.
     this.#inFlight.length = 0;
     this.#pendingEmits.length = 0;
@@ -628,159 +505,15 @@ class AnimationEngineImpl implements AnimationEngine {
     this.#ySlot.droppedClaims.clear();
     this.#xSlot.activeEvent = null;
     this.#xSlot.droppedClaims.clear();
-    for (const slot of this.#alphaSlots.values()) {
-      slot.activeEvent = null;
-      slot.droppedClaims.clear();
-    }
-    for (const slot of this.#tickFadeSlots.values()) {
-      slot.activeEvent = null;
-      slot.droppedClaims.clear();
-    }
-    for (const slot of this.#liveScalarSlots.values()) {
-      slot.activeEvent = null;
-      slot.droppedClaims.clear();
-    }
-    for (const slot of this.#liveOHLCSlots.values()) {
-      slot.activeEvent = null;
-      slot.droppedClaims.clear();
-    }
-    for (const slot of this.#entrySlots.values()) {
-      slot.activeEvent = null;
-      slot.droppedClaims.clear();
-    }
 
     this.#state.animating = false;
   }
 
-  registerSeriesPulse(seriesId: string, period: Milliseconds): void {
-    if (period <= 0) {
-      this.#pulseRegistry.delete(seriesId);
-      this.#state.pulsePhase.delete(seriesId);
-
-      return;
-    }
-
-    this.#pulseRegistry.set(seriesId, period);
-  }
-
-  unregisterSeriesPulse(seriesId: string): void {
-    this.#pulseRegistry.delete(seriesId);
-    this.#state.pulsePhase.delete(seriesId);
-  }
-
-  dropEntry(seriesId: string, layerIdx: number, time: number): void {
-    const slotKey = entryKey(seriesId, layerIdx, time);
-    this.#entrySlots.delete(slotKey);
-
-    // `state.entryProgress` is keyed `seriesId → (time → progress)`. Drop the
-    // per-time entry and remove the empty per-series map so renderers iterating
-    // the outer Map don't see a zero-entry shell.
-    const perSeries = this.#state.entryProgress.get(seriesId);
-    if (perSeries !== undefined) {
-      perSeries.delete(time);
-      if (perSeries.size === 0) {
-        this.#state.entryProgress.delete(seriesId);
-      }
-    }
-
-    // Strip the dropped point's claim from queued events. Without this an
-    // entrance emit that landed in the same tick as `keepLast` (the trim
-    // path that calls `dropEntry`) would survive — the slot processor
-    // recreates the slot from the in-flight event's entry list every tick.
-    this.#stripEntryClaims(this.#inFlight, seriesId, layerIdx, time);
-    this.#stripEntryClaims(this.#pendingEmits, seriesId, layerIdx, time);
-  }
-
-  #stripEntryClaims(events: SealedEvent[], seriesId: string, layerIdx: number, time: number): void {
-    let write = 0;
-    for (let read = 0; read < events.length; read++) {
-      const ev = events[read];
-      const entries = ev.targets.entry;
-      if (entries === undefined) {
-        events[write++] = ev;
-        continue;
-      }
-
-      let matchIdx = -1;
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        if (e.seriesId === seriesId && e.layerIdx === layerIdx && e.time === time) {
-          matchIdx = i;
-          break;
-        }
-      }
-      if (matchIdx < 0) {
-        events[write++] = ev;
-        continue;
-      }
-
-      const filtered = entries.filter((_, i) => i !== matchIdx);
-      const mutable = ev.targets as {
-        entry?: readonly EntryTarget[];
-        y?: unknown;
-        x?: unknown;
-        alpha?: unknown;
-        tickFade?: unknown;
-        liveScalar?: unknown;
-        liveOHLC?: unknown;
-      };
-      mutable.entry = filtered.length > 0 ? filtered : undefined;
-
-      const stillHasTargets =
-        filtered.length > 0 ||
-        ev.targets.y !== undefined ||
-        ev.targets.x !== undefined ||
-        ev.targets.alpha !== undefined ||
-        ev.targets.tickFade !== undefined ||
-        ev.targets.liveScalar !== undefined ||
-        ev.targets.liveOHLC !== undefined;
-      if (stillHasTargets) {
-        events[write++] = ev;
-      }
-    }
-    events.length = write;
-  }
-
-  dropSlot(target: SlotTarget, key?: string | number): void {
-    if (target === 'y' || target === 'x') {
-      // Persistent slots are not droppable — they always have a meaningful
-      // current/target.
-      return;
-    }
-
-    if (target === 'alpha' && typeof key === 'string') {
-      this.#alphaSlots.delete(key);
-      this.#state.seriesAlpha.delete(key);
-
-      return;
-    }
-
-    if (target === 'tickFade' && typeof key === 'number') {
-      this.#tickFadeSlots.delete(key);
-      this.#state.tickOpacity.delete(key);
-
-      return;
-    }
-
-    if (target === 'liveScalar' && typeof key === 'string') {
-      this.#liveScalarSlots.delete(key);
-      this.#state.liveValues.scalar.delete(key);
-
-      return;
-    }
-
-    if (target === 'liveOHLC' && typeof key === 'string') {
-      this.#liveOHLCSlots.delete(key);
-      this.#state.liveValues.ohlc.delete(key);
-
-      return;
-    }
-
-    if (target === 'entry' && typeof key === 'string') {
-      this.#entrySlots.delete(key);
-      // entryProgress map structure is `seriesId → (time → progress)` —
-      // ephemeral helper drops the composite-keyed slot only.
-    }
+  dropSlot(_target: SlotTarget, _key?: string | number): void {
+    // Persistent X / Y slots are not droppable; the deprecated per-series
+    // alpha and per-tick fade slots have moved to renderer / scale state,
+    // so this is a no-op accepted for API compatibility (callers in the
+    // chart no longer reach it).
   }
 
   // ---------------------------------------------------------------------------
@@ -845,281 +578,6 @@ class AnimationEngineImpl implements AnimationEngine {
     }
 
     this.#advanceRangeSlot(this.#xSlot, candidates, effectiveNow, (ev) => ev.targets.x?.target);
-  }
-
-  #processAlphaSlots(effectiveNow: number): void {
-    // Fast path: no in-flight event claims alpha AND no slot is stored —
-    // skip the Map allocation and the outer iteration. Streaming
-    // data_tick events on charts without visibility toggles hit this
-    // path every frame.
-    let hasAlphaEvent = false;
-    for (const ev of this.#inFlight) {
-      if (ev.targets.alpha !== undefined) {
-        hasAlphaEvent = true;
-        break;
-      }
-    }
-    if (!hasAlphaEvent && this.#alphaSlots.size === 0) return;
-
-    // Collect candidate events per key in a single pass.
-    const candidatesByKey = new Map<string, SealedEvent[]>();
-    for (const ev of this.#inFlight) {
-      const alpha = ev.targets.alpha;
-      if (alpha === undefined) continue;
-
-      for (const a of alpha) {
-        let slot = this.#alphaSlots.get(a.key);
-        if (slot === undefined) {
-          slot = createScalarSlot(this.#state.seriesAlpha.get(a.key) ?? 1);
-          this.#alphaSlots.set(a.key, slot);
-        }
-        if (slot.droppedClaims.has(ev.emitSeq)) continue;
-
-        let list = candidatesByKey.get(a.key);
-        if (list === undefined) {
-          list = [];
-          candidatesByKey.set(a.key, list);
-        }
-        list.push(ev);
-      }
-    }
-
-    for (const [key, slot] of this.#alphaSlots) {
-      const candidates = candidatesByKey.get(key) ?? [];
-      this.#advanceScalarSlot(slot, candidates, effectiveNow, (ev) => {
-        const alpha = ev.targets.alpha;
-        if (alpha === undefined) return undefined;
-        const found = alpha.find((a) => a.key === key);
-
-        return found?.target;
-      });
-      this.#state.seriesAlpha.set(key, slot.current);
-    }
-  }
-
-  #processTickFadeSlots(effectiveNow: number): void {
-    // Fast path: no in-flight event claims tickFade AND no slot is stored —
-    // skip the Map allocations. The per-frame data_tick path during
-    // streaming doesn't always carry a tickFade (only when the tick set
-    // diffs), so this branch hits on most frames.
-    let hasTickFadeEvent = false;
-    for (const ev of this.#inFlight) {
-      if (ev.targets.tickFade !== undefined) {
-        hasTickFadeEvent = true;
-        break;
-      }
-    }
-    if (!hasTickFadeEvent && this.#tickFadeSlots.size === 0) return;
-
-    // Two passes — entering events drive each entering value toward 1,
-    // exiting values toward 0. Each tick value gets its own slot keyed by
-    // the numeric value.
-    const candidatesByTick = new Map<number, SealedEvent[]>();
-    const targetByEventAndTick = new Map<string, number>();
-
-    for (const ev of this.#inFlight) {
-      const tickFade = ev.targets.tickFade;
-      if (tickFade === undefined) continue;
-
-      for (const t of tickFade.entering) {
-        this.#ensureTickFadeSlot(t);
-        targetByEventAndTick.set(`${ev.emitSeq}:${t}`, 1);
-        const slot = this.#tickFadeSlots.get(t);
-        if (slot && slot.droppedClaims.has(ev.emitSeq)) continue;
-
-        let list = candidatesByTick.get(t);
-        if (list === undefined) {
-          list = [];
-          candidatesByTick.set(t, list);
-        }
-        list.push(ev);
-      }
-
-      for (const t of tickFade.exiting) {
-        this.#ensureTickFadeSlot(t);
-        targetByEventAndTick.set(`${ev.emitSeq}:${t}`, 0);
-        const slot = this.#tickFadeSlots.get(t);
-        if (slot && slot.droppedClaims.has(ev.emitSeq)) continue;
-
-        let list = candidatesByTick.get(t);
-        if (list === undefined) {
-          list = [];
-          candidatesByTick.set(t, list);
-        }
-        list.push(ev);
-      }
-    }
-
-    for (const [tickValue, slot] of this.#tickFadeSlots) {
-      const candidates = candidatesByTick.get(tickValue) ?? [];
-      this.#advanceScalarSlot(slot, candidates, effectiveNow, (ev) => {
-        return targetByEventAndTick.get(`${ev.emitSeq}:${tickValue}`);
-      });
-      this.#state.tickOpacity.set(tickValue, slot.current);
-    }
-  }
-
-  #processLiveScalarSlots(effectiveNow: number): void {
-    // Fast path: no in-flight event claims liveScalar AND no slot is stored.
-    // Hit every frame for charts whose visible series are settled (the
-    // post-entrance handoff snaps slot to target and drops it from inFlight).
-    let hasLiveScalarEvent = false;
-    for (const ev of this.#inFlight) {
-      if (ev.targets.liveScalar !== undefined) {
-        hasLiveScalarEvent = true;
-        break;
-      }
-    }
-    if (!hasLiveScalarEvent && this.#liveScalarSlots.size === 0) return;
-
-    const candidatesByKey = new Map<string, SealedEvent[]>();
-    const targetByEventAndKey = new Map<string, number>();
-
-    for (const ev of this.#inFlight) {
-      const live = ev.targets.liveScalar;
-      if (live === undefined) continue;
-
-      for (const item of live) {
-        const key = liveKey(item.seriesId, item.layerIdx);
-        let slot = this.#liveScalarSlots.get(key);
-        if (slot === undefined) {
-          slot = createScalarSlot(this.#state.liveValues.scalar.get(key) ?? item.target);
-          this.#liveScalarSlots.set(key, slot);
-        }
-        targetByEventAndKey.set(`${ev.emitSeq}:${key}`, item.target);
-        if (slot.droppedClaims.has(ev.emitSeq)) continue;
-
-        let list = candidatesByKey.get(key);
-        if (list === undefined) {
-          list = [];
-          candidatesByKey.set(key, list);
-        }
-        list.push(ev);
-      }
-    }
-
-    for (const [key, slot] of this.#liveScalarSlots) {
-      const candidates = candidatesByKey.get(key) ?? [];
-      this.#advanceScalarSlot(slot, candidates, effectiveNow, (ev) => targetByEventAndKey.get(`${ev.emitSeq}:${key}`));
-      this.#state.liveValues.scalar.set(key, slot.current);
-    }
-  }
-
-  #processLiveOHLCSlots(effectiveNow: number): void {
-    // Fast path: no in-flight event claims liveOHLC AND no slot is stored.
-    // Reached every frame for settled charts — the post-entrance snap
-    // drops the slot from `inFlight` so this branch covers the steady state.
-    let hasLiveOHLCEvent = false;
-    for (const ev of this.#inFlight) {
-      if (ev.targets.liveOHLC !== undefined) {
-        hasLiveOHLCEvent = true;
-        break;
-      }
-    }
-    if (!hasLiveOHLCEvent && this.#liveOHLCSlots.size === 0) return;
-
-    const candidatesByKey = new Map<string, SealedEvent[]>();
-    const targetByEventAndKey = new Map<string, OHLCData>();
-
-    for (const ev of this.#inFlight) {
-      const live = ev.targets.liveOHLC;
-      if (live === undefined) continue;
-
-      for (const item of live) {
-        const key = liveKey(item.seriesId, item.layerIdx);
-        let slot = this.#liveOHLCSlots.get(key);
-        if (slot === undefined) {
-          const seedRef = this.#state.liveValues.ohlc.get(key) ?? item.target;
-          const seed: OHLCData = {
-            time: seedRef.time,
-            open: seedRef.open,
-            high: seedRef.high,
-            low: seedRef.low,
-            close: seedRef.close,
-          };
-          slot = {
-            current: seed,
-            velocity: { open: 0, high: 0, low: 0, close: 0 },
-            activeEvent: null,
-            from: { ...seed },
-            fromVelocity: { open: 0, high: 0, low: 0, close: 0 },
-            activatedAt: 0,
-            droppedClaims: new Set(),
-          };
-          this.#liveOHLCSlots.set(key, slot);
-        }
-        targetByEventAndKey.set(`${ev.emitSeq}:${key}`, item.target);
-        if (slot.droppedClaims.has(ev.emitSeq)) continue;
-
-        let list = candidatesByKey.get(key);
-        if (list === undefined) {
-          list = [];
-          candidatesByKey.set(key, list);
-        }
-        list.push(ev);
-      }
-    }
-
-    for (const [key, slot] of this.#liveOHLCSlots) {
-      const candidates = candidatesByKey.get(key) ?? [];
-      this.#advanceOHLCSlot(slot, candidates, effectiveNow, (ev) => targetByEventAndKey.get(`${ev.emitSeq}:${key}`));
-      this.#state.liveValues.ohlc.set(key, slot.current);
-    }
-  }
-
-  #processEntrySlots(effectiveNow: number): void {
-    // Fast path: same shape as the other slot processors — entrance events
-    // are short-lived, so steady-state streaming hits this branch.
-    let hasEntryEvent = false;
-    for (const ev of this.#inFlight) {
-      if (ev.targets.entry !== undefined) {
-        hasEntryEvent = true;
-        break;
-      }
-    }
-    if (!hasEntryEvent && this.#entrySlots.size === 0) return;
-
-    const candidatesByKey = new Map<string, SealedEvent[]>();
-
-    for (const ev of this.#inFlight) {
-      const entries = ev.targets.entry;
-      if (entries === undefined) continue;
-
-      for (const item of entries) {
-        const key = entryKey(item.seriesId, item.layerIdx, item.time);
-        let slot = this.#entrySlots.get(key);
-        if (slot === undefined) {
-          slot = createScalarSlot(0);
-          this.#entrySlots.set(key, slot);
-        }
-        if (slot.droppedClaims.has(ev.emitSeq)) continue;
-
-        let list = candidatesByKey.get(key);
-        if (list === undefined) {
-          list = [];
-          candidatesByKey.set(key, list);
-        }
-        list.push(ev);
-      }
-    }
-
-    for (const [key, slot] of this.#entrySlots) {
-      const candidates = candidatesByKey.get(key) ?? [];
-      // Entry target is always 1 (fade-in).
-      this.#advanceScalarSlot(slot, candidates, effectiveNow, () => 1);
-
-      const colonIdx = key.indexOf(':');
-      const lastColonIdx = key.lastIndexOf(':');
-      if (colonIdx < 0 || lastColonIdx <= colonIdx) continue;
-      const seriesId = key.slice(0, colonIdx);
-      const time = Number.parseFloat(key.slice(lastColonIdx + 1));
-      let perSeries = this.#state.entryProgress.get(seriesId);
-      if (perSeries === undefined) {
-        perSeries = new Map();
-        this.#state.entryProgress.set(seriesId, perSeries);
-      }
-      perSeries.set(time, slot.current);
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1304,107 +762,9 @@ class AnimationEngineImpl implements AnimationEngine {
     }
   }
 
-  #advanceOHLCSlot(
-    slot: OHLCSlot,
-    candidates: SealedEvent[],
-    effectiveNow: number,
-    pickTarget: (ev: SealedEvent) => OHLCData | undefined,
-  ): void {
-    if (candidates.length === 0) {
-      if (slot.activeEvent !== null) {
-        const expiredTarget = pickTarget(slot.activeEvent);
-        if (expiredTarget !== undefined) {
-          slot.current = { ...expiredTarget };
-          slot.from = { ...expiredTarget };
-        }
-        slot.velocity = { open: 0, high: 0, low: 0, close: 0 };
-        slot.fromVelocity = { open: 0, high: 0, low: 0, close: 0 };
-        slot.activeEvent = null;
-      }
-
-      return;
-    }
-
-    const winner = pickWinner(candidates);
-    for (const c of candidates) {
-      if (c !== winner) {
-        slot.droppedClaims.add(c.emitSeq);
-      }
-    }
-
-    const target = pickTarget(winner);
-    if (target === undefined) return;
-
-    if (winner.duration === 0) {
-      slot.current = { ...target };
-      slot.from = { ...target };
-      slot.activeEvent = null;
-      slot.velocity = { open: 0, high: 0, low: 0, close: 0 };
-      slot.fromVelocity = { open: 0, high: 0, low: 0, close: 0 };
-
-      return;
-    }
-
-    if (slot.activeEvent !== winner) {
-      if (slot.activeEvent !== null) {
-        const oldEv = slot.activeEvent;
-        const oldTarget = pickTarget(oldEv);
-        if (oldTarget !== undefined) {
-          const tRaw = (effectiveNow - slot.activatedAt) / oldEv.duration;
-          const t = clamp01(tRaw);
-          const eased = easeOutCubic(t);
-          slot.current = {
-            time: oldTarget.time,
-            open: slot.from.open + eased * (oldTarget.open - slot.from.open),
-            high: slot.from.high + eased * (oldTarget.high - slot.from.high),
-            low: slot.from.low + eased * (oldTarget.low - slot.from.low),
-            close: slot.from.close + eased * (oldTarget.close - slot.from.close),
-          };
-        }
-      }
-      slot.from = { ...slot.current };
-      slot.activatedAt = effectiveNow;
-      slot.activeEvent = winner;
-    }
-
-    const tRaw = (effectiveNow - slot.activatedAt) / winner.duration;
-    const t = clamp01(tRaw);
-    const eased = easeOutCubic(t);
-    slot.current = {
-      time: target.time,
-      open: slot.from.open + eased * (target.open - slot.from.open),
-      high: slot.from.high + eased * (target.high - slot.from.high),
-      low: slot.from.low + eased * (target.low - slot.from.low),
-      close: slot.from.close + eased * (target.close - slot.from.close),
-    };
-  }
-
   // ---------------------------------------------------------------------------
   // Misc helpers
   // ---------------------------------------------------------------------------
-
-  #ensureTickFadeSlot(tickValue: number): void {
-    if (!this.#tickFadeSlots.has(tickValue)) {
-      const initial = this.#state.tickOpacity.get(tickValue) ?? 0;
-      this.#tickFadeSlots.set(tickValue, createScalarSlot(initial));
-    }
-  }
-
-  #pruneTickOpacity(): void {
-    for (const [tickValue, slot] of this.#tickFadeSlots) {
-      if (slot.activeEvent !== null) continue;
-
-      if (slot.current <= 0.001) {
-        this.#tickFadeSlots.delete(tickValue);
-        this.#state.tickOpacity.delete(tickValue);
-      } else if (slot.current >= 1 - 0.001) {
-        // Fully visible — fade complete; we can remove the slot but keep
-        // the value in the public map so the renderer still draws the tick.
-        this.#tickFadeSlots.delete(tickValue);
-        this.#state.tickOpacity.set(tickValue, 1);
-      }
-    }
-  }
 
   #findNewestYTarget(): YRange | null {
     let newest: SealedEvent | null = null;
@@ -1455,50 +815,11 @@ class AnimationEngineImpl implements AnimationEngine {
     }
   }
 
-  #flushKeyedScalarSlots(
-    slots: Map<string, ScalarSlot>,
-    publicMap: Map<string, number>,
-    pickTarget: (ev: SealedEvent, key: string) => number | undefined,
-  ): void {
-    for (const [key, slot] of slots) {
-      let newestTarget: number | undefined;
-      let newestSeq = -1;
-      for (const ev of this.#inFlight) {
-        const t = pickTarget(ev, key);
-        if (t === undefined) continue;
-        if (ev.emitSeq > newestSeq) {
-          newestSeq = ev.emitSeq;
-          newestTarget = t;
-        }
-      }
-      for (const ev of this.#pendingEmits) {
-        const t = pickTarget(ev, key);
-        if (t === undefined) continue;
-        if (ev.emitSeq > newestSeq) {
-          newestSeq = ev.emitSeq;
-          newestTarget = t;
-        }
-      }
-      if (newestTarget !== undefined) {
-        slot.current = newestTarget;
-        slot.from = newestTarget;
-        slot.velocity = 0;
-        slot.fromVelocity = 0;
-        publicMap.set(key, newestTarget);
-      }
-    }
-  }
-
   #cleanDroppedClaims(): void {
     if (this.#inFlight.length === 0 && this.#pendingEmits.length === 0) {
-      // Everything pruned — drop every claim across every slot.
+      // Everything pruned — drop X / Y droppedClaims.
       this.#ySlot.droppedClaims.clear();
       this.#xSlot.droppedClaims.clear();
-      for (const slot of this.#alphaSlots.values()) slot.droppedClaims.clear();
-      for (const slot of this.#tickFadeSlots.values()) slot.droppedClaims.clear();
-      for (const slot of this.#liveScalarSlots.values()) slot.droppedClaims.clear();
-      for (const slot of this.#liveOHLCSlots.values()) slot.droppedClaims.clear();
-      for (const slot of this.#entrySlots.values()) slot.droppedClaims.clear();
 
       return;
     }
@@ -1509,11 +830,6 @@ class AnimationEngineImpl implements AnimationEngine {
 
     this.#sweepDropped(this.#ySlot.droppedClaims, alive);
     this.#sweepDropped(this.#xSlot.droppedClaims, alive);
-    for (const slot of this.#alphaSlots.values()) this.#sweepDropped(slot.droppedClaims, alive);
-    for (const slot of this.#tickFadeSlots.values()) this.#sweepDropped(slot.droppedClaims, alive);
-    for (const slot of this.#liveScalarSlots.values()) this.#sweepDropped(slot.droppedClaims, alive);
-    for (const slot of this.#liveOHLCSlots.values()) this.#sweepDropped(slot.droppedClaims, alive);
-    for (const slot of this.#entrySlots.values()) this.#sweepDropped(slot.droppedClaims, alive);
   }
 
   #sweepDropped(claims: Set<number>, alive: Set<number>): void {
@@ -1533,16 +849,6 @@ class AnimationEngineImpl implements AnimationEngine {
 
     if (Math.abs(this.#xSlot.velocity.from) >= VELOCITY_EPSILON) return true;
     if (Math.abs(this.#xSlot.velocity.to) >= VELOCITY_EPSILON) return true;
-
-    for (const slot of this.#alphaSlots.values()) {
-      if (Math.abs(slot.velocity) >= VELOCITY_EPSILON) return true;
-    }
-    for (const slot of this.#tickFadeSlots.values()) {
-      if (Math.abs(slot.velocity) >= VELOCITY_EPSILON) return true;
-    }
-    for (const slot of this.#liveScalarSlots.values()) {
-      if (Math.abs(slot.velocity) >= VELOCITY_EPSILON) return true;
-    }
 
     return false;
   }

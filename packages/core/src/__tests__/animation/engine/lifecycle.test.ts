@@ -108,7 +108,7 @@ describe('AnimationEngine — lifecycle', () => {
     expect(Number.isNaN(state.xRange.to)).toBe(false);
   });
 
-  it('zero-duration data_tick (animations:false convention) snaps alpha + X immediately', () => {
+  it('zero-duration data_tick (animations:false convention) snaps X immediately', () => {
     const { engine } = setup();
 
     engine.emit({
@@ -117,13 +117,11 @@ describe('AnimationEngine — lifecycle', () => {
       startWall: 0,
       targets: {
         x: { target: { from: 0, to: 4000 } },
-        alpha: [{ key: 's', target: 0 }],
       },
     });
 
     const state = engine.tick(0);
     expect(state.xRange.to).toBe(4000);
-    expect(state.seriesAlpha.get('s')).toBe(0);
   });
 
   it('zero-duration Y event calls transition.snap, not retarget', () => {
@@ -352,10 +350,10 @@ describe('AnimationEngine — lifecycle', () => {
       if (pumped) return;
       pumped = true;
       engine.emit({
-        kind: 'entrance',
+        kind: 'data_tick',
         duration: 100,
         startWall: 0,
-        targets: { entry: [{ seriesId: 's', layerIdx: 0, time: 999 }] },
+        targets: { y: { target: { min: 0, max: 60 } } },
       });
     };
 
@@ -413,22 +411,6 @@ describe('AnimationEngine — lifecycle', () => {
   // dropSlot
   // ---------------------------------------------------------------------------
 
-  it('dropSlot(alpha, key) removes the slot and the public seriesAlpha entry', () => {
-    const { engine } = setup();
-
-    engine.emit({
-      kind: 'visibility',
-      duration: 100,
-      startWall: 0,
-      targets: { alpha: [{ key: 'gone', target: 0 }] },
-    });
-    settle(engine, 100);
-    expect(engine.getAnimationState().seriesAlpha.get('gone')).toBeCloseTo(0, 5);
-
-    engine.dropSlot('alpha', 'gone');
-    expect(engine.getAnimationState().seriesAlpha.has('gone')).toBe(false);
-  });
-
   it('dropSlot is a no-op for persistent y / x slots', () => {
     const { engine } = setup();
 
@@ -446,32 +428,6 @@ describe('AnimationEngine — lifecycle', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Pulse registry
-  // ---------------------------------------------------------------------------
-
-  it('registerSeriesPulse drives pulsePhase per id; unregister removes it', () => {
-    const { engine } = setup();
-
-    engine.registerSeriesPulse('line-a', 1000);
-
-    // Drive ticks so effectiveNow advances. Seed a Y emit so the engine
-    // actually animates and we keep ticking via the test loop.
-    engine.emit({
-      kind: 'data_tick',
-      duration: 1000,
-      startWall: 0,
-      targets: { y: { target: { min: 0, max: 1 } } },
-    });
-
-    const state = settle(engine, 500);
-    expect(state.pulsePhase.get('line-a')).toBeCloseTo(0.5, 3);
-
-    engine.unregisterSeriesPulse('line-a');
-    const next = engine.tick(516);
-    expect(next.pulsePhase.has('line-a')).toBe(false);
-  });
-
-  // ---------------------------------------------------------------------------
   // animating flag
   // ---------------------------------------------------------------------------
 
@@ -484,7 +440,7 @@ describe('AnimationEngine — lifecycle', () => {
       startWall: 0,
       targets: {
         x: { target: { from: 0, to: 2000 } },
-        alpha: [{ key: 'fade', target: 0 }],
+        y: { target: { min: 0, max: 50 } },
       },
     });
 

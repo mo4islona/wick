@@ -1,4 +1,4 @@
-import type { AnimationState, LiveOHLCTarget, LiveScalarTarget } from './animation/engine';
+import type { AnimationState } from './animation/engine';
 import { type AnimationEngine, createAnimationEngine } from './animation/engine';
 import { type AnimationTime, resolveAnimationTime } from './animation/time';
 import type { TransitionFactory } from './animation/transition';
@@ -872,16 +872,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
 
     const id = this.#registerSeries(renderer, renderer.store, rest);
 
-    // Drive the pulse halo from engine state. Period is scaled so that the
-    // engine's `phase = (effectiveNow / period) % 1` produces the same
-    // visible rate as the legacy `Math.sin(now / pulseMs)`: full cycle of
-    // `Math.sin(phase * 2π)` lands at `period` ms — for parity with the old
-    // argument-advance rate (1/pulseMs per ms) we need period = 2π · pulseMs.
-    const pulseMs = this.#animationsConfig.series.line.pulseMs;
-    if (pulseMs > 0) {
-      this.#engine.registerSeriesPulse(id, pulseMs * 2 * Math.PI);
-    }
-
     return id;
   }
 
@@ -940,7 +930,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
       this.#engine.dropSlot('alpha', id);
-      this.#engine.unregisterSeriesPulse(id);
       this.#keys.dropSeries(id);
       this.updateViewportPadding();
       this.#mainScheduler.markDirty();
@@ -978,18 +967,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // this flag, so per-tick Y can ease both directions for a smooth axis.
     this.#dataReplaceSnapPending = true;
 
-    // Live-track slots carry the previous dataset's last value. Dropping
-    // them here means the next data_tick / instant emit seeds the slot
-    // from the new last point — without this `renderer.effectiveValue`
-    // would read the stale live value and miscompute the trailing
-    // segment's Y for one frame after a bulk swap.
-    const layerCount = entry.renderer.getLayerCount();
-    for (let li = 0; li < layerCount; li++) {
-      const key = `${id}:${li}`;
-      this.#engine.dropSlot('liveScalar', key);
-      this.#engine.dropSlot('liveOHLC', key);
-    }
-
     entry.renderer.setData(data, layerIndex);
   }
 
@@ -998,27 +975,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const entry = this.#series.find((s) => s.id === id);
     if (entry === undefined || entry.renderer.appendPoint === undefined) return;
 
+    // Entrance + live-value chase are renderer-owned (PR-1 of viewport-engine
+    // refactor); the renderer's `appendPoint` registers an entry animator
+    // keyed by `time` and seeds the live-track so the new point fades in
+    // and the trailing-Y starts smoothing on the next render frame.
     entry.renderer.appendPoint(point, layerIndex);
-
-    // Per-point entrance via engine. Bridge resolves the duration zero-skip
-    // and the live-slot identity snap; we only need to provide the kind-
-    // specific entry duration and the normalized time.
-    const kind = this.#rendererKind(entry.renderer);
-    if (kind === null) return;
-
-    const duration =
-      kind === 'candle'
-        ? this.#animationsConfig.series.candlestick.entryMs
-        : kind === 'line'
-          ? this.#animationsConfig.series.line.entryMs
-          : this.#animationsConfig.series.bar.entryMs;
-
-    this.#bridge.emitEntrance({
-      seriesId: id,
-      layerIdx: layerIndex ?? 0,
-      time: normalizeTime(point.time),
-      duration,
-    });
   }
 
   /** Update the last data point of a series in place (e.g. live candle update). */
@@ -1154,8 +1115,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const now = performance.now();
     this.#bridge.emitVisibility({
       duration: visibilityMs,
-      seriesId,
-      visible,
       yTarget: yTarget !== null ? { target: yTarget } : null,
       startWall: now,
     });
@@ -2155,33 +2114,17 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const now = performance.now();
 
     if (kind === 'instant') {
-      // First paint / bulk replace also seeds live slots with each series'
-      // current last value. Without this the slot is born only on the next
-      // `data_tick` emit (`#processLiveScalarSlots` creates it with
-      // `current = item.target` of that event), which means the very first
-      // live-value retarget on a new dataset SNAPS to the new target instead
-      // of easing from the previous frame's displayed value. The renderer
-      // then draws the new value against a yScale that's still mid-ease,
-      // which can place coordinates far outside the canvas for one frame.
-      const live = this.#collectLiveTargets();
-      const allLiveScalar = [...live.eased.scalar, ...live.snap.scalar];
-      const allLiveOHLC = [...live.eased.ohlc, ...live.snap.ohlc];
       this.#bridge.emitInstant({
         yTarget: yTarget !== null ? { target: yTarget } : undefined,
         xTarget: opts.xTarget ?? undefined,
-        liveScalar: allLiveScalar.length > 0 ? allLiveScalar : undefined,
-        liveOHLC: allLiveOHLC.length > 0 ? allLiveOHLC : undefined,
         startWall: now,
       });
     } else {
       // Streaming `data_tick`. Y carries the asymmetric sticky-Y baseline
       // (fast expand / slow contract); X duration comes from the cadence
-      // EMA so the slide stays in lockstep with the producer. Live last-
-      // point retargets (line/bar scalar, candlestick OHLC) ride the same
-      // event so the displayed last point eases in lockstep with X scroll.
+      // EMA so the slide stays in lockstep with the producer.
       const dataTickMs = this.#animationsConfig.x.dataTickMs;
       const xDuration = dataTickMs > 0 ? this.#cadence.pickDuration(dataTickMs) : 0;
-      const live = this.#collectLiveTargets();
       this.#bridge.emitDataTick({
         duration: xDuration,
         xTarget: opts.xTarget,
@@ -2193,86 +2136,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
                 contractMs: DEFAULT_HERMITE_CONTRACT,
               }
             : null,
-        liveScalar: live.eased.scalar.length > 0 ? live.eased.scalar : undefined,
-        liveOHLC: live.eased.ohlc.length > 0 ? live.eased.ohlc : undefined,
         startWall: now,
       });
-
-      // Snap-required live retargets (`smoothMs: 0` series) ride a parallel
-      // `instant` event. Higher priority (4 vs data_tick=1) wins the slot
-      // against any in-flight tick claim, and zero duration lands the slot
-      // at target on this frame — visually a snap while X still scrolls.
-      if (live.snap.scalar.length > 0 || live.snap.ohlc.length > 0) {
-        this.#bridge.emitInstant({
-          liveScalar: live.snap.scalar.length > 0 ? live.snap.scalar : undefined,
-          liveOHLC: live.snap.ohlc.length > 0 ? live.snap.ohlc : undefined,
-          startWall: now,
-        });
-      }
     }
 
     this.#applyEngineState(now);
-  }
-
-  /**
-   * Walk every visible series and pack its last point as a live-track
-   * retarget. Series with `smoothMs > 0` go into the `eased.*` buckets,
-   * which ride the next `data_tick` (the live value lerps over the same
-   * duration as the X scroll). Series with `smoothMs <= 0` go into the
-   * `snap.*` buckets, which the chart routes through a separate `instant`
-   * emit — that event preempts any in-flight `data_tick` claim on those
-   * slots, so the displayed last value lands at target immediately even
-   * while X is still scrolling smoothly.
-   */
-  #collectLiveTargets(): {
-    eased: { scalar: LiveScalarTarget[]; ohlc: LiveOHLCTarget[] };
-    snap: { scalar: LiveScalarTarget[]; ohlc: LiveOHLCTarget[] };
-  } {
-    const eased = { scalar: [] as LiveScalarTarget[], ohlc: [] as LiveOHLCTarget[] };
-    const snap = { scalar: [] as LiveScalarTarget[], ohlc: [] as LiveOHLCTarget[] };
-
-    for (const entry of this.#series) {
-      if (!entry.visible) continue;
-
-      const kind = this.#rendererKind(entry.renderer);
-      if (kind === null) continue;
-
-      const smoothMs =
-        kind === 'candle'
-          ? this.#animationsConfig.series.candlestick.smoothMs
-          : kind === 'line'
-            ? this.#animationsConfig.series.line.smoothMs
-            : this.#animationsConfig.series.bar.smoothMs;
-      const targetBucket = smoothMs <= 0 ? snap : eased;
-
-      if (kind === 'candle') {
-        const last = entry.store?.last() as OHLCData | undefined;
-        if (last !== undefined) {
-          targetBucket.ohlc.push({ seriesId: entry.id, layerIdx: 0, target: last });
-        }
-        continue;
-      }
-
-      // Multi-layer scalar — iterate layers and push only those with data.
-      const layerCount = entry.renderer.getLayerCount();
-      const snapshots = entry.renderer.getLayerLastSnapshots?.();
-      if (snapshots !== null && snapshots !== undefined) {
-        for (const s of snapshots) {
-          targetBucket.scalar.push({ seriesId: entry.id, layerIdx: s.layerIndex, target: s.value });
-        }
-        continue;
-      }
-
-      // Single-layer line/bar (or stacked renderers without per-layer snapshots).
-      if (layerCount === 1) {
-        const last = entry.renderer.getLastValue?.();
-        if (last !== null && last !== undefined) {
-          targetBucket.scalar.push({ seriesId: entry.id, layerIdx: 0, target: last });
-        }
-      }
-    }
-
-    return { eased, snap };
   }
 
   /**

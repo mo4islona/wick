@@ -94,7 +94,7 @@ function settle(engine: AnimationEngine, deadline: number, from = 0, step = 16):
 }
 
 describe('AnimationEngine — event merge', () => {
-  it('single event with disjoint target types settles each independently on its own deadline', () => {
+  it('single event with disjoint X / Y targets settles each independently on its own deadline', () => {
     const { engine, transition } = setup();
 
     engine.emit({
@@ -104,30 +104,21 @@ describe('AnimationEngine — event merge', () => {
       targets: {
         y: { target: { min: -50, max: 200 } },
         x: { target: { from: 100, to: 2000 } },
-        alpha: [{ key: 'series-a', target: 0.4 }],
-        tickFade: { entering: [50], exiting: [] },
       },
     });
 
-    // First tick: t = 0, all slots still at `from`. tickOpacity entering
-    // value seeds at 0 (initial absence) and remains there because t = 0.
     let state = engine.tick(0);
     expect(transition.retargetCalls).toHaveLength(1);
     expect(state.xRange.from).toBe(0);
     expect(state.xRange.to).toBe(1000);
-    expect(state.seriesAlpha.get('series-a')).toBeCloseTo(1, 5);
-    expect(state.tickOpacity.get(50)).toBeCloseTo(0, 5);
 
     state = settle(engine, 100);
     expect(state.xRange.from).toBeCloseTo(100, 5);
     expect(state.xRange.to).toBeCloseTo(2000, 5);
-    expect(state.seriesAlpha.get('series-a')).toBeCloseTo(0.4, 5);
-    // tickOpacity entering reaches 1; the slot prune leaves the public value at 1.
-    expect(state.tickOpacity.get(50)).toBeCloseTo(1, 5);
   });
 
-  it('two events on disjoint slots both settle independently', () => {
-    const { engine } = setup();
+  it('two events on disjoint X / Y slots both settle independently', () => {
+    const { engine, transition } = setup();
 
     engine.emit({
       kind: 'data_tick',
@@ -139,12 +130,12 @@ describe('AnimationEngine — event merge', () => {
       kind: 'visibility',
       duration: 100,
       startWall: 0,
-      targets: { alpha: [{ key: 'series-b', target: 0 }] },
+      targets: { y: { target: { min: 0, max: 50 } } },
     });
 
     const state = settle(engine, 100);
     expect(state.xRange.to).toBeCloseTo(2000, 5);
-    expect(state.seriesAlpha.get('series-b')).toBeCloseTo(0, 5);
+    expect(transition.retargetCalls).toHaveLength(1);
   });
 
   it('higher-priority kind wins the slot (gesture preempts data_tick on X)', () => {
@@ -241,49 +232,5 @@ describe('AnimationEngine — event merge', () => {
     expect(transition.retargetCalls).toHaveLength(1);
     expect(transition.retargetCalls[0].value).toEqual({ min: 0, max: 500 });
     expect(state.yRange.max).toBe(500);
-  });
-
-  it('composite live keys (seriesId:layerIdx) do not collide', () => {
-    const { engine } = setup();
-
-    engine.emit({
-      kind: 'data_tick',
-      duration: 100,
-      startWall: 0,
-      targets: {
-        liveScalar: [
-          { seriesId: 'series-x', layerIdx: 0, target: 10 },
-          { seriesId: 'series-x', layerIdx: 1, target: 200 },
-        ],
-      },
-    });
-
-    const state = settle(engine, 100);
-    expect(state.liveValues.scalar.get('series-x:0')).toBeCloseTo(10, 5);
-    expect(state.liveValues.scalar.get('series-x:1')).toBeCloseTo(200, 5);
-  });
-
-  it('entrance events on different time keys settle in parallel without dropping one another', () => {
-    const { engine } = setup();
-
-    engine.emit({
-      kind: 'entrance',
-      duration: 100,
-      startWall: 0,
-      targets: {
-        entry: [
-          { seriesId: 'series-a', layerIdx: 0, time: 1000 },
-          { seriesId: 'series-a', layerIdx: 0, time: 1100 },
-          { seriesId: 'series-a', layerIdx: 0, time: 1200 },
-        ],
-      },
-    });
-
-    const state = settle(engine, 100);
-    const perSeries = state.entryProgress.get('series-a');
-    expect(perSeries).toBeDefined();
-    expect(perSeries?.get(1000)).toBeCloseTo(1, 5);
-    expect(perSeries?.get(1100)).toBeCloseTo(1, 5);
-    expect(perSeries?.get(1200)).toBeCloseTo(1, 5);
   });
 });
