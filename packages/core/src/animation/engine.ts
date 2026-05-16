@@ -450,6 +450,35 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   tick(now: number): AnimationState {
+    // Fast path: engine settled on the previous tick and no new emit landed
+    // since. The chart's render loop still pumps `engine.tick(now)` every
+    // RAF because the renderer (entrance fades, per-series live track that
+    // hasn't migrated yet) reports `needsAnimation`. Allocating 7 per-slot
+    // candidate Maps + filtering `inFlight` (empty) on each of those frames
+    // is pure waste — they'd all produce 0 work. Skip straight to pulse
+    // (closed-form, no allocation) and return the same state reference.
+    //
+    // `#lastEffectiveNow` intentionally stays where it was — the wake-up
+    // branch below pins it to `now` on the next real emit, so the dt-clamp
+    // path doesn't see a stale-by-many-frames baseline.
+    if (
+      this.#isIdle &&
+      this.#inFlight.length === 0 &&
+      this.#pendingEmits.length === 0 &&
+      !this.#yTransition.animating
+    ) {
+      if (this.#pulseRegistry.size > 0) {
+        for (const [id, period] of this.#pulseRegistry) {
+          if (period > 0) {
+            this.#state.pulsePhase.set(id, (now / period) % 1);
+          }
+        }
+      }
+      this.#state.animating = false;
+
+      return this.#state;
+    }
+
     this.#inTick = true;
 
     // 1. Wake-up: pin the effectiveNow clock to wall `now` and resolve any
@@ -480,8 +509,17 @@ class AnimationEngineImpl implements AnimationEngine {
 
     // 4. Prune expired (strict `>` so an event with duration=D is still
     //    in-flight on the frame where `effectiveNow === startWall + D`).
+    //    In-place compaction — `Array.filter` allocates a new array on
+    //    every tick × every chart, the dominant GC cost during streaming.
     if (this.#inFlight.length > 0) {
-      this.#inFlight = this.#inFlight.filter((ev) => effectiveNow <= ev.startWall + ev.duration);
+      let write = 0;
+      for (let read = 0; read < this.#inFlight.length; read++) {
+        const ev = this.#inFlight[read];
+        if (effectiveNow <= ev.startWall + ev.duration) {
+          this.#inFlight[write++] = ev;
+        }
+      }
+      this.#inFlight.length = write;
     }
 
     // 5. Per-slot processing.
@@ -527,7 +565,14 @@ class AnimationEngineImpl implements AnimationEngine {
     //     mocked time in tests). Drop them here so the next emit on the
     //     same wall sees a clean slot.
     if (this.#inFlight.length > 0) {
-      this.#inFlight = this.#inFlight.filter((ev) => ev.duration > 0);
+      let write = 0;
+      for (let read = 0; read < this.#inFlight.length; read++) {
+        const ev = this.#inFlight[read];
+        if (ev.duration > 0) {
+          this.#inFlight[write++] = ev;
+        }
+      }
+      this.#inFlight.length = write;
     }
 
     // 11. animating flag.
@@ -736,6 +781,19 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   #processAlphaSlots(effectiveNow: number): void {
+    // Fast path: no in-flight event claims alpha AND no slot is stored —
+    // skip the Map allocation and the outer iteration. Streaming
+    // data_tick events on charts without visibility toggles hit this
+    // path every frame.
+    let hasAlphaEvent = false;
+    for (const ev of this.#inFlight) {
+      if (ev.targets.alpha !== undefined) {
+        hasAlphaEvent = true;
+        break;
+      }
+    }
+    if (!hasAlphaEvent && this.#alphaSlots.size === 0) return;
+
     // Collect candidate events per key in a single pass.
     const candidatesByKey = new Map<string, SealedEvent[]>();
     for (const ev of this.#inFlight) {
@@ -773,6 +831,19 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   #processTickFadeSlots(effectiveNow: number): void {
+    // Fast path: no in-flight event claims tickFade AND no slot is stored —
+    // skip the Map allocations. The per-frame data_tick path during
+    // streaming doesn't always carry a tickFade (only when the tick set
+    // diffs), so this branch hits on most frames.
+    let hasTickFadeEvent = false;
+    for (const ev of this.#inFlight) {
+      if (ev.targets.tickFade !== undefined) {
+        hasTickFadeEvent = true;
+        break;
+      }
+    }
+    if (!hasTickFadeEvent && this.#tickFadeSlots.size === 0) return;
+
     // Two passes — entering events drive each entering value toward 1,
     // exiting values toward 0. Each tick value gets its own slot keyed by
     // the numeric value.
@@ -822,6 +893,18 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   #processLiveScalarSlots(effectiveNow: number): void {
+    // Fast path: no in-flight event claims liveScalar AND no slot is stored.
+    // Phase 2 chart-side doesn't emit liveScalar yet (Phase 3 wires it),
+    // so this branch is the entire fast-path during Phase 2 streaming.
+    let hasLiveScalarEvent = false;
+    for (const ev of this.#inFlight) {
+      if (ev.targets.liveScalar !== undefined) {
+        hasLiveScalarEvent = true;
+        break;
+      }
+    }
+    if (!hasLiveScalarEvent && this.#liveScalarSlots.size === 0) return;
+
     const candidatesByKey = new Map<string, SealedEvent[]>();
     const targetByEventAndKey = new Map<string, number>();
 
@@ -856,6 +939,18 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   #processLiveOHLCSlots(effectiveNow: number): void {
+    // Fast path: no in-flight event claims liveOHLC AND no slot is stored.
+    // Phase 3 hooks this up; until then every Phase 2 streaming frame
+    // hits this branch.
+    let hasLiveOHLCEvent = false;
+    for (const ev of this.#inFlight) {
+      if (ev.targets.liveOHLC !== undefined) {
+        hasLiveOHLCEvent = true;
+        break;
+      }
+    }
+    if (!hasLiveOHLCEvent && this.#liveOHLCSlots.size === 0) return;
+
     const candidatesByKey = new Map<string, SealedEvent[]>();
     const targetByEventAndKey = new Map<string, OHLCData>();
 
@@ -906,6 +1001,18 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   #processEntrySlots(effectiveNow: number): void {
+    // Fast path: same shape as the other slot processors. Phase 3 emits
+    // entrance events here; through Phase 2 the renderer keeps its own
+    // entries Map and this branch is the entire path.
+    let hasEntryEvent = false;
+    for (const ev of this.#inFlight) {
+      if (ev.targets.entry !== undefined) {
+        hasEntryEvent = true;
+        break;
+      }
+    }
+    if (!hasEntryEvent && this.#entrySlots.size === 0) return;
+
     const candidatesByKey = new Map<string, SealedEvent[]>();
 
     for (const ev of this.#inFlight) {

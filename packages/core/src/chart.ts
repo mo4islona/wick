@@ -1783,8 +1783,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
         totalLength += entry.store.length;
       }
     }
-    const added = totalLength - this.#prevDataLength;
-    const isBatchLoad = added > 5;
     this.#prevDataLength = totalLength;
 
     // X target computed inside the data block; default null = no X claim
@@ -1816,28 +1814,41 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           this.#initialVisibleRange = undefined;
         }
         xTarget = this.#viewport.logicalRange;
-      } else if (isBatchLoad && this.#viewport.autoScroll) {
+      } else if (this.#dataReplaceSnapPending && this.#viewport.autoScroll) {
+        // Explicit bulk replace via `chart.setSeriesData` mid-life. Refit
+        // to the full new span — the user has swapped the entire dataset,
+        // not appended to it.
         this.#viewport.fitToData(first, last, { chartWidth });
         xTarget = this.#viewport.logicalRange;
-      } else if (!isBatchLoad && this.#viewport.autoScroll) {
-        // Single streaming tick — preserve any pan offset across ticks via
-        // `_prevDataEnd` (viewport.computeStreamingTargetX encapsulates the
-        // legacy `scrollToEnd` target math without animating). Cadence EMA
-        // sizes the next slide so the viewport keeps moving through to the
-        // next producer tick instead of settling at a fixed 250 ms and
-        // sitting idle.
+      } else if (this.#viewport.autoScroll) {
+        // Streaming append — covers both the single-tick case and the
+        // React-18-batched burst (where automatic batching may coalesce
+        // several `setInterval` fires into one commit). The cadence EMA
+        // sizes the next slide so the viewport keeps moving through to
+        // the next producer tick instead of settling early; the
+        // `computeStreamingTargetX` offset math preserves any pan offset
+        // across ticks.
         this.#cadence.observe(performance.now());
         xTarget = this.#viewport.computeStreamingTargetX(last, chartWidth);
       }
     }
 
-    // Snap Y range on batch loads, on first paint (forced to instant inside
-    // `#emitYTarget` when `#yInited` is false), or when the caller signalled
-    // a bulk replace via `#dataReplaceSnapPending`. Streaming ticks ease
-    // through the engine's asymmetric sticky-Y baseline.
+    // Snap Y/X on the first paint (forced inside `#emitYAndX` when
+    // `#yInited` / `#xInited` is false) and on explicit bulk replaces
+    // (`chart.setSeriesData` flips `#dataReplaceSnapPending`). Streaming
+    // appends — even when React 18 automatic batching coalesces several
+    // ticks into a single `chart.batch` — ride the engine's `data_tick`
+    // ease.
+    //
+    // The legacy `isBatchLoad = added > 5` heuristic survived Phase 1 only
+    // because the legacy X / Y animators eased continuously and an instant
+    // snap during streaming was visually identical to data_tick. Phase 2's
+    // engine actually snaps on instant: it settles `state.animating=false`
+    // and the RAF chain breaks until the next React commit, producing the
+    // "0 FPS / jerky" rendering reported on the stress-streaming page when
+    // automatic batching grouped > 5 setInterval fires per commit.
     const replaceSnap = this.#dataReplaceSnapPending;
     this.#dataReplaceSnapPending = false;
-    const ySnap = isBatchLoad || replaceSnap;
 
     // Capture "was this the first onDataChanged call that actually had
     // data" *before* `#emitYTarget` flips `#yInited`. Initial mounts where
@@ -1847,13 +1858,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // setting `#yInited`.
     const isFirstDataPaint = !this.#yInited && first !== undefined;
 
-    // Bulk replaces (full dataset swap) and batch loads land on entirely
-    // new tick values. If the tick trackers stay armed with the previous
-    // dataset they'd fade the old labels out and the new ones in over
-    // the next 250 ms, briefly showing "ghost" grid lines from the prior
-    // range. Reset so the dataset swap snaps the same way the Y emit below
-    // is about to snap the Y bound.
-    if (replaceSnap || isBatchLoad) {
+    // Bulk replaces (full dataset swap) land on entirely new tick values.
+    // If the tick trackers stay armed with the previous dataset they'd
+    // fade the old labels out and the new ones in over the next 250 ms,
+    // briefly showing "ghost" grid lines from the prior range. Reset so
+    // the dataset swap snaps the same way the Y emit below is about to
+    // snap the Y bound. Streaming bursts don't qualify — old and new tick
+    // sets overlap by definition.
+    if (replaceSnap) {
       this.yScale.tickTracker.reset();
       this.timeScale.tickTracker.reset();
       // Clear the per-axis diff baselines too — otherwise the next
@@ -1864,14 +1876,15 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#lastEmittedTimeTicks = [];
     }
 
-    const yKind: 'instant' | 'data_tick' = ySnap ? 'instant' : 'data_tick';
-    this.#emitYTarget({ kind: yKind });
-    if (xTarget !== null) {
-      // `instant` for first paint + bulk replace; `data_tick` for the
-      // streaming append and the autoScroll batch-load fit so the viewport
-      // slides smoothly into the new tail.
-      this.#emitXTarget({ kind: yKind, xTarget });
-    }
+    const yKind: 'instant' | 'data_tick' = replaceSnap ? 'instant' : 'data_tick';
+    // Combined Y+X emit. Previously this was two `bridge.emit*` calls each
+    // with its own `#applyEngineState` (engine.tick + viewport push +
+    // syncScales). Streaming ticks at 60 ms × 8 charts in the stress group
+    // turn that into 480 redundant engine ticks / second — combining the
+    // claims into a single event keeps the engine merge algorithm intact
+    // (Y and X are independent slot processors anyway) and halves the
+    // per-data-point engine work.
+    this.#emitYAndX({ kind: yKind, xTarget });
     // Re-sync scales so React components read correct yScale values.
     this.syncScales();
 
@@ -2090,6 +2103,58 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#bridge.emitGesture({
         duration: gestureMs,
         yTarget: { target },
+        startWall: now,
+      });
+    }
+
+    this.#applyEngineState(now);
+  }
+
+  /**
+   * Single-event Y + X emit, used by the streaming / bulk-replace data
+   * ingest path where both targets land on the same `effectiveNow`.
+   * Replaces two back-to-back `#emitYTarget` + `#emitXTarget` calls (each
+   * with their own `engine.tick` + viewport push + `syncScales`) with one
+   * `bridge.emit*` + one `#applyEngineState`. Engine merge resolves the Y
+   * and X slot claims independently per its priority-by-kind rules — the
+   * combined event carries no semantic difference, just lower per-tick
+   * overhead. Pre-`#yInited` / `#xInited` state forces `instant` so first
+   * paint snaps both axes atomically.
+   */
+  #emitYAndX(opts: { kind: 'instant' | 'data_tick'; xTarget: VisibleRange | null }): void {
+    const yTarget = this.#computeYTarget();
+    if (yTarget === null && opts.xTarget === null) return;
+
+    const firstPaint = !this.#yInited || !this.#xInited;
+    if (yTarget !== null) this.#yInited = true;
+    if (opts.xTarget !== null) this.#xInited = true;
+
+    const kind = firstPaint ? 'instant' : opts.kind;
+    const now = performance.now();
+
+    if (kind === 'instant') {
+      this.#bridge.emitInstant({
+        yTarget: yTarget !== null ? { target: yTarget } : undefined,
+        xTarget: opts.xTarget ?? undefined,
+        startWall: now,
+      });
+    } else {
+      // Streaming `data_tick`. Y carries the asymmetric sticky-Y baseline
+      // (fast expand / slow contract); X duration comes from the cadence
+      // EMA so the slide stays in lockstep with the producer.
+      const dataTickMs = this.#animationsConfig.x.dataTickMs;
+      const xDuration = dataTickMs > 0 ? this.#cadence.pickDuration(dataTickMs) : 0;
+      this.#bridge.emitDataTick({
+        duration: xDuration,
+        xTarget: opts.xTarget,
+        yTarget:
+          yTarget !== null
+            ? {
+                target: yTarget,
+                expandMs: DEFAULT_HERMITE_EXPAND,
+                contractMs: DEFAULT_HERMITE_CONTRACT,
+              }
+            : null,
         startWall: now,
       });
     }
