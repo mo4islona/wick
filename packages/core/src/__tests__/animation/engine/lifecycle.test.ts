@@ -215,6 +215,37 @@ describe('AnimationEngine — lifecycle', () => {
     expect(transition.retargetCalls[0].value).toEqual({ min: 0, max: 500 });
   });
 
+  it('Y target with explicit expandMs / contractMs forwards them to Transition.retarget (sticky-Y preserved)', () => {
+    const { engine, transition } = setup();
+
+    engine.emit({
+      kind: 'data_tick',
+      duration: 999, // ignored on Y when expandMs / contractMs are set
+      startWall: 0,
+      targets: { y: { target: { min: 0, max: 200 }, expandMs: 250, contractMs: 2500 } },
+    });
+
+    engine.tick(0);
+    expect(transition.retargetCalls).toHaveLength(1);
+    expect(transition.retargetCalls[0].opts?.expandMs).toBe(250);
+    expect(transition.retargetCalls[0].opts?.contractMs).toBe(2500);
+  });
+
+  it('Y target without expandMs / contractMs falls back to event.duration for both directions', () => {
+    const { engine, transition } = setup();
+
+    engine.emit({
+      kind: 'visibility',
+      duration: 250,
+      startWall: 0,
+      targets: { y: { target: { min: 0, max: 200 } } },
+    });
+
+    engine.tick(0);
+    expect(transition.retargetCalls[0].opts?.expandMs).toBe(250);
+    expect(transition.retargetCalls[0].opts?.contractMs).toBe(250);
+  });
+
   // ---------------------------------------------------------------------------
   // flush()
   // ---------------------------------------------------------------------------

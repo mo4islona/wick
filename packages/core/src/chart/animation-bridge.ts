@@ -3,6 +3,20 @@ import type { Milliseconds } from '../animation/time';
 import type { VisibleRange, YRange } from '../types';
 
 /**
+ * Y emit target. `expandMs` / `contractMs` are forwarded straight to the
+ * engine's Y `Transition.retarget` call, letting the chart preserve the
+ * asymmetric sticky-Y baseline (fast expand, slow contract) on streaming
+ * data ticks while a visibility or gesture event overrides with a single
+ * symmetric duration. Both fields fall back to `event.duration` when
+ * omitted.
+ */
+export interface YEmitTarget {
+  target: YRange;
+  expandMs?: Milliseconds;
+  contractMs?: Milliseconds;
+}
+
+/**
  * Pre-computed targets supplied by the chart when emitting a streaming
  * (data_tick) update. `xTarget === null` skips the X claim — chart-side
  * helpers (`viewport.computeStreamingTargetX`) return null while warm-up
@@ -11,7 +25,7 @@ import type { VisibleRange, YRange } from '../types';
 export interface DataTickEmit {
   duration: Milliseconds;
   xTarget: VisibleRange | null;
-  yTarget: YRange | null;
+  yTarget: YEmitTarget | null;
   tickFade?: TickFadeTarget;
   /**
    * Minimum X movement (`to` delta) that justifies an X emit. High-frequency
@@ -26,19 +40,19 @@ export interface VisibilityEmit {
   duration: Milliseconds;
   seriesId: string;
   visible: boolean;
-  yTarget: YRange | null;
+  yTarget: YEmitTarget | null;
   tickFade?: TickFadeTarget;
 }
 
 export interface GestureEmit {
   duration: Milliseconds;
   xTarget?: VisibleRange;
-  yTarget?: YRange;
+  yTarget?: YEmitTarget;
 }
 
 export interface InstantEmit {
   xTarget?: VisibleRange;
-  yTarget?: YRange;
+  yTarget?: YEmitTarget;
 }
 
 /**
@@ -88,7 +102,7 @@ export class AnimationBridge {
       duration: opts.duration,
       targets: {
         x: xTarget !== null ? { target: xTarget } : undefined,
-        y: opts.yTarget !== null ? { target: opts.yTarget } : undefined,
+        y: opts.yTarget !== null ? opts.yTarget : undefined,
         tickFade: opts.tickFade,
       },
     });
@@ -105,7 +119,7 @@ export class AnimationBridge {
       duration: opts.duration,
       targets: {
         alpha: [{ key: opts.seriesId, target: opts.visible ? 1 : 0 }],
-        y: opts.yTarget !== null ? { target: opts.yTarget } : undefined,
+        y: opts.yTarget !== null ? opts.yTarget : undefined,
         tickFade: opts.tickFade,
       },
     });
@@ -122,7 +136,7 @@ export class AnimationBridge {
       duration: opts.duration,
       targets: {
         x: opts.xTarget !== undefined ? { target: opts.xTarget } : undefined,
-        y: opts.yTarget !== undefined ? { target: opts.yTarget } : undefined,
+        y: opts.yTarget !== undefined ? opts.yTarget : undefined,
       },
     });
   }
@@ -142,7 +156,7 @@ export class AnimationBridge {
       duration: 0,
       targets: {
         x: opts.xTarget !== undefined ? { target: opts.xTarget } : undefined,
-        y: opts.yTarget !== undefined ? { target: opts.yTarget } : undefined,
+        y: opts.yTarget !== undefined ? opts.yTarget : undefined,
       },
     });
   }

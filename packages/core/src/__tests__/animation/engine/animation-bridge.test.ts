@@ -56,7 +56,7 @@ describe('AnimationBridge', () => {
     bridge.emitDataTick({
       duration: 250,
       xTarget: { from: 0, to: 1000 },
-      yTarget: { min: 0, max: 50 },
+      yTarget: { target: { min: 0, max: 50 } },
       tickFade: { entering: [100], exiting: [] },
     });
 
@@ -97,7 +97,7 @@ describe('AnimationBridge', () => {
     bridge.emitDataTick({
       duration: 250,
       xTarget: { from: 0, to: 1000.5 },
-      yTarget: { min: 0, max: 50 },
+      yTarget: { target: { min: 0, max: 50 } },
       xThreshold: 10,
     });
     expect(emitCalls).toHaveLength(2);
@@ -117,7 +117,7 @@ describe('AnimationBridge', () => {
       duration: 200,
       seriesId: 's-1',
       visible: false,
-      yTarget: { min: 0, max: 50 },
+      yTarget: { target: { min: 0, max: 50 } },
       tickFade: { entering: [], exiting: [100, 200] },
     });
 
@@ -158,7 +158,7 @@ describe('AnimationBridge', () => {
   it('emitInstant uses duration=0 (zero-duration guard path in engine)', () => {
     const { bridge, emitCalls } = setupBridge();
 
-    bridge.emitInstant({ xTarget: { from: 0, to: 5000 }, yTarget: { min: 1, max: 2 } });
+    bridge.emitInstant({ xTarget: { from: 0, to: 5000 }, yTarget: { target: { min: 1, max: 2 } } });
     const ev = emitCalls[0];
     expect(ev.kind).toBe('instant');
     expect(ev.duration).toBe(0);

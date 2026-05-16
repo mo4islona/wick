@@ -96,7 +96,15 @@ export interface AnimationEvent {
   startWall?: number;
   duration: Milliseconds;
   targets: {
-    y?: { target: YRange };
+    /**
+     * Y bound target. When `expandMs` / `contractMs` are set they replace
+     * `event.duration` for the `Transition.retarget` call only — lets the
+     * chart preserve the asymmetric sticky-Y baseline (fast expand, slow
+     * contract) while everything else on the event still rides
+     * `event.duration`. Both fields fall back to `event.duration` when
+     * omitted.
+     */
+    y?: { target: YRange; expandMs?: Milliseconds; contractMs?: Milliseconds };
     x?: { target: VisibleRange };
     alpha?: readonly AlphaTarget[];
     entry?: readonly EntryTarget[];
@@ -690,10 +698,12 @@ class AnimationEngineImpl implements AnimationEngine {
     }
 
     if (this.#ySlot.activeEvent !== winner) {
+      const expandMs = winnerY.expandMs ?? winner.duration;
+      const contractMs = winnerY.contractMs ?? winner.duration;
       this.#yTransition.retarget(target, {
         now: effectiveNow,
-        expandMs: winner.duration,
-        contractMs: winner.duration,
+        expandMs,
+        contractMs,
       });
       this.#ySlot.activatedAt = effectiveNow;
       this.#ySlot.activeEvent = winner;
