@@ -15,6 +15,22 @@ function makeChart(animations?: ChartOptions['animations']): ChartInstance {
   return new ChartInstance(container, { animations });
 }
 
+/** Like makeChart but seeded with a non-zero container size so the engine's
+ *  state push (which guards on `size.media.width/height === 0`) actually
+ *  runs and `chart.getYRange()` / `getVisibleRange()` return live values. */
+function makeSizedChart(animations?: ChartOptions['animations']): ChartInstance {
+  const container = document.createElement('div');
+  const width = 800;
+  const height = 400;
+  Object.defineProperty(container, 'clientWidth', { value: width, configurable: true });
+  Object.defineProperty(container, 'clientHeight', { value: height, configurable: true });
+  container.getBoundingClientRect = () =>
+    ({ x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height, toJSON: () => ({}) }) as DOMRect;
+  document.body.appendChild(container);
+
+  return new ChartInstance(container, { animations });
+}
+
 function candleRenderer(
   chart: ChartInstance,
   opts?: Parameters<ChartInstance['addCandlestickSeries']>[0],
@@ -106,5 +122,80 @@ describe('updateSeriesOptions honors chart-level animation gates', () => {
 
     chart.updateSeriesOptions(id, { smoothMs: 500 });
     expect(opts().smoothMs).toBe(500);
+  });
+});
+
+/**
+ * Engine-driven lockstep. Each chart-level event source (data ingest,
+ * visibility toggle) emits a single `bridge.emit*` carrying every slot
+ * claim it owns, so the engine's slot processors snap or ease them on the
+ * same `effectiveNow` and `state.*` settles together — no surface lags
+ * another by a frame.
+ */
+describe('engine-driven lockstep', () => {
+  it('setSeriesVisible(false) drops alpha to 0 and contracts Y in one engine tick', () => {
+    const chart = makeSizedChart({ y: { visibility: 0 } });
+    const small = chart.addLineSeries();
+    const big = chart.addLineSeries();
+    chart.setSeriesData(small, [
+      { time: 1, value: 1 },
+      { time: 2, value: 5 },
+    ]);
+    chart.setSeriesData(big, [
+      { time: 1, value: 100 },
+      { time: 2, value: 500 },
+    ]);
+
+    const combinedMax = chart.getYRange().max;
+    expect(combinedMax).toBeGreaterThanOrEqual(500);
+
+    chart.setSeriesVisible(big, false);
+
+    // visibilityMs=0 routes through the engine's zero-duration guard: alpha
+    // for `big` snaps to 0 AND state.yRange snaps to the small-only range,
+    // both visible to synchronous readers (no RAF in between).
+    expect(chart.getAnimationState().seriesAlpha.get(big)).toBe(0);
+    expect(chart.getYRange().max).toBeLessThan(combinedMax);
+  });
+
+  it('setSeriesData (bulk replace) snaps X visual to the fitted range and Y to the new bounds atomically', () => {
+    const chart = makeSizedChart();
+    const id = chart.addLineSeries();
+    chart.setSeriesData(id, [
+      { time: 1, value: 10 },
+      { time: 2, value: 20 },
+    ]);
+    const beforeY = chart.getYRange().max;
+    const beforeX = chart.getVisibleRange().to;
+
+    chart.setSeriesData(id, [
+      { time: 100, value: 1000 },
+      { time: 200, value: 2000 },
+    ]);
+
+    // First-paint guard + bulk-replace flag combine to force `instant` for
+    // both X and Y emits → engine snaps both. Both new ranges are visible
+    // without driving a frame.
+    const afterX = chart.getVisibleRange();
+    const afterY = chart.getYRange();
+    expect(afterX.to).toBeGreaterThan(beforeX);
+    expect(afterY.max).toBeGreaterThan(beforeY);
+    expect(afterY.max).toBeGreaterThanOrEqual(2000);
+  });
+
+  it('per-series alpha map and pulsePhase map share state — same engine reference, in-place mutation (P2 contract)', () => {
+    const chart = makeSizedChart();
+    const id = chart.addLineSeries();
+    chart.setSeriesData(id, [
+      { time: 1, value: 1 },
+      { time: 2, value: 2 },
+    ]);
+
+    const stateA = chart.getAnimationState();
+    const stateB = chart.getAnimationState();
+    expect(stateA).toBe(stateB);
+    expect(stateA.seriesAlpha).toBe(stateB.seriesAlpha);
+    expect(stateA.pulsePhase).toBe(stateB.pulsePhase);
+    expect(stateA.tickOpacity).toBe(stateB.tickOpacity);
   });
 });
