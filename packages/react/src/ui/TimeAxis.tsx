@@ -41,14 +41,10 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
   const theme = chart.getTheme();
   const dataInterval = chart.getDataInterval();
   const { ticks: currentTicks, tickInterval } = chart.timeScale.niceTickValues(dataInterval);
-  // Sync the tracker in render. This is idempotent — `setCurrentTicks` on
-  // the same tick array is a no-op — so the StrictMode double-invocation
-  // path doesn't leak state. We need the snapshot to reflect the current
-  // tick set in the very first paint, which a layout-effect-based sync
-  // can't deliver without a follow-up re-render the DOM consumer can't
-  // observe synchronously.
+  // See YAxis: seed the tracker for the post-rerender / pre-renderMain
+  // window, then read opacity from `state.tickOpacity`.
   chart.timeScale.tickTracker.setCurrentTicks(currentTicks);
-  const { entries } = chart.timeScale.tickTracker.snapshot();
+  const { entries } = chart.timeScale.tickTracker.snapshot(chart.getAnimationState().tickOpacity);
 
   return (
     <div

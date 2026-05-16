@@ -28,7 +28,7 @@ export type { FrameKind, PercentileSample, PerfMonitorOptions, PerfStats } from 
 export { PerfMonitor } from './perf';
 // Tick fade tracker (read-only types — instances live on chart.timeScale/yScale)
 export type { TickEntry, TickTrackerSnapshot } from './scales/tick-tracker';
-export { AxisTickTracker } from './scales/tick-tracker';
+export { AxisTickTracker, computeTickFadeDiff } from './scales/tick-tracker';
 export type { HoverInfo, SliceInfo } from './series/types';
 export type {
   BuildHoverSnapshotsArgs,

@@ -37,6 +37,7 @@ import { registerChartViewport } from './internal/test-handles';
 import { PerfHud } from './perf/perf-hud';
 import { PerfMonitor, type PerfMonitorOptions } from './perf/perf-monitor';
 import { RenderScheduler } from './render-scheduler';
+import { type AxisTickTracker, computeTickFadeDiff } from './scales/tick-tracker';
 import { TimeScale } from './scales/time-scale';
 import { YScale } from './scales/y-scale';
 import { BarRenderer } from './series/bar';
@@ -1855,6 +1856,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     if (replaceSnap || isBatchLoad) {
       this.yScale.tickTracker.reset();
       this.timeScale.tickTracker.reset();
+      // Clear the per-axis diff baselines too — otherwise the next
+      // renderMain's `#emitTickFade` would diff the bulk-replaced tick set
+      // against the old dataset's values, emitting a stale exit-fade for
+      // ticks that no longer exist anywhere on the chart.
+      this.#lastEmittedYTicks = [];
+      this.#lastEmittedTimeTicks = [];
     }
 
     const yKind: 'instant' | 'data_tick' = ySnap ? 'instant' : 'data_tick';
@@ -1924,6 +1931,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    *  the change check. */
   #prevYMin = Number.NaN;
   #prevYMax = Number.NaN;
+  /** Last tick sets the chart emitted a `tickFade` event for. Kept
+   *  independent of `AxisTickTracker.getCurrentTicks` so React / Svelte /
+   *  Vue framework components — which call `setCurrentTicks` on every
+   *  render to seed the tracker before the chart's `renderMain` runs —
+   *  can't sneak the tracker's current value ahead of the chart's diff
+   *  baseline and starve the engine of a tickFade event. */
+  #lastEmittedYTicks: readonly number[] = [];
+  #lastEmittedTimeTicks: readonly number[] = [];
 
   /**
    * Sample data inside `targetVisible` and return the unbounded [min, max] of
@@ -2137,6 +2152,35 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   }
 
   /**
+   * Diff the new tick values against the tracker's current set; when
+   * something entered or exited, emit a `tickFade` event so the engine's
+   * `state.tickOpacity` map can drive both the canvas grid lines and the
+   * DOM axis labels through the same opacity curve. Pre-armed (initial
+   * mount, dataset swap) the emit's `duration: 0` routes through the
+   * zero-duration guard so the tick set snaps to full alpha without an
+   * opening fade.
+   */
+  #emitTickFade(tracker: AxisTickTracker, next: readonly number[], axis: 'y' | 'time'): void {
+    const baseline = axis === 'y' ? this.#lastEmittedYTicks : this.#lastEmittedTimeTicks;
+    const diff = computeTickFadeDiff(next, baseline);
+    tracker.setCurrentTicks(next);
+    if (diff.entering.length === 0 && diff.exiting.length === 0) return;
+
+    if (axis === 'y') this.#lastEmittedYTicks = next;
+    else this.#lastEmittedTimeTicks = next;
+
+    const duration = tracker.isArmed ? this.#animationsConfig.axis.tickFadeMs : 0;
+    const now = performance.now();
+    this.#bridge.emitDataTick({
+      duration,
+      xTarget: null,
+      yTarget: null,
+      tickFade: diff,
+      startWall: now,
+    });
+  }
+
+  /**
    * Tick the engine at the given wall clock and push the resolved X / Y
    * ranges into the viewport + scales. Called from every emit path so that
    * synchronous readers (`chart.getYRange()`, `chart.getVisibleRange()`
@@ -2277,25 +2321,30 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       context.rect(0, 0, chartBitmapWidth, chartBitmapHeight);
       context.clip();
 
-      // Feed the shared tick trackers with the current tick sets so grid lines
-      // and DOM axis labels fade in lockstep. We sync ticks here (rather than
-      // inside renderGrid) so the trackers still advance even when the grid
-      // is disabled — the DOM axes still need fade state.
+      // Diff current tick sets against the previous frame's and route the
+      // entering / exiting tick values through the engine. The engine's
+      // tickFade slot owns the 0→1 / 1→0 opacity ease; the tracker is now
+      // a passive holder of the current set (plus the previous, for the
+      // diff). Each surface that reads ticks (canvas grid, DOM axis
+      // labels) sources opacity from `state.tickOpacity` via the same
+      // snapshot helper so they animate in lockstep frame-for-frame.
       const yTickValues = this.yScale.niceTickValues();
       const timeTickValues = this.timeScale.niceTickValues(this.#dataInterval).ticks;
-      this.yScale.tickTracker.setCurrentTicks(yTickValues);
-      this.timeScale.tickTracker.setCurrentTicks(timeTickValues);
-      const yTick = this.yScale.tickTracker.tick(now);
-      const timeTick = this.timeScale.tickTracker.tick(now);
-      yTickAnimating = yTick.animating;
-      timeTickAnimating = timeTick.animating;
-      if (yTick.animating || timeTick.animating) {
-        this.#mainScheduler.markDirty();
-      }
-      // Emit on any opacity change — large `dt` can one-shot a fade-in to
-      // settled in a single tick, and DOM axis components still need that
-      // refresh signal even though `animating` is now false.
-      if (yTick.moved || timeTick.moved || yTick.animating || timeTick.animating) {
+      this.#emitTickFade(this.yScale.tickTracker, yTickValues, 'y');
+      this.#emitTickFade(this.timeScale.tickTracker, timeTickValues, 'time');
+      const yTickSnap = this.yScale.tickTracker.snapshot(animationState.tickOpacity);
+      const timeTickSnap = this.timeScale.tickTracker.snapshot(animationState.tickOpacity);
+      yTickAnimating = yTickSnap.isAnimating;
+      timeTickAnimating = timeTickSnap.isAnimating;
+      // The engine's overall `animating` flag already covers the fade —
+      // renderMain marks dirty unconditionally when state.animating is
+      // true (see the early `engine.tick` block). No extra emit needed
+      // here; React / Svelte / Vue axis components subscribe to
+      // `viewportChange` (which fires on Y change) for re-render kicks,
+      // and to `tickFrame` for the in-between opacity advances. Emit
+      // `tickFrame` whenever this snapshot reads a fading tick so DOM
+      // surfaces refresh without a synthetic Y-change.
+      if (yTickSnap.isAnimating || timeTickSnap.isAnimating) {
         this.emit('tickFrame');
       }
 
@@ -2305,8 +2354,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           timeScale: this.timeScale,
           yScale: this.yScale,
           theme: this.#theme,
-          yTicks: this.yScale.tickTracker.snapshot(),
-          timeTicks: this.timeScale.tickTracker.snapshot(),
+          yTicks: yTickSnap,
+          timeTicks: timeTickSnap,
         });
       }
 
