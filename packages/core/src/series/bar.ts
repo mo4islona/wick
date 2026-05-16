@@ -1,4 +1,4 @@
-import { DEFAULT_ENTER_MS } from '../animation-constants';
+import { DEFAULT_BAR_ENTRY } from '../animation-constants';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
 import type { BarSeriesOptions, LineData } from '../types';
@@ -58,7 +58,7 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
 
   protected createEntry(_layerIndex: number, _time: number, now: number): BarEntry | null {
     const style = this.options.entryAnimation ?? 'fade-grow';
-    const enterMs = resolveMs(this.options.entryMs, DEFAULT_ENTER_MS);
+    const enterMs = resolveMs(this.options.entryMs, DEFAULT_BAR_ENTRY);
     if (style === 'none' || enterMs <= 0) return null;
 
     return { startTime: now };

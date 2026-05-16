@@ -1,4 +1,4 @@
-import { DEFAULT_ENTER_MS, DEFAULT_PULSE_MS } from '../animation-constants';
+import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_PULSE } from '../animation-constants';
 import { decimateLineData } from '../data/decimation';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
@@ -74,7 +74,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
 
   protected createEntry(layerIndex: number, time: number, now: number): LineEntry | null {
     const style = this.options.entryAnimation ?? 'grow';
-    const enterMs = resolveMs(this.options.entryMs, DEFAULT_ENTER_MS);
+    const enterMs = resolveMs(this.options.entryMs, DEFAULT_LINE_ENTRY);
     if (style === 'none' || enterMs <= 0) return null;
 
     // `createEntry` runs BEFORE the new point is appended, so `store.last()`
@@ -112,7 +112,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint, LineEntry> {
 
   /** Resolved pulse period in ms. 0 disables the pulse entirely. */
   private resolvedPulseMs(): number {
-    return resolveMs(this.options.pulseMs, DEFAULT_PULSE_MS);
+    return resolveMs(this.options.pulseMs, DEFAULT_LINE_PULSE);
   }
 
   get hasPulse(): boolean {

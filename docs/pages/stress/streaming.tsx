@@ -83,7 +83,7 @@ function WarmUpComparison({ theme, perfHud, yEngine }: PanelCtx) {
       <ChartContainer
         theme={theme}
         perf={perfHud}
-        animations={{ viewport: { yEngine } }}
+        animations={{ y: { transition: yEngine } }}
         interactive={false}
         viewport={{ initialRange: { from: seedRef.current[0].time, bars: cap } }}
       >
@@ -168,7 +168,7 @@ function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
-      animations={{ viewport: { yEngine } }}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >
@@ -212,7 +212,7 @@ function VariableJitter({ theme, perfHud, yEngine }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
-      animations={{ viewport: { yEngine } }}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: 80 } }}
     >
@@ -266,7 +266,7 @@ function BurstThenPause({ theme, perfHud, yEngine }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
-      animations={{ viewport: { yEngine } }}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: 60 } }}
     >
@@ -322,7 +322,7 @@ function MonotonicRamp({ theme, perfHud, yEngine }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
-      animations={{ viewport: { yEngine } }}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >
@@ -377,7 +377,7 @@ function OutlierRebound({ theme, perfHud, yEngine }: PanelCtx) {
     <ChartContainer
       theme={theme}
       perf={perfHud}
-      animations={{ viewport: { yEngine } }}
+      animations={{ y: { transition: yEngine } }}
       interactive={false}
       viewport={{ initialRange: { from: seed[0].time, bars: VISIBLE_CAP } }}
     >

@@ -1,14 +1,9 @@
 export { Animator, type AnimatorOptions } from './animator';
 export { ANIM, type AnimKey } from './durations';
 export { type Easing, easeLinear, easeOutCubic } from './easing';
-export { hermiteAnimator } from './hermite-animator';
-export { snapAnimator } from './snap-animator';
-export { springAnimator } from './spring-animator';
-export type {
-  BuiltinEngineOptions,
-  YEngineContext,
-  YEngineFactory,
-  YRangeAnimatorLike,
-} from './y-engine-types';
-export { YRangeHermite, type YRangeHermiteOptions } from './y-range-hermite';
-export { YRangeSpring, type YRangeSpringOptions } from './y-range-spring';
+export type { AnimationTime, Milliseconds } from './time';
+export { parseAnimationTime, resolveAnimationTime } from './time';
+export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './transition';
+export { type HermiteOpts, YRangeHermite, type YRangeHermiteOptions, hermite } from './y-range-hermite';
+export { YRangeSnap, snap } from './y-range-snap';
+export { type SpringOpts, YRangeSpring, type YRangeSpringOptions, spring } from './y-range-spring';

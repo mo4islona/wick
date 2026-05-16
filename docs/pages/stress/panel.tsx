@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { ChartTheme, YEngineFactory } from '@wick-charts/react';
+import type { ChartTheme, TransitionFactory } from '@wick-charts/react';
 
 import { Cell } from '../../components/Cell';
 
@@ -8,12 +8,12 @@ export interface PanelCtx {
   theme: ChartTheme;
   /** `perf={true}` passes through to the panel's ChartContainer. */
   perfHud: boolean;
-  /** Y-bound animator factory. Panels that exercise streaming Y motion
-   *  forward this through `ChartContainer.animations.viewport.yEngine`.
+  /** Y-bound transition factory. Panels that exercise streaming Y motion
+   *  forward this through `ChartContainer.animations.y.transition`.
    *  The stress page swaps between built-ins (hermite / spring / snap)
    *  via the top-bar toggle. */
-  yEngine: YEngineFactory;
-  /** Short label for the currently selected engine — used in panel keys
+  yEngine: TransitionFactory;
+  /** Short label for the currently selected transition — used in panel keys
    *  so toggling re-mounts the charts (the factory is captured at
    *  ChartContainer mount, so a live swap needs a fresh ChartInstance). */
   yEngineLabel: string;
@@ -41,14 +41,14 @@ export function StressPanels({
   panels: readonly StressPanel[];
   theme: ChartTheme;
   perfHud: boolean;
-  yEngine: YEngineFactory;
+  yEngine: TransitionFactory;
   yEngineLabel: string;
 }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       {panels.map((p) => (
-        // `ChartContainer` captures `perf` and `animations.viewport.yEngine`
-        // at mount only, so toggling the global HUD or the Y engine re-keys
+        // `ChartContainer` captures `perf` and `animations.y.transition`
+        // at mount only, so toggling the global HUD or the Y transition re-keys
         // each panel to force a remount.
         <div key={`${p.id}:${perfHud ? 'perf' : 'no-perf'}:${yEngineLabel}`} style={{ display: 'grid', gap: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>

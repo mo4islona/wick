@@ -27,7 +27,7 @@ function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   return {
     chart: new ChartInstance(container, {
       interactive: false,
-      animations: { viewport: { visibilityMs: 0 } },
+      animations: { y: { visibility: 0 } },
     }),
     container,
   };

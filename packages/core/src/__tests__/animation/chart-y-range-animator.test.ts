@@ -20,7 +20,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { hermiteAnimator, snapAnimator } from '../../animation';
+import { hermite, snap } from '../../animation';
 import { ChartInstance } from '../../chart';
 
 const INTERVAL = 60_000;
@@ -81,19 +81,19 @@ function makeChart(opts: { yAxisMs?: number } = {}): { chart: ChartInstance; con
   document.body.appendChild(container);
 
   // Tests historically pinned the Y-chase duration via `yAxisMs`. The public
-  // API now lets callers swap the entire Y animator via `yEngine`; the
-  // shortcut here maps `yAxisMs` to a `hermiteAnimator` (default engine)
-  // with the requested expand time, or to `snapAnimator` when 0 — preserves
+  // API now lets callers swap the Y transition curve via `y.transition`;
+  // the shortcut here maps `yAxisMs` to `hermite()` (default curve) with
+  // the requested expand/contract time, or to `snap()` when 0 — preserves
   // the existing test semantics without touching every call site.
-  const yEngine =
+  const transition =
     opts.yAxisMs === undefined
       ? undefined
       : opts.yAxisMs === 0
-        ? snapAnimator()
-        : hermiteAnimator({ expandMs: opts.yAxisMs, contractMs: opts.yAxisMs });
+        ? snap()
+        : hermite({ expand: opts.yAxisMs, contract: opts.yAxisMs });
   const chart = new ChartInstance(container, {
     interactive: false,
-    animations: yEngine !== undefined ? { viewport: { yEngine } } : undefined,
+    animations: transition !== undefined ? { y: { transition } } : undefined,
   });
 
   return { chart, container };

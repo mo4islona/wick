@@ -79,8 +79,8 @@ describe('updateSeriesOptions honors chart-level animation gates', () => {
     expect(opts().smoothMs).toBe(0);
   });
 
-  it('line: chart-level points: { enterMs: false } holds across updateSeriesOptions', () => {
-    const chart = makeChart({ points: { enterMs: false } });
+  it('line: chart-level series.line.entry: false holds across updateSeriesOptions', () => {
+    const chart = makeChart({ series: { line: { entry: false } } });
     const { id, renderer } = lineRenderer(chart);
     const opts = () => (renderer as unknown as { options: { enterMs?: number } }).options;
 
@@ -89,8 +89,8 @@ describe('updateSeriesOptions honors chart-level animation gates', () => {
     expect(opts().enterMs).toBe(0);
   });
 
-  it('bar: chart-level points: { smoothMs: false } holds across updateSeriesOptions', () => {
-    const chart = makeChart({ points: { smoothMs: false } });
+  it('bar: chart-level series.bar.smooth: false holds across updateSeriesOptions', () => {
+    const chart = makeChart({ series: { bar: { smooth: false } } });
     const { id, renderer } = barRenderer(chart);
     const opts = () => (renderer as unknown as { options: { smoothMs?: number } }).options;
 

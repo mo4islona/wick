@@ -31,7 +31,7 @@ interface TrackedTick {
 const EMPTY_SNAPSHOT: TickTrackerSnapshot = { entries: [], isAnimating: false };
 
 export interface AxisTickTrackerOptions {
-  /** Fade duration in ms. Default 250 — matches DEFAULT_ENTER_MS / streamTick. */
+  /** Fade duration in ms. Default 250 — matches DEFAULT_AXIS_TICK_FADE / streamTick. */
   fadeMs?: number;
 }
 

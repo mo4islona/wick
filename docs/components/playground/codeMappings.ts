@@ -1,4 +1,4 @@
-import { type AnimationsConfig, hermiteAnimator, snapAnimator, springAnimator } from '@wick-charts/react';
+import { type AnimationsConfig, hermite, snap, spring } from '@wick-charts/react';
 
 import type { PropValue } from '../CodePreview';
 import type { PlaygroundChartProps } from './Playground';
@@ -7,8 +7,8 @@ export type CartesianSeriesKind = 'line' | 'bar' | 'candle';
 
 const AXIS_Y_WIDTH_DEFAULT = 55;
 const AXIS_X_HEIGHT_DEFAULT = 30;
-// Coordinated default for every settling animation — must match
-// `DEFAULT_ANIMATION_MS` in packages/core/src/animation-constants.ts.
+// Coordinated default for every settling animation. Must match the public
+// defaults in packages/core/src/animation-constants.ts.
 const SHARED_ANIMATION_MS_DEFAULT = 250;
 const ENTRY_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
 const SMOOTH_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
@@ -23,9 +23,9 @@ const Y_ENGINE_DEFAULT = 'hermite';
 // would hand a fresh factory and either thrash the animator (if it ran) or be
 // silently ignored (if dep stayed the same).
 const Y_ENGINE_FACTORIES = {
-  hermite: hermiteAnimator(),
-  spring: springAnimator(),
-  snap: snapAnimator(),
+  hermite: hermite(),
+  spring: spring(),
+  snap: snap(),
 } as const;
 const ENTRY_ANIM_DEFAULT: Record<CartesianSeriesKind, string> = {
   line: 'grow',
@@ -64,26 +64,38 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
 
   // Chart-level animation overrides — emitted only when they differ from
   // library defaults so the snippet stays minimal. Per-series knobs
-  // (entryAnimation/entryMs/smoothMs/pulse) flow through the series
-  // options builder instead.
-  const points: Record<string, PropValue> = {};
-  if (s.entryMs !== ENTRY_MS_DEFAULT) points.enterMs = s.entryMs;
-  if (s.smoothMs !== SMOOTH_MS_DEFAULT) points.smoothMs = s.smoothMs;
-  if (s.pulseMs !== PULSE_MS_DEFAULT) points.pulseMs = s.pulseMs;
+  // (entryAnimation/entryMs/smoothMs/pulse) flow through the series options
+  // builder instead. Phase 1 dropped `viewport.reboundMs` /
+  // `viewport.inputResponseMs` from the public surface, so those slider
+  // values render only when non-default; rebound has no config field, and
+  // inputResponse is now `x.gesture`.
+  const lineSeries: Record<string, PropValue> = {};
+  if (s.entryMs !== ENTRY_MS_DEFAULT) lineSeries.entry = s.entryMs;
+  if (s.smoothMs !== SMOOTH_MS_DEFAULT) lineSeries.smooth = s.smoothMs;
+  if (s.pulseMs !== PULSE_MS_DEFAULT) lineSeries.pulse = s.pulseMs;
 
-  const viewport: Record<string, PropValue> = {};
-  if (s.reboundMs !== REBOUND_MS_DEFAULT) viewport.reboundMs = s.reboundMs;
-  if (s.inputResponseMs !== INPUT_RESPONSE_MS_DEFAULT) viewport.inputResponseMs = s.inputResponseMs;
+  const series: Record<string, PropValue> = {};
+  if (Object.keys(lineSeries).length > 0) series.line = lineSeries;
+
+  const yBlock: Record<string, PropValue> = {};
   if (s.yEngine !== Y_ENGINE_DEFAULT) {
-    // Emitted as a bare identifier (`springAnimator()` or `snapAnimator()`)
-    // via the CodePreview VAR_REF_NAMES allow-list, so the snippet shows
-    // the function call instead of a quoted string.
-    viewport.yEngine = `${s.yEngine}Animator()`;
+    // Emitted as a bare identifier (`spring()` / `snap()`) via the
+    // CodePreview VAR_REF_NAMES allow-list, so the snippet shows the
+    // function call instead of a quoted string.
+    yBlock.transition = `${s.yEngine}()`;
   }
 
+  const xBlock: Record<string, PropValue> = {};
+  if (s.inputResponseMs !== INPUT_RESPONSE_MS_DEFAULT) xBlock.gesture = s.inputResponseMs;
+  // `s.reboundMs` no longer has a public config field — Phase 2 removes
+  // rebound entirely. Slider state is kept for backwards-compat in the UI
+  // panel; we just don't emit a config field for it.
+  void s.reboundMs;
+
   const animations: Record<string, PropValue> = {};
-  if (Object.keys(points).length > 0) animations.points = points;
-  if (Object.keys(viewport).length > 0) animations.viewport = viewport;
+  if (Object.keys(yBlock).length > 0) animations.y = yBlock;
+  if (Object.keys(xBlock).length > 0) animations.x = xBlock;
+  if (Object.keys(series).length > 0) animations.series = series;
   if (Object.keys(animations).length > 0) out.animations = animations;
 
   return Object.keys(out).length > 0 ? out : undefined;
@@ -95,31 +107,29 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
  * can omit the prop entirely (and the rendered code snippet stays clean).
  */
 export function buildAnimationsProp(s: PlaygroundChartProps): AnimationsConfig | undefined {
-  const points: AnimationsConfig['points'] extends infer T ? T : never =
+  const linePoints =
     s.entryMs === ENTRY_MS_DEFAULT && s.smoothMs === SMOOTH_MS_DEFAULT && s.pulseMs === PULSE_MS_DEFAULT
       ? undefined
       : {
-          ...(s.entryMs !== ENTRY_MS_DEFAULT ? { enterMs: s.entryMs } : {}),
-          ...(s.smoothMs !== SMOOTH_MS_DEFAULT ? { smoothMs: s.smoothMs } : {}),
-          ...(s.pulseMs !== PULSE_MS_DEFAULT ? { pulseMs: s.pulseMs } : {}),
+          ...(s.entryMs !== ENTRY_MS_DEFAULT ? { entry: s.entryMs } : {}),
+          ...(s.smoothMs !== SMOOTH_MS_DEFAULT ? { smooth: s.smoothMs } : {}),
+          ...(s.pulseMs !== PULSE_MS_DEFAULT ? { pulse: s.pulseMs } : {}),
         };
 
   const yEngineFactory = Y_ENGINE_FACTORIES[s.yEngine];
-  const viewport: AnimationsConfig['viewport'] extends infer T ? T : never =
-    s.reboundMs === REBOUND_MS_DEFAULT &&
-    s.inputResponseMs === INPUT_RESPONSE_MS_DEFAULT &&
-    s.yEngine === Y_ENGINE_DEFAULT
-      ? undefined
-      : {
-          ...(s.reboundMs !== REBOUND_MS_DEFAULT ? { reboundMs: s.reboundMs } : {}),
-          ...(s.inputResponseMs !== INPUT_RESPONSE_MS_DEFAULT ? { inputResponseMs: s.inputResponseMs } : {}),
-          ...(s.yEngine !== Y_ENGINE_DEFAULT ? { yEngine: yEngineFactory } : {}),
-        };
+  const yBlock = s.yEngine === Y_ENGINE_DEFAULT ? undefined : { transition: yEngineFactory };
+  const xBlock = s.inputResponseMs === INPUT_RESPONSE_MS_DEFAULT ? undefined : { gesture: s.inputResponseMs };
 
-  if (points === undefined && viewport === undefined) return undefined;
+  // Slider for the (now-removed) public rebound field stays in the panel
+  // for UI continuity; we just don't surface it in the runtime config.
+  void s.reboundMs;
+
+  if (linePoints === undefined && yBlock === undefined && xBlock === undefined) return undefined;
+
   const out: AnimationsConfig = {};
-  if (points !== undefined) out.points = points;
-  if (viewport !== undefined) out.viewport = viewport;
+  if (linePoints !== undefined) out.series = { line: linePoints };
+  if (yBlock !== undefined) out.y = yBlock;
+  if (xBlock !== undefined) out.x = xBlock;
 
   return out;
 }
@@ -139,9 +149,9 @@ export function buildCommonSeriesOptions(
   if (anim !== ENTRY_ANIM_DEFAULT[kind]) out.entryAnimation = anim;
 
   // Per-series duration overrides aren't emitted here — they fold into the
-  // chart-level `animations.points` block via `buildCartesianContainerProps`,
-  // which keeps the rendered snippet single-source-of-truth and matches the
-  // way the public API is documented.
+  // chart-level `animations.series.line.*` block via
+  // `buildCartesianContainerProps`, which keeps the rendered snippet
+  // single-source-of-truth and matches the way the public API is documented.
   if (kind === 'line' && s.streaming) out.pulse = true;
 
   return out;

@@ -1,17 +1,26 @@
 import { Animator } from './animation/animator';
 import { easeOutCubic } from './animation/easing';
-import { hermiteAnimator } from './animation/hermite-animator';
-import { snapAnimator } from './animation/snap-animator';
-import type { YEngineFactory, YRangeAnimatorLike } from './animation/y-engine-types';
+import { type AnimationTime, resolveAnimationTime } from './animation/time';
+import type { Transition, TransitionFactory } from './animation/transition';
+import { hermite } from './animation/y-range-hermite';
+import { snap } from './animation/y-range-snap';
 import {
-  DEFAULT_ENTER_MS,
-  DEFAULT_INPUT_RESPONSE_MS,
-  DEFAULT_PULSE_MS,
+  DEFAULT_AXIS_TICK_FADE,
+  DEFAULT_BAR_ENTRY,
+  DEFAULT_BAR_SMOOTH,
+  DEFAULT_CANDLESTICK_ENTRY,
+  DEFAULT_CANDLESTICK_SMOOTH,
+  DEFAULT_LINE_ENTRY,
+  DEFAULT_LINE_PULSE,
+  DEFAULT_LINE_SMOOTH,
+  DEFAULT_PIE_ENTRY,
+  DEFAULT_PIE_UPDATE,
   DEFAULT_REBOUND_MS,
-  DEFAULT_SMOOTH_MS,
-  DEFAULT_VISIBILITY_MS,
+  DEFAULT_X_DATA_TICK,
+  DEFAULT_X_GESTURE,
+  DEFAULT_Y_GESTURE,
+  DEFAULT_Y_VISIBILITY,
   INTERACT_GRACE_MS,
-  INTERACT_Y_AXIS_MS,
 } from './animation-constants';
 import { CanvasManager } from './canvas-manager';
 import { renderCrosshair } from './components/crosshair';
@@ -99,88 +108,83 @@ interface ChartEvents {
 }
 
 /** Options passed when creating a new {@link ChartInstance}. */
-/**
- * Time-value or boolean used throughout the animation API. `false` disables
- * the category; a number configures its duration/time-constant in milliseconds
- * (`0` also disables, useful when the caller wants a number shape).
- */
-export type AnimationTime = number | false;
 
 /**
- * Chart-level animation configuration. Two independent domains so per-series
- * defaults can't bleed into viewport-interaction timings.
+ * Chart-level animation configuration. Four independent domains so timings
+ * across the Y axis, X axis, per-series tweens, and tick fade can't bleed
+ * into each other.
  *
- * **Two layers — chart-level vs per-series.** The same data-animation knobs
- * live on both layers; remember which is which:
+ * **Two layers — chart-level vs per-series.** The same per-point knobs
+ * (`entry` / `smooth` / `pulse`) also exist on individual series options
+ * (`<XSeries options={{ entryMs }}>`). The chart-level field acts as the
+ * default for any series that hasn't set its own override; an explicit
+ * `series.<type>: false` (or top-level `false`) is a hard disable that
+ * overrides per-series.
  *
- * | Field | Chart-level (here) | Per-series option |
- * | ----- | ------------------ | ----------------- |
- * | Entry duration | {@link AnimationsConfig.points}`.enterMs` | `<XSeries options={{ entryMs }}>` (canonical name; `enterMs` is a `@deprecated` alias) |
- * | Live smoothing | `points.smoothMs` | `options={{ smoothMs }}` |
- * | Line pulse period | `points.pulseMs` | `<LineSeries options={{ pulseMs }}>` |
- *
- * Resolution: per-series option **wins** (it's the override). The chart-
- * level field acts as the default for every series that didn't set its own
- * override — *except* when the chart-level category is explicitly `false`,
- * which is a hard disable that overrides per-series too.
- *
- * - `points` — applied to data: entrance tween, live-tracking smoothing of
- *   the last candle/bar/line value, line pulse cadence.
- * - `viewport` — applied to viewport interactions: post-gesture rebound,
- *   Y-axis range chase, optional per-event ease for pan/zoom. Has no
- *   per-series equivalent — these are chart-level only.
+ * - `y` — Y bound chase: pluggable transition curve, gesture-time short
+ *   ease, visibility-toggle re-fit duration.
+ * - `x` — X viewport: streaming scroll floor, per-event pan/zoom ease.
+ * - `series.{line,candlestick,bar,pie}` — per-series-type data tweens.
+ * - `axis.tickFade` — axis tick label cross-fade.
  *
  * All settling animations share a 250 ms default so the X re-fit, Y range
  * update, and last-bar live-track all settle on the same frame on a
- * streaming tick. Pulse cycle period (600 ms) and `inputResponseMs` (0,
- * opt-in) keep their own values.
+ * streaming tick. Pulse cycle period (600 ms) and `x.gesture` (0, opt-in)
+ * keep their own values.
  */
 export interface AnimationsConfig {
   /**
-   * Data-series animations. `false` disables every point animation (entrance,
-   * live-smoothing, pulse) across every series — overrides any per-series
-   * option set on the same fields. An object overrides individual categories;
-   * omitted fields fall back to the built-in defaults.
-   *
-   * Per-series options (`<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`)
-   * win over chart-level numeric values. The chart-level field becomes the
-   * default for series that don't set their own.
+   * Y bound chase. `false` disables: Y range snaps instantly and visibility
+   * toggles skip their fade.
    */
-  points?:
+  y?:
     | false
     | {
         /**
-         * Per-point entrance duration (ms). Default: 250.
-         * Per-series equivalent: `<XSeries options={{ entryMs }}>` (note the
-         * `y` — chart-level uses `enterMs`, per-series uses `entryMs` for
-         * historical reasons; both refer to the same animation). `false` /
-         * `0` disables.
+         * Y curve factory. Built-in factories live in separate modules so
+         * unused curves tree-shake out:
+         *
+         * - {@link hermite} *(default)* — velocity-matched cubic with a
+         *   fixed deadline. Each retarget reaches the new target in exactly
+         *   the configured duration.
+         * - {@link spring} — critically-damped spring physics. Asymptotic
+         *   approach, no fixed deadline; smoother on continuously-
+         *   retargeted Y.
+         * - {@link snap} — no animation (used internally when `y` is `false`).
+         *
+         * ```ts
+         * import { spring, hermite } from '@wick-charts/core';
+         *
+         * animations={{ y: { transition: spring({ contractSpeed: '5s' }) } }}
+         * ```
          */
-        enterMs?: AnimationTime;
+        transition?: TransitionFactory;
         /**
-         * Live-value chase duration (ms) for the displayed last point on
-         * `updateData` ticks. Animator-driven cubic ease — after this many ms
-         * with no new updates, the displayed value reaches exactly the
-         * actual last value. Default: 250. Per-series equivalent:
-         * `options={{ smoothMs }}`. `false` / `0` snaps.
+         * One-shot Y settle time applied while a user gesture (pan/zoom) is
+         * active. Shorter than the curve's baseline so contractions during
+         * interaction converge in ~one frame per wheel tick instead of
+         * crawling through the long sticky-Y window. Default: 100 ms.
          */
-        smoothMs?: AnimationTime;
+        gesture?: AnimationTime;
         /**
-         * Pulse cycle period (ms) for the line last-point halo — periodic,
-         * not a one-shot transition. Default: 600. Per-series equivalent:
-         * `<LineSeries options={{ pulseMs }}>`. `false` / `0` disables.
+         * Duration of the show/hide transition triggered by
+         * {@link ChartInstance.setSeriesVisible}. The line/bar/candle alpha
+         * cross-fades over this window AND the Y range re-fit uses the same
+         * duration (one-shot override over the curve's baseline), so the
+         * fade and the axis adjustment finish on the same frame. Default:
+         * 250 ms. `false` / `0` makes visibility toggles instant.
          */
-        pulseMs?: AnimationTime;
+        visibility?: AnimationTime;
       };
   /**
-   * Viewport interaction animations. `false` disables both rebound and Y-axis
-   * smoothing — viewport changes snap instantly.
+   * X viewport. `false` disables both gesture ease and the streaming-scroll
+   * floor — X changes snap instantly.
    */
-  viewport?:
+  x?:
     | false
     | {
-        /** Rebound (snap-back) duration after pan/zoom overshoot (ms). Default: 350. */
-        reboundMs?: AnimationTime;
+        /** Floor duration for streaming X scroll. Default: 250 ms. */
+        dataTick?: AnimationTime;
         /**
          * Per-event ease applied to user pan/zoom commits. Logical state
          * advances synchronously (gesture math, edge detection, autoscroll
@@ -188,53 +192,40 @@ export interface AnimationsConfig {
          * duration so back-to-back wheel/trackpad events interpolate
          * smoothly through the same animator.
          *
-         * Default `0` (instant-apply). Opt in via `inputResponseMs: 60`
-         * for an eased pan/zoom feel — the default is conservative because
-         * the animated visual range diverges from the committed target
-         * until the ease completes, and existing consumers reading
+         * Default `0` (instant-apply). Opt in via `x: { gesture: 60 }` for
+         * an eased pan/zoom feel — the default is conservative because the
+         * animated visual range diverges from the committed target until
+         * the ease completes, and existing consumers reading
          * `chart.getVisibleRange()` synchronously after a wheel/pan expect
          * the new value.
          */
-        inputResponseMs?: AnimationTime;
-        /**
-         * Animator factory for the Y bounds. Built-in factories live in
-         * separate modules so unused engines tree-shake out:
-         *
-         * - {@link hermiteAnimator} *(default)* — velocity-matched cubic
-         *   with a fixed deadline. Each retarget reaches the new target
-         *   in exactly the configured duration.
-         * - {@link springAnimator} — critically-damped spring physics.
-         *   Asymptotic approach, no fixed deadline; smoother on
-         *   continuously-retargeted Y.
-         * - {@link snapAnimator} — no animation (used internally when
-         *   `animations.viewport` is `false`).
-         *
-         * Each built-in takes optional `{ expandMs, contractMs }`.
-         * Defaults: 250 ms expand, 2500 ms contract.
-         *
-         * ```ts
-         * import { springAnimator, hermiteAnimator } from '@wick-charts/core';
-         *
-         * // built-in with overrides
-         * animations={{ viewport: { yEngine: springAnimator({ contractMs: 5_000 }) } }}
-         *
-         * // custom engine — any object matching YRangeAnimatorLike works
-         * animations={{ viewport: { yEngine: ({ initial }) => new MyEngine(initial) } }}
-         * ```
-         */
-        yEngine?: YEngineFactory;
-        /**
-         * Duration (ms) for the series show / hide transition triggered by
-         * {@link ChartInstance.setSeriesVisible}. The line / bar / candle
-         * cross-fades over this window AND the Y range re-fit uses the
-         * same duration (one-shot override over the engine's baseline), so
-         * the fade and the axis adjustment finish on the same frame.
-         *
-         * Default 250 ms. `false` / `0` makes visibility toggles instant
-         * (no fade, Y snap).
-         */
-        visibilityMs?: AnimationTime;
+        gesture?: AnimationTime;
       };
+  /**
+   * Per-series-type data animations. `false` disables every per-point
+   * animation across every series — overrides any per-series option set on
+   * the same fields. Setting a single type to `false`
+   * (`series: { line: false }`) disables that type only.
+   *
+   * Per-series options (`<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`)
+   * win over chart-level numeric values. The chart-level field becomes the
+   * default for series that don't set their own.
+   */
+  series?:
+    | false
+    | {
+        line?: false | { entry?: AnimationTime; smooth?: AnimationTime; pulse?: AnimationTime };
+        candlestick?: false | { entry?: AnimationTime; smooth?: AnimationTime };
+        bar?: false | { entry?: AnimationTime; smooth?: AnimationTime };
+        /**
+         * Pie segment entry/update tweens. Parsed at config-time; the actual
+         * wiring lands in a later phase — providing a value here today is a
+         * no-op but the shape is stable.
+         */
+        pie?: false | { entry?: AnimationTime; update?: AnimationTime };
+      };
+  /** Axis tick label cross-fade. `false` makes tick relabel instant. */
+  axis?: false | { tickFade?: AnimationTime };
 }
 
 /**
@@ -244,17 +235,29 @@ export interface AnimationsConfig {
  * @internal
  */
 export interface ResolvedAnimationsConfig {
-  points: {
-    enterMs: number;
-    smoothMs: number;
-    pulseMs: number;
-  };
-  viewport: {
-    reboundMs: number;
-    inputResponseMs: number;
-    yEngine: YEngineFactory;
+  y: {
+    transition: TransitionFactory;
+    gestureMs: number;
     visibilityMs: number;
   };
+  x: {
+    dataTickMs: number;
+    gestureMs: number;
+  };
+  series: {
+    line: { entryMs: number; smoothMs: number; pulseMs: number };
+    candlestick: { entryMs: number; smoothMs: number };
+    bar: { entryMs: number; smoothMs: number };
+    pie: { entryMs: number; updateMs: number };
+  };
+  axis: { tickFadeMs: number };
+  /**
+   * Rebound duration after pan/zoom overshoot. Phase 1 keeps the field — its
+   * config surface is gone (was `viewport.reboundMs`), the value falls back
+   * to the built-in default. Rebound itself is removed in Phase 2.
+   * @internal
+   */
+  reboundMs: number;
 }
 
 export interface ChartOptions {
@@ -341,19 +344,6 @@ export interface ChartOptions {
 }
 
 /**
- * Normalize an {@link AnimationTime} against a default. `false` or `0`
- * collapses to `0` (the "disabled" marker in the resolved config); any
- * other number flows through untouched; `undefined` falls back to the
- * built-in default.
- */
-function resolveTime(value: AnimationTime | undefined, fallback: number): number {
-  if (value === false || value === 0) return 0;
-  if (value === undefined) return fallback;
-
-  return value;
-}
-
-/**
  * Collapse the public `animations` surface into a flat resolved config.
  * `animations: false` disables everything; category-level `false` disables
  * every field in that category; otherwise missing fields inherit built-in
@@ -363,38 +353,99 @@ function resolveTime(value: AnimationTime | undefined, fallback: number): number
  */
 export function resolveAnimationsConfig(input: ChartOptions['animations']): ResolvedAnimationsConfig {
   if (input === false) {
-    return {
-      points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, inputResponseMs: 0, yEngine: snapAnimator(), visibilityMs: 0 },
-    };
+    return DISABLED_ANIMATIONS_CONFIG;
   }
 
-  // `true` (or undefined) means "all defaults on" — fall through to the
-  // default-resolution path with no overrides.
   const cfg = input === true || input === undefined ? undefined : input;
-  const rawPoints = cfg?.points;
-  const rawViewport = cfg?.viewport;
+  const rawY = cfg?.y;
+  const rawX = cfg?.x;
+  const rawSeries = cfg?.series;
+  const rawAxis = cfg?.axis;
 
-  const points =
-    rawPoints === false
-      ? { enterMs: 0, smoothMs: 0, pulseMs: 0 }
+  const y =
+    rawY === false
+      ? { transition: snap(), gestureMs: 0, visibilityMs: 0 }
       : {
-          enterMs: resolveTime(rawPoints?.enterMs, DEFAULT_ENTER_MS),
-          smoothMs: resolveTime(rawPoints?.smoothMs, DEFAULT_SMOOTH_MS),
-          pulseMs: resolveTime(rawPoints?.pulseMs, DEFAULT_PULSE_MS),
+          transition: rawY?.transition ?? hermite(),
+          gestureMs: resolveAnimationTime(rawY?.gesture, DEFAULT_Y_GESTURE),
+          visibilityMs: resolveAnimationTime(rawY?.visibility, DEFAULT_Y_VISIBILITY),
         };
 
-  const viewport =
-    rawViewport === false
-      ? { reboundMs: 0, inputResponseMs: 0, yEngine: snapAnimator(), visibilityMs: 0 }
+  const x =
+    rawX === false
+      ? { dataTickMs: 0, gestureMs: 0 }
       : {
-          reboundMs: resolveTime(rawViewport?.reboundMs, DEFAULT_REBOUND_MS),
-          inputResponseMs: resolveTime(rawViewport?.inputResponseMs, DEFAULT_INPUT_RESPONSE_MS),
-          yEngine: rawViewport?.yEngine ?? hermiteAnimator(),
-          visibilityMs: resolveTime(rawViewport?.visibilityMs, DEFAULT_VISIBILITY_MS),
+          dataTickMs: resolveAnimationTime(rawX?.dataTick, DEFAULT_X_DATA_TICK),
+          gestureMs: resolveAnimationTime(rawX?.gesture, DEFAULT_X_GESTURE),
         };
 
-  return { points, viewport };
+  const series = resolveSeriesAnimations(rawSeries);
+
+  const axis =
+    rawAxis === false
+      ? { tickFadeMs: 0 }
+      : { tickFadeMs: resolveAnimationTime(rawAxis?.tickFade, DEFAULT_AXIS_TICK_FADE) };
+
+  return { y, x, series, axis, reboundMs: DEFAULT_REBOUND_MS };
+}
+
+const ZERO_SERIES_ANIMATIONS: ResolvedAnimationsConfig['series'] = {
+  line: { entryMs: 0, smoothMs: 0, pulseMs: 0 },
+  candlestick: { entryMs: 0, smoothMs: 0 },
+  bar: { entryMs: 0, smoothMs: 0 },
+  pie: { entryMs: 0, updateMs: 0 },
+};
+
+const DISABLED_ANIMATIONS_CONFIG: ResolvedAnimationsConfig = {
+  y: { transition: snap(), gestureMs: 0, visibilityMs: 0 },
+  x: { dataTickMs: 0, gestureMs: 0 },
+  series: ZERO_SERIES_ANIMATIONS,
+  axis: { tickFadeMs: 0 },
+  reboundMs: 0,
+};
+
+function resolveSeriesAnimations(raw: AnimationsConfig['series'] | undefined): ResolvedAnimationsConfig['series'] {
+  if (raw === false) return ZERO_SERIES_ANIMATIONS;
+
+  const rawLine = raw?.line;
+  const rawCandle = raw?.candlestick;
+  const rawBar = raw?.bar;
+  const rawPie = raw?.pie;
+
+  const line =
+    rawLine === false
+      ? { entryMs: 0, smoothMs: 0, pulseMs: 0 }
+      : {
+          entryMs: resolveAnimationTime(rawLine?.entry, DEFAULT_LINE_ENTRY),
+          smoothMs: resolveAnimationTime(rawLine?.smooth, DEFAULT_LINE_SMOOTH),
+          pulseMs: resolveAnimationTime(rawLine?.pulse, DEFAULT_LINE_PULSE),
+        };
+
+  const candlestick =
+    rawCandle === false
+      ? { entryMs: 0, smoothMs: 0 }
+      : {
+          entryMs: resolveAnimationTime(rawCandle?.entry, DEFAULT_CANDLESTICK_ENTRY),
+          smoothMs: resolveAnimationTime(rawCandle?.smooth, DEFAULT_CANDLESTICK_SMOOTH),
+        };
+
+  const bar =
+    rawBar === false
+      ? { entryMs: 0, smoothMs: 0 }
+      : {
+          entryMs: resolveAnimationTime(rawBar?.entry, DEFAULT_BAR_ENTRY),
+          smoothMs: resolveAnimationTime(rawBar?.smooth, DEFAULT_BAR_SMOOTH),
+        };
+
+  const pie =
+    rawPie === false
+      ? { entryMs: 0, updateMs: 0 }
+      : {
+          entryMs: resolveAnimationTime(rawPie?.entry, DEFAULT_PIE_ENTRY),
+          updateMs: resolveAnimationTime(rawPie?.update, DEFAULT_PIE_UPDATE),
+        };
+
+  return { line, candlestick, bar, pie };
 }
 
 interface ResolvedPerfOptions {
@@ -535,7 +586,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.#theme = options?.theme ?? catppuccin.theme;
     this.#grid = options?.grid?.visible !== false;
     this.#animationsConfig = resolveAnimationsConfig(options?.animations);
-    this.#yAnimator = this.#animationsConfig.viewport.yEngine({ initial: { min: 0, max: 0 } });
+    this.#yAnimator = this.#animationsConfig.y.transition({ initial: { min: 0, max: 0 } });
     this.#onEdgeReached = options?.onEdgeReached;
     this.#initialVisibleRange = options?.viewport?.initialRange;
 
@@ -546,7 +597,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.#canvasManager = new CanvasManager(container, this.#perfMonitor ?? undefined);
     this.#viewport = new Viewport({
       padding: options?.padding,
-      reboundMs: this.#animationsConfig.viewport.reboundMs,
+      reboundMs: this.#animationsConfig.reboundMs,
       maxVisibleBars: options?.viewport?.maxVisibleBars,
     });
     registerChartViewport(this, this.#viewport);
@@ -582,7 +633,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           this.#viewport,
           this.timeScale,
           this.yScale,
-          this.#animationsConfig.viewport.inputResponseMs,
+          this.#animationsConfig.x.gestureMs,
         )
       : null;
 
@@ -603,7 +654,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     });
 
     // While the user is actively panning/zooming, the Y-range chase uses a
-    // shorter ease (see INTERACT_Y_AXIS_MS) so it converges within ~1 frame
+    // shorter ease (see `animations.y.gesture`) so it converges within ~1 frame
     // per wheel tick instead of trailing the gesture through the full 250 ms
     // ease. The flag is read-and-cleared by updateYRange on the next frame —
     // no time window needed: after the last wheel tick, current ≈ target, so
@@ -706,25 +757,57 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * `#seriesAnimationDefaults(kind, options)` so the result merges *after*
    * the user's options for the disable paths.
    */
+  /** Map a renderer instance to its `series.<kind>` config bucket. Pie has
+   *  no per-series animation wiring yet (Phase 3), so we return null. */
+  #rendererKind(renderer: SeriesRenderer): 'candle' | 'bar' | 'line' | null {
+    if (renderer instanceof CandlestickRenderer) return 'candle';
+    if (renderer instanceof BarRenderer) return 'bar';
+    if (renderer instanceof LineRenderer) return 'line';
+
+    return null;
+  }
+
   #seriesAnimationDefaults(kind: 'candle' | 'bar' | 'line'): Record<string, unknown> {
-    const { enterMs, smoothMs, pulseMs } = this.#animationsConfig.points;
-    // `enterAnimation` style stays per-series — chart-level config only
-    // influences durations. `pulseMs` is line-only; bars/candles ignore it.
-    return kind === 'line' ? { enterMs, smoothMs, pulseMs } : { enterMs, smoothMs };
+    if (kind === 'line') {
+      const { entryMs, smoothMs, pulseMs } = this.#animationsConfig.series.line;
+      // `enterAnimation` style stays per-series — chart-level config only
+      // influences durations. `pulseMs` is line-only; bars/candles ignore it.
+      return { enterMs: entryMs, smoothMs, pulseMs };
+    }
+
+    if (kind === 'candle') {
+      const { entryMs, smoothMs } = this.#animationsConfig.series.candlestick;
+
+      return { enterMs: entryMs, smoothMs };
+    }
+
+    const { entryMs, smoothMs } = this.#animationsConfig.series.bar;
+
+    return { enterMs: entryMs, smoothMs };
   }
 
   /**
    * Chart-level animation overrides — these *win over* any per-series value
-   * because `animations.points: false` (or any category set to `false`) is
-   * documented as a hard disable. Merged AFTER user options in the
+   * because `animations.series.<type>: false` (or any category set to `false`)
+   * is documented as a hard disable. Merged AFTER user options in the
    * `addXSeries` wrappers.
    */
-  #seriesAnimationForceOff(): Record<string, unknown> {
-    const { enterMs, smoothMs, pulseMs } = this.#animationsConfig.points;
+  #seriesAnimationForceOff(kind: 'candle' | 'bar' | 'line'): Record<string, unknown> {
+    const series = this.#animationsConfig.series;
     const out: Record<string, unknown> = {};
-    if (enterMs === 0) out.enterMs = 0;
+
+    if (kind === 'line') {
+      const { entryMs, smoothMs, pulseMs } = series.line;
+      if (entryMs === 0) out.enterMs = 0;
+      if (smoothMs === 0) out.smoothMs = 0;
+      if (pulseMs === 0) out.pulseMs = 0;
+
+      return out;
+    }
+
+    const { entryMs, smoothMs } = kind === 'candle' ? series.candlestick : series.bar;
+    if (entryMs === 0) out.enterMs = 0;
     if (smoothMs === 0) out.smoothMs = 0;
-    if (pulseMs === 0) out.pulseMs = 0;
 
     return out;
   }
@@ -738,7 +821,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       bodyWidthRatio: 0.6,
       ...this.#seriesAnimationDefaults('candle'),
       ...options,
-      ...this.#seriesAnimationForceOff(),
+      ...this.#seriesAnimationForceOff('candle'),
     });
 
     return this.#registerSeries(renderer, renderer.store, options ?? {});
@@ -755,7 +838,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       area: { visible: true },
       ...this.#seriesAnimationDefaults('line'),
       ...rest,
-      ...this.#seriesAnimationForceOff(),
+      ...this.#seriesAnimationForceOff('line'),
     });
 
     return this.#registerSeries(renderer, renderer.store, rest);
@@ -771,7 +854,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       barWidthRatio: 0.6,
       ...this.#seriesAnimationDefaults('bar'),
       ...rest,
-      ...this.#seriesAnimationForceOff(),
+      ...this.#seriesAnimationForceOff('bar'),
     });
 
     return this.#registerSeries(renderer, renderer.store, rest);
@@ -896,11 +979,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const prevColors = entry.renderer.getLayerColors().slice();
 
     // React / Vue / Svelte wrappers replay the user's options on every
-    // render via this path. If the chart-level `animations.points` category
-    // is disabled, the per-series force-off must be re-applied here —
-    // otherwise a simple parent re-render silently re-enables animations
-    // the chart asked to hold off.
-    entry.renderer.updateOptions({ ...options, ...this.#seriesAnimationForceOff() });
+    // render via this path. If the chart-level `animations.series.<type>`
+    // category is disabled, the per-series force-off must be re-applied
+    // here — otherwise a simple parent re-render silently re-enables
+    // animations the chart asked to hold off.
+    const kind = this.#rendererKind(entry.renderer);
+    const forceOff = kind === null ? {} : this.#seriesAnimationForceOff(kind);
+    entry.renderer.updateOptions({ ...options, ...forceOff });
     // Keep stored label in sync with options (affects tooltip/legend)
     if ('label' in options && typeof options.label === 'string') {
       entry.label = options.label;
@@ -962,7 +1047,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       return;
     }
 
-    const visibilityMs = this.#animationsConfig.viewport.visibilityMs;
+    const visibilityMs = this.#animationsConfig.y.visibilityMs;
     if (visibilityMs > 0) {
       // Start (or retarget) the per-series fade.
       const animator = this.#getOrCreateSeriesAlpha(seriesId);
@@ -986,7 +1071,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     if (!existing) {
       existing = new Animator<number>({
         initial: 1,
-        duration: this.#animationsConfig.viewport.visibilityMs,
+        duration: this.#animationsConfig.y.visibilityMs,
         easing: easeOutCubic,
         lerp: (a, b, t) => a + (b - a) * t,
       });
@@ -1503,36 +1588,36 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    */
   setAnimations(animations: ChartOptions['animations']): void {
     const next = resolveAnimationsConfig(animations);
-    const prevEngine = this.#animationsConfig.viewport.yEngine;
+    const prevTransition = this.#animationsConfig.y.transition;
     this.#animationsConfig = next;
-    this.#viewport.setReboundMs(next.viewport.reboundMs);
-    this.#interactions?.setInputResponseMs(next.viewport.inputResponseMs);
+    this.#viewport.setReboundMs(next.reboundMs);
+    this.#interactions?.setInputResponseMs(next.x.gestureMs);
 
-    // Y-engine swap. Built-in factories produced by `hermiteAnimator()` /
-    // `springAnimator()` / `snapAnimator()` are reference-comparable: callers
-    // should memoize so a different reference unambiguously signals "swap
-    // the engine". We seed the new animator with the current Y range so the
-    // motion picks up where the previous engine left off instead of snapping
+    // Y transition swap. Built-in factories produced by `hermite()` /
+    // `spring()` / `snap()` are reference-comparable: callers should
+    // memoize so a different reference unambiguously signals "swap the
+    // curve". We seed the new animator with the current Y range so the
+    // motion picks up where the previous one left off instead of snapping
     // to {0,0}.
-    if (next.viewport.yEngine !== prevEngine) {
+    if (next.y.transition !== prevTransition) {
       const current = this.#yAnimator.current;
-      this.#yAnimator = next.viewport.yEngine({ initial: current });
+      this.#yAnimator = next.y.transition({ initial: current });
     }
 
-    // Hard-disable signal only. Numeric updates flow through to new series
-    // via `#seriesAnimationDefaults` at addSeries time; existing series keep
-    // whatever they were configured with.
-    const force: Record<string, 0> = {};
-    if (next.points.enterMs === 0) force.entryMs = 0;
-    if (next.points.smoothMs === 0) force.smoothMs = 0;
-    if (next.points.pulseMs === 0) force.pulseMs = 0;
-    if (Object.keys(force).length > 0) {
-      for (const entry of this.#series) {
+    // Hard-disable signal per series type. Numeric updates flow through to
+    // new series via `#seriesAnimationDefaults` at addSeries time; existing
+    // series keep whatever they were configured with.
+    for (const entry of this.#series) {
+      const kind = this.#rendererKind(entry.renderer);
+      if (kind === null) continue;
+
+      const force = this.#seriesAnimationForceOff(kind);
+      if (Object.keys(force).length > 0) {
         entry.renderer.updateOptions?.(force);
       }
     }
 
-    // Y-range smoothing reads `yAxisMs` from `#animationsConfig` on each
+    // Y-range smoothing reads its config from `#animationsConfig` on each
     // frame, so the next render picks up the new duration without a poke.
     this.#mainScheduler.markDirty();
   }
@@ -1814,7 +1899,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    *  contraction (chart settling tighter as old extremes leave the window)
    *  always eases; outward expansion (new low / new high) eases when the
    *  per-point entrance is enabled — the entering candle's fade masks the
-   *  brief overshoot. When entrance is hard-disabled (`points.enterMs === 0`),
+   *  brief overshoot. When entrance is hard-disabled (all `series.*.entry === 0`),
    *  the new extreme would render at full alpha and clip at the canvas edge
    *  for the duration of the ease, so {@link updateYRange} snaps the relevant
    *  bound (and only that bound) outward — see the asymmetric expand/contract
@@ -1825,11 +1910,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    *  reflects the new domain on the same frame — the long-standing public-API
    *  contract pinned by `chart-scales-sync.test`. */
   /** Y-bound animator. Concrete implementation (`YRangeSpring` vs
-   *  `YRangeHermite`) chosen at construction time from
-   *  `animations.viewport.yEngine`. Both implement the same
-   *  {@link YRangeAnimatorLike} interface so this declaration is the only
-   *  point where the engine differs. */
-  #yAnimator: YRangeAnimatorLike;
+   *  `YRangeHermite` vs `YRangeSnap`) chosen at construction time from
+   *  `animations.y.transition`. All three implement the same
+   *  {@link Transition} contract so this declaration is the only point
+   *  where the curve differs. */
+  #yAnimator: Transition;
   /** Whether the Y range has been initialized (first snap vs smooth lerp). */
   #yInited = false;
 
@@ -1844,7 +1929,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   /**
    * Set by the viewport `interact` listener on every user pan/zoom event;
    * read-and-cleared by `updateYRange` on the next frame to apply the short
-   * gesture-time Y chase ({@link INTERACT_Y_AXIS_MS}).
+   * gesture-time Y chase (`animations.y.gesture`).
    */
   /** Per-series opacity animator. Driven by {@link setSeriesVisible}: the
    *  target alpha rolls from 1→0 (hide) or 0→1 (show) over
@@ -1855,7 +1940,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    *  ease finish on the same frame. */
   #seriesAlpha: Map<string, Animator<number>> = new Map();
   /** One-shot per-call duration override applied to the next
-   *  {@link #yAnimator.setTarget}. Set by paths that want the Y re-fit
+   *  {@link #yAnimator.retarget}. Set by paths that want the Y re-fit
    *  to match a specific UX deadline — currently only
    *  {@link setSeriesVisible} (matches the fade duration). Read-and-
    *  cleared by {@link updateYRange}. */
@@ -1997,7 +2082,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       // alpha from frame 0 and would otherwise clip until the animator
       // catches up. Per-side snap moves the at-risk bound; the other bound
       // continues its chase normally.
-      const easeOutward = this.#animationsConfig.points.enterMs > 0;
+      const { series } = this.#animationsConfig;
+      const easeOutward = series.line.entryMs > 0 || series.candlestick.entryMs > 0 || series.bar.entryMs > 0;
       const current = this.#yAnimator.current;
       const snapMin = targetMin < current.min && !easeOutward;
       const snapMax = targetMax > current.max && !easeOutward;
@@ -2010,17 +2096,18 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           { now: tickNow },
         );
       }
-      const setTargetOpts: { now: number; expandMs?: number; contractMs?: number } = { now: tickNow };
+      const retargetOpts: { now: number; expandMs?: number; contractMs?: number } = { now: tickNow };
       if (interacting) {
-        setTargetOpts.expandMs = INTERACT_Y_AXIS_MS;
-        setTargetOpts.contractMs = INTERACT_Y_AXIS_MS;
+        const gestureMs = this.#animationsConfig.y.gestureMs;
+        retargetOpts.expandMs = gestureMs;
+        retargetOpts.contractMs = gestureMs;
       } else if (this.#nextYDurationOverride !== null) {
         // One-shot override consumed: a setSeriesVisible call wants the Y
         // re-fit to land on the same frame as its alpha fade.
-        setTargetOpts.expandMs = this.#nextYDurationOverride;
-        setTargetOpts.contractMs = this.#nextYDurationOverride;
+        retargetOpts.expandMs = this.#nextYDurationOverride;
+        retargetOpts.contractMs = this.#nextYDurationOverride;
       }
-      this.#yAnimator.setTarget({ min: targetMin, max: targetMax }, setTargetOpts);
+      this.#yAnimator.retarget({ min: targetMin, max: targetMax }, retargetOpts);
     }
     this.#nextYDurationOverride = null;
 

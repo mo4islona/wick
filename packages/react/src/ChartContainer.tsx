@@ -303,7 +303,7 @@ export function ChartContainer({
   }, [axis?.y?.width, axis?.y?.min, axis?.y?.max, axis?.y?.visible, axis?.x?.height, axis?.x?.visible]);
 
   // JSON.stringify drops functions, so a factory swap on
-  // `animations.viewport.yEngine` wouldn't otherwise re-fire the effect
+  // `animations.y.transition` wouldn't otherwise re-fire the effect
   // below. Compare it as a separate dep; chart.setAnimations
   // short-circuits when the factory reference is unchanged.
   //
@@ -313,10 +313,10 @@ export function ChartContainer({
   // level, but on a streaming chart that re-renders dozens of times
   // per second the cost adds up if not cached.
   const animationsShape = useMemo(() => JSON.stringify(animations), [animations]);
-  const yEngineRef = useMemo(
+  const yTransitionRef = useMemo(
     () =>
-      typeof animations === 'object' && animations && typeof animations.viewport === 'object' && animations.viewport
-        ? animations.viewport.yEngine
+      typeof animations === 'object' && animations && typeof animations.y === 'object' && animations.y
+        ? animations.y.transition
         : undefined,
     [animations],
   );
@@ -325,7 +325,7 @@ export function ChartContainer({
       chartRef.current.setAnimations(animations);
     }
     // biome-ignore lint/correctness/useExhaustiveDependencies: structural dep computed above
-  }, [animationsShape, yEngineRef]);
+  }, [animationsShape, yTransitionRef]);
 
   // Top-overlay height (title + info bar) — measured below. Declared here so
   // the padding effect can fold it into `padding.top`.

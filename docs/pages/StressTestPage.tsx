@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { type ChartTheme, hermiteAnimator, snapAnimator, springAnimator } from '@wick-charts/react';
+import { type ChartTheme, hermite, snap, spring } from '@wick-charts/react';
 
 import { Toggle } from '../components/playground/primitives';
 import { themeSurfaceVars } from '../components/playground/themeSurface';
@@ -61,9 +61,9 @@ function readPersistedGroup(): GroupId {
 type YEngineLabel = 'hermite' | 'spring' | 'snap';
 
 const Y_ENGINE_FACTORIES = {
-  hermite: hermiteAnimator,
-  spring: springAnimator,
-  snap: snapAnimator,
+  hermite,
+  spring,
+  snap,
 } as const;
 
 export function StressTestPage({ theme }: { theme: ChartTheme }) {

@@ -17,8 +17,8 @@ const SHARED_ANIMATION_MS = 250;
 
 export const ANIM = {
   /** Per-event retarget for live pan / zoom gestures. Intentionally short
-   * (and `0` by default in {@link DEFAULT_INPUT_RESPONSE_MS}) — input
-   * animation is opt-in; this is the suggested duration when enabling. */
+   * (and `0` by default in `DEFAULT_X_GESTURE`) — input animation is opt-in;
+   * this is the suggested duration when enabling. */
   inputResponse: 60,
   /** Streaming data tick: new point appended, viewport + Y range + last-bar
    * tracker all retarget with this duration so they land in lockstep. */

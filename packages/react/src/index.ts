@@ -9,11 +9,11 @@
  */
 
 export type {
+  AnimationTime,
   AnimationsConfig,
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
-  BuiltinEngineOptions,
   /** @deprecated Use {@link StackingMode} instead. */
   BarStacking,
   BuildHoverSnapshotsArgs,
@@ -26,6 +26,7 @@ export type {
   EdgeReachedInfo,
   EdgeSide,
   EdgeState,
+  HermiteOpts,
   HoverInfo,
   LegendItem,
   /** @deprecated Use {@link TimePoint} instead. */
@@ -45,6 +46,7 @@ export type {
   SeriesType,
   SliceInfo,
   SnapshotSort,
+  SpringOpts,
   StackingMode,
   ThemeConfig,
   ThemePreset,
@@ -55,17 +57,16 @@ export type {
   TooltipFormatter,
   TooltipPosition,
   TooltipPositionArgs,
+  Transition,
+  TransitionContext,
+  TransitionFactory,
   Typography,
   ValueFormatter,
   VisibleRange,
   XAxisConfig,
   YAxisConfig,
-  YEngineContext,
-  YEngineFactory,
   YRange,
-  YRangeAnimatorLike,
 } from '@wick-charts/core';
-export { hermiteAnimator, snapAnimator, springAnimator } from '@wick-charts/core';
 export {
   ChartInstance,
   NavigatorController,
@@ -87,6 +88,7 @@ export {
   githubLight,
   gruvbox,
   handwritten,
+  hermite,
   highContrast,
   isDarkBg,
   lavenderMist,
@@ -100,6 +102,7 @@ export {
   normalizeTime,
   oneDarkPro,
   panda,
+  parseAnimationTime,
   peachCream,
   quietLight,
   resolveAxisFontSize,
@@ -107,7 +110,9 @@ export {
   resolveCandlestickBodyColor,
   rosePineDawn,
   sandDune,
+  snap,
   solarizedLight,
+  spring,
 } from '@wick-charts/core';
 
 export { BarSeries } from './BarSeries';

@@ -1,5 +1,5 @@
 import { Animator, easeOutCubic } from '../animation';
-import { DEFAULT_ENTER_MS } from '../animation-constants';
+import { DEFAULT_LINE_ENTRY } from '../animation-constants';
 import type { ChartInstance } from '../chart';
 import { TimeScale } from '../scales/time-scale';
 import { YScale } from '../scales/y-scale';
@@ -69,7 +69,7 @@ export class NavigatorController {
 
   /**
    * Eases the alpha of the trailing bar/candle/line-segment from 0 → 1 over
-   * `DEFAULT_ENTER_MS` whenever {@link setData} reports a new last point
+   * `DEFAULT_LINE_ENTRY` whenever {@link setData} reports a new last point
    * (a `time` we haven't seen before). Mirrors the per-point entrance
    * animation that the main chart's series renderers run, so a streaming
    * tick reads as a smooth fade-in here too instead of a redraw pop.
@@ -192,7 +192,7 @@ export class NavigatorController {
       const prev = this.#tailEntrance?.current ?? 0;
       this.#tailEntrance = new Animator<number>({
         initial: prev,
-        duration: DEFAULT_ENTER_MS,
+        duration: DEFAULT_LINE_ENTRY,
         easing: easeOutCubic,
         lerp: (a, b, t) => a + (b - a) * t,
       });

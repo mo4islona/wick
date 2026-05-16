@@ -8,11 +8,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DEFAULT_ENTER_MS,
-  DEFAULT_INPUT_RESPONSE_MS,
-  DEFAULT_PULSE_MS,
-  DEFAULT_REBOUND_MS,
-  DEFAULT_SMOOTH_MS,
+  DEFAULT_CANDLESTICK_ENTRY,
+  DEFAULT_CANDLESTICK_SMOOTH,
+  DEFAULT_LINE_ENTRY,
+  DEFAULT_LINE_PULSE,
+  DEFAULT_LINE_SMOOTH,
+  DEFAULT_X_GESTURE,
+  DEFAULT_Y_VISIBILITY,
 } from '../animation-constants';
 import { type AnimationsConfig, ChartInstance, resolveAnimationsConfig } from '../chart';
 import type { CandlestickRenderer } from '../series/candlestick';
@@ -21,61 +23,82 @@ import type { LineRenderer } from '../series/line';
 describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {
     expect(resolveAnimationsConfig(undefined)).toMatchObject({
-      points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
-      viewport: {
-        reboundMs: DEFAULT_REBOUND_MS,
-        inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
-        yEngine: expect.any(Function),
+      y: { gestureMs: 100, visibilityMs: DEFAULT_Y_VISIBILITY, transition: expect.any(Function) },
+      x: { dataTickMs: 250, gestureMs: DEFAULT_X_GESTURE },
+      series: {
+        line: { entryMs: DEFAULT_LINE_ENTRY, smoothMs: DEFAULT_LINE_SMOOTH, pulseMs: DEFAULT_LINE_PULSE },
+        candlestick: { entryMs: DEFAULT_CANDLESTICK_ENTRY, smoothMs: DEFAULT_CANDLESTICK_SMOOTH },
       },
+      axis: { tickFadeMs: 250 },
     });
   });
 
   it('true is equivalent to undefined', () => {
     const a = resolveAnimationsConfig(true);
     const b = resolveAnimationsConfig(undefined);
-    // yEngine is a freshly-constructed factory each call (reference inequality
+    // transition is a freshly-constructed factory each call (reference inequality
     // is expected), so compare shape minus the factory and assert separately
     // that both produced a factory.
-    const { yEngine: aEngine, ...aViewport } = a.viewport;
-    const { yEngine: bEngine, ...bViewport } = b.viewport;
-    expect({ ...a, viewport: aViewport }).toEqual({ ...b, viewport: bViewport });
-    expect(typeof aEngine).toBe('function');
-    expect(typeof bEngine).toBe('function');
+    const { transition: aT, ...aY } = a.y;
+    const { transition: bT, ...bY } = b.y;
+    expect({ ...a, y: aY }).toEqual({ ...b, y: bY });
+    expect(typeof aT).toBe('function');
+    expect(typeof bT).toBe('function');
   });
 
   it('false collapses every field to 0', () => {
     expect(resolveAnimationsConfig(false)).toMatchObject({
-      points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, inputResponseMs: 0, yEngine: expect.any(Function) },
+      y: { gestureMs: 0, visibilityMs: 0, transition: expect.any(Function) },
+      x: { dataTickMs: 0, gestureMs: 0 },
+      series: {
+        line: { entryMs: 0, smoothMs: 0, pulseMs: 0 },
+        candlestick: { entryMs: 0, smoothMs: 0 },
+        bar: { entryMs: 0, smoothMs: 0 },
+      },
+      axis: { tickFadeMs: 0 },
     });
   });
 
   it('category-level false disables every field in that category', () => {
-    expect(resolveAnimationsConfig({ points: false })).toMatchObject({
-      points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: {
-        reboundMs: DEFAULT_REBOUND_MS,
-        inputResponseMs: DEFAULT_INPUT_RESPONSE_MS,
-        yEngine: expect.any(Function),
+    expect(resolveAnimationsConfig({ series: false })).toMatchObject({
+      series: {
+        line: { entryMs: 0, smoothMs: 0, pulseMs: 0 },
+        candlestick: { entryMs: 0, smoothMs: 0 },
+        bar: { entryMs: 0, smoothMs: 0 },
       },
+      y: { gestureMs: 100, visibilityMs: DEFAULT_Y_VISIBILITY, transition: expect.any(Function) },
     });
-    expect(resolveAnimationsConfig({ viewport: false })).toMatchObject({
-      points: { enterMs: DEFAULT_ENTER_MS, smoothMs: DEFAULT_SMOOTH_MS, pulseMs: DEFAULT_PULSE_MS },
-      viewport: { reboundMs: 0, inputResponseMs: 0, yEngine: expect.any(Function) },
+    expect(resolveAnimationsConfig({ y: false })).toMatchObject({
+      series: {
+        line: { entryMs: DEFAULT_LINE_ENTRY, smoothMs: DEFAULT_LINE_SMOOTH, pulseMs: DEFAULT_LINE_PULSE },
+      },
+      y: { gestureMs: 0, visibilityMs: 0, transition: expect.any(Function) },
     });
+  });
+
+  it('per-type false disables only that series type', () => {
+    const resolved = resolveAnimationsConfig({ series: { line: false } });
+    expect(resolved.series.line).toEqual({ entryMs: 0, smoothMs: 0, pulseMs: 0 });
+    expect(resolved.series.candlestick.entryMs).toBe(DEFAULT_CANDLESTICK_ENTRY);
   });
 
   it('per-field false disables only that field', () => {
-    const resolved = resolveAnimationsConfig({ points: { smoothMs: false } });
-    expect(resolved.points.smoothMs).toBe(0);
-    expect(resolved.points.enterMs).toBe(DEFAULT_ENTER_MS);
+    const resolved = resolveAnimationsConfig({ series: { line: { smooth: false } } });
+    expect(resolved.series.line.smoothMs).toBe(0);
+    expect(resolved.series.line.entryMs).toBe(DEFAULT_LINE_ENTRY);
   });
 
   it('numeric overrides flow through', () => {
-    const out = resolveAnimationsConfig({ points: { enterMs: 1200, pulseMs: 1500 } });
-    expect(out.points.enterMs).toBe(1200);
-    expect(out.points.pulseMs).toBe(1500);
-    expect(out.points.smoothMs).toBe(DEFAULT_SMOOTH_MS);
+    const out = resolveAnimationsConfig({ series: { line: { entry: 1200, pulse: 1500 } } });
+    expect(out.series.line.entryMs).toBe(1200);
+    expect(out.series.line.pulseMs).toBe(1500);
+    expect(out.series.line.smoothMs).toBe(DEFAULT_LINE_SMOOTH);
+  });
+
+  it('string time inputs parse', () => {
+    const out = resolveAnimationsConfig({ y: { visibility: '500ms' }, x: { gesture: '0.1s' } });
+    expect(out.y.visibilityMs).toBe(500);
+    expect(out.x.gestureMs).toBe(100);
   });
 });
 
@@ -151,20 +174,24 @@ describe('ChartInstance.animations propagation', () => {
     expect(snappedOnUpdate).toBe(true);
   });
 
-  it('animations.points: false disables entrance + smoothing + pulse', () => {
-    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(makeChart({ points: false }));
+  it('animations.series: false disables entrance + smoothing + pulse', () => {
+    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(makeChart({ series: false }));
     expect(hasEntry).toBe(false);
     expect(snappedOnUpdate).toBe(true);
   });
 
-  it('animations.points.enterMs: false disables only entrance', () => {
-    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(makeChart({ points: { enterMs: false } }));
+  it('animations.series.candlestick.entry: false disables only entrance', () => {
+    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(
+      makeChart({ series: { candlestick: { entry: false } } }),
+    );
     expect(hasEntry).toBe(false);
     expect(snappedOnUpdate).toBe(false);
   });
 
-  it('animations.points.smoothMs: false disables only live-tracking', () => {
-    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(makeChart({ points: { smoothMs: false } }));
+  it('animations.series.candlestick.smooth: false disables only live-tracking', () => {
+    const { hasEntry, snappedOnUpdate } = addAndAppendCandle(
+      makeChart({ series: { candlestick: { smooth: false } } }),
+    );
     expect(hasEntry).toBe(true);
     expect(snappedOnUpdate).toBe(true);
   });
@@ -174,20 +201,20 @@ describe('ChartInstance.animations propagation', () => {
     expect(hasEntry).toBe(false);
   });
 
-  it('chart-level enterMs acts as default when series omits it', () => {
-    const r = candleRenderer(makeChart({ points: { enterMs: 800 } }));
+  it('chart-level entry acts as default when series omits it', () => {
+    const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }));
     const opts = (r as unknown as { options: { enterMs?: number } }).options;
     expect(opts.enterMs).toBe(800);
   });
 
   it('per-series enterMs wins over chart-level default', () => {
-    const r = candleRenderer(makeChart({ points: { enterMs: 800 } }), { enterMs: 200 });
+    const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }), { enterMs: 200 });
     const opts = (r as unknown as { options: { enterMs?: number } }).options;
     expect(opts.enterMs).toBe(200);
   });
 
-  it('chart-level smoothMs: false forces snap even if per-series sets a number', () => {
-    const r = candleRenderer(makeChart({ points: { smoothMs: false } }), { smoothMs: 500 });
+  it('chart-level smooth: false forces snap even if per-series sets a number', () => {
+    const r = candleRenderer(makeChart({ series: { candlestick: { smooth: false } } }), { smoothMs: 500 });
     const opts = (r as unknown as { options: { smoothMs?: number | false } }).options;
     expect(opts.smoothMs).toBe(0);
   });
