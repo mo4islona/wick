@@ -201,6 +201,19 @@ export interface SeriesRenderer {
    */
   cancelEntranceAnimations?(): void;
 
+  /**
+   * Start a series-level alpha cross-fade. Chart calls this on
+   * `setSeriesVisible` so the show/hide animation lives next to the geometry
+   * that owns it. `target` is the destination opacity in `[0, 1]` and
+   * `durationMs <= 0` snaps. Optional — renderers that don't need a fade
+   * (e.g. pie) leave it unimplemented; the chart falls back to a binary
+   * visibility flag.
+   */
+  setAlpha?(target: number, durationMs: number): void;
+
+  /** Current series-level opacity in `[0, 1]`. Chart applies it as `globalAlpha` during render. */
+  getAlpha?(): number;
+
   /** True while the renderer has an active animation (Chart polls per frame). */
   readonly needsAnimation?: boolean;
   /**

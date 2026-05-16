@@ -1,4 +1,4 @@
-import type { AnimationState } from './animation/engine';
+import type { AnimationState, LiveOHLCTarget, LiveScalarTarget } from './animation/engine';
 import { type AnimationEngine, createAnimationEngine } from './animation/engine';
 import { type AnimationTime, resolveAnimationTime } from './animation/time';
 import type { TransitionFactory } from './animation/transition';
@@ -33,11 +33,11 @@ import { renderGrid } from './components/grid';
 import { TimeSeriesStore } from './data/store';
 import { EventEmitter } from './events';
 import { InteractionHandler } from './interactions/handler';
-import { registerChartViewport } from './internal/test-handles';
+import { registerChartEngine, registerChartViewport } from './internal/test-handles';
 import { PerfHud } from './perf/perf-hud';
 import { PerfMonitor, type PerfMonitorOptions } from './perf/perf-monitor';
 import { RenderScheduler } from './render-scheduler';
-import { type AxisTickTracker, computeTickFadeDiff } from './scales/tick-tracker';
+import type { AxisTickTracker } from './scales/tick-tracker';
 import { TimeScale } from './scales/time-scale';
 import { YScale } from './scales/y-scale';
 import { BarRenderer } from './series/bar';
@@ -630,8 +630,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     });
     this.#autoscroll = new AutoscrollController({ viewport: this.#viewport, bridge: this.#bridge });
     registerChartViewport(this, this.#viewport);
+    registerChartEngine(this, this.#engine);
     this.timeScale = new TimeScale();
     this.yScale = new YScale();
+    const tickFadeMs = this.#animationsConfig.axis.tickFadeMs;
+    this.timeScale.tickTracker.setFadeMs(tickFadeMs);
+    this.yScale.tickTracker.setFadeMs(tickFadeMs);
 
     const monitor = this.#perfMonitor;
     if (monitor) {
@@ -973,13 +977,48 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // by chart-scales-sync.test). Streaming `appendData` ticks don't set
     // this flag, so per-tick Y can ease both directions for a smooth axis.
     this.#dataReplaceSnapPending = true;
+
+    // Live-track slots carry the previous dataset's last value. Dropping
+    // them here means the next data_tick / instant emit seeds the slot
+    // from the new last point — without this `renderer.effectiveValue`
+    // would read the stale live value and miscompute the trailing
+    // segment's Y for one frame after a bulk swap.
+    const layerCount = entry.renderer.getLayerCount();
+    for (let li = 0; li < layerCount; li++) {
+      const key = `${id}:${li}`;
+      this.#engine.dropSlot('liveScalar', key);
+      this.#engine.dropSlot('liveOHLC', key);
+    }
+
     entry.renderer.setData(data, layerIndex);
   }
 
   /** Append a new data point to the end of a series (real-time tick). */
   appendData(id: string, point: OHLCInput | TimePointInput, layerIndex?: number): void {
     const entry = this.#series.find((s) => s.id === id);
-    entry?.renderer.appendPoint?.(point, layerIndex);
+    if (entry === undefined || entry.renderer.appendPoint === undefined) return;
+
+    entry.renderer.appendPoint(point, layerIndex);
+
+    // Per-point entrance via engine. Bridge resolves the duration zero-skip
+    // and the live-slot identity snap; we only need to provide the kind-
+    // specific entry duration and the normalized time.
+    const kind = this.#rendererKind(entry.renderer);
+    if (kind === null) return;
+
+    const duration =
+      kind === 'candle'
+        ? this.#animationsConfig.series.candlestick.entryMs
+        : kind === 'line'
+          ? this.#animationsConfig.series.line.entryMs
+          : this.#animationsConfig.series.bar.entryMs;
+
+    this.#bridge.emitEntrance({
+      seriesId: id,
+      layerIdx: layerIndex ?? 0,
+      time: normalizeTime(point.time),
+      duration,
+    });
   }
 
   /** Update the last data point of a series in place (e.g. live candle update). */
@@ -1091,17 +1130,25 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
 
     entry.visible = visible;
     this.#bumpOverlayVersion();
+
+    // Renderer-owned alpha fade — kicks off independently of the engine's
+    // Y retarget below so the cross-fade lives next to the geometry that
+    // draws it. Pie and other renderers without `setAlpha` ride the binary
+    // `entry.visible` flag and skip the fade entirely.
+    const visibilityMs = this.#animationsConfig.y.visibilityMs;
+    entry.renderer.setAlpha?.(visible ? 1 : 0, visibilityMs);
+    this.#mainScheduler.markDirty();
+
     if (this.#batchDepth > 0) {
       this.#batchVisualDirty = true;
 
       return;
     }
 
-    // Alpha cross-fade and Y reflow ride the same engine event so the fade
-    // and the axis re-fit settle on the same frame. `visibilityMs === 0`
-    // routes through the engine's zero-duration guard, snapping both alpha
-    // and Y in one tick.
-    const visibilityMs = this.#animationsConfig.y.visibilityMs;
+    // Y reflow still flows through the engine (Phase 2 ownership). The
+    // engine's `alpha` slot keeps writing `state.seriesAlpha` for now —
+    // chart no longer reads it, so it's a dead write that PR-2 will strip
+    // along with the rest of the deprecated slot families.
     const yTarget = this.#computeYTarget();
     this.#yInited = true;
     const now = performance.now();
@@ -1113,7 +1160,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       startWall: now,
     });
     this.#applyEngineState(now);
-    this.#mainScheduler.markDirty();
   }
 
   isSeriesVisible(seriesId: string): boolean {
@@ -1858,12 +1904,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     if (replaceSnap || isBatchLoad) {
       this.yScale.tickTracker.reset();
       this.timeScale.tickTracker.reset();
-      // Clear the per-axis diff baselines too — otherwise the next
-      // renderMain's `#emitTickFade` would diff the bulk-replaced tick set
-      // against the old dataset's values, emitting a stale exit-fade for
-      // ticks that no longer exist anywhere on the chart.
-      this.#lastEmittedYTicks = [];
-      this.#lastEmittedTimeTicks = [];
     }
 
     const yKind: 'instant' | 'data_tick' = replaceSnap ? 'instant' : 'data_tick';
@@ -1934,14 +1974,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    *  the change check. */
   #prevYMin = Number.NaN;
   #prevYMax = Number.NaN;
-  /** Last tick sets the chart emitted a `tickFade` event for. Kept
-   *  independent of `AxisTickTracker.getCurrentTicks` so React / Svelte /
-   *  Vue framework components — which call `setCurrentTicks` on every
-   *  render to seed the tracker before the chart's `renderMain` runs —
-   *  can't sneak the tracker's current value ahead of the chart's diff
-   *  baseline and starve the engine of a tickFade event. */
-  #lastEmittedYTicks: readonly number[] = [];
-  #lastEmittedTimeTicks: readonly number[] = [];
 
   /**
    * Sample data inside `targetVisible` and return the unbounded [min, max] of
@@ -2123,17 +2155,33 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const now = performance.now();
 
     if (kind === 'instant') {
+      // First paint / bulk replace also seeds live slots with each series'
+      // current last value. Without this the slot is born only on the next
+      // `data_tick` emit (`#processLiveScalarSlots` creates it with
+      // `current = item.target` of that event), which means the very first
+      // live-value retarget on a new dataset SNAPS to the new target instead
+      // of easing from the previous frame's displayed value. The renderer
+      // then draws the new value against a yScale that's still mid-ease,
+      // which can place coordinates far outside the canvas for one frame.
+      const live = this.#collectLiveTargets();
+      const allLiveScalar = [...live.eased.scalar, ...live.snap.scalar];
+      const allLiveOHLC = [...live.eased.ohlc, ...live.snap.ohlc];
       this.#bridge.emitInstant({
         yTarget: yTarget !== null ? { target: yTarget } : undefined,
         xTarget: opts.xTarget ?? undefined,
+        liveScalar: allLiveScalar.length > 0 ? allLiveScalar : undefined,
+        liveOHLC: allLiveOHLC.length > 0 ? allLiveOHLC : undefined,
         startWall: now,
       });
     } else {
       // Streaming `data_tick`. Y carries the asymmetric sticky-Y baseline
       // (fast expand / slow contract); X duration comes from the cadence
-      // EMA so the slide stays in lockstep with the producer.
+      // EMA so the slide stays in lockstep with the producer. Live last-
+      // point retargets (line/bar scalar, candlestick OHLC) ride the same
+      // event so the displayed last point eases in lockstep with X scroll.
       const dataTickMs = this.#animationsConfig.x.dataTickMs;
       const xDuration = dataTickMs > 0 ? this.#cadence.pickDuration(dataTickMs) : 0;
+      const live = this.#collectLiveTargets();
       this.#bridge.emitDataTick({
         duration: xDuration,
         xTarget: opts.xTarget,
@@ -2145,11 +2193,86 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
                 contractMs: DEFAULT_HERMITE_CONTRACT,
               }
             : null,
+        liveScalar: live.eased.scalar.length > 0 ? live.eased.scalar : undefined,
+        liveOHLC: live.eased.ohlc.length > 0 ? live.eased.ohlc : undefined,
         startWall: now,
       });
+
+      // Snap-required live retargets (`smoothMs: 0` series) ride a parallel
+      // `instant` event. Higher priority (4 vs data_tick=1) wins the slot
+      // against any in-flight tick claim, and zero duration lands the slot
+      // at target on this frame — visually a snap while X still scrolls.
+      if (live.snap.scalar.length > 0 || live.snap.ohlc.length > 0) {
+        this.#bridge.emitInstant({
+          liveScalar: live.snap.scalar.length > 0 ? live.snap.scalar : undefined,
+          liveOHLC: live.snap.ohlc.length > 0 ? live.snap.ohlc : undefined,
+          startWall: now,
+        });
+      }
     }
 
     this.#applyEngineState(now);
+  }
+
+  /**
+   * Walk every visible series and pack its last point as a live-track
+   * retarget. Series with `smoothMs > 0` go into the `eased.*` buckets,
+   * which ride the next `data_tick` (the live value lerps over the same
+   * duration as the X scroll). Series with `smoothMs <= 0` go into the
+   * `snap.*` buckets, which the chart routes through a separate `instant`
+   * emit — that event preempts any in-flight `data_tick` claim on those
+   * slots, so the displayed last value lands at target immediately even
+   * while X is still scrolling smoothly.
+   */
+  #collectLiveTargets(): {
+    eased: { scalar: LiveScalarTarget[]; ohlc: LiveOHLCTarget[] };
+    snap: { scalar: LiveScalarTarget[]; ohlc: LiveOHLCTarget[] };
+  } {
+    const eased = { scalar: [] as LiveScalarTarget[], ohlc: [] as LiveOHLCTarget[] };
+    const snap = { scalar: [] as LiveScalarTarget[], ohlc: [] as LiveOHLCTarget[] };
+
+    for (const entry of this.#series) {
+      if (!entry.visible) continue;
+
+      const kind = this.#rendererKind(entry.renderer);
+      if (kind === null) continue;
+
+      const smoothMs =
+        kind === 'candle'
+          ? this.#animationsConfig.series.candlestick.smoothMs
+          : kind === 'line'
+            ? this.#animationsConfig.series.line.smoothMs
+            : this.#animationsConfig.series.bar.smoothMs;
+      const targetBucket = smoothMs <= 0 ? snap : eased;
+
+      if (kind === 'candle') {
+        const last = entry.store?.last() as OHLCData | undefined;
+        if (last !== undefined) {
+          targetBucket.ohlc.push({ seriesId: entry.id, layerIdx: 0, target: last });
+        }
+        continue;
+      }
+
+      // Multi-layer scalar — iterate layers and push only those with data.
+      const layerCount = entry.renderer.getLayerCount();
+      const snapshots = entry.renderer.getLayerLastSnapshots?.();
+      if (snapshots !== null && snapshots !== undefined) {
+        for (const s of snapshots) {
+          targetBucket.scalar.push({ seriesId: entry.id, layerIdx: s.layerIndex, target: s.value });
+        }
+        continue;
+      }
+
+      // Single-layer line/bar (or stacked renderers without per-layer snapshots).
+      if (layerCount === 1) {
+        const last = entry.renderer.getLastValue?.();
+        if (last !== null && last !== undefined) {
+          targetBucket.scalar.push({ seriesId: entry.id, layerIdx: 0, target: last });
+        }
+      }
+    }
+
+    return { eased, snap };
   }
 
   /**
@@ -2215,24 +2338,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * zero-duration guard so the tick set snaps to full alpha without an
    * opening fade.
    */
-  #emitTickFade(tracker: AxisTickTracker, next: readonly number[], axis: 'y' | 'time'): void {
-    const baseline = axis === 'y' ? this.#lastEmittedYTicks : this.#lastEmittedTimeTicks;
-    const diff = computeTickFadeDiff(next, baseline);
+  #emitTickFade(tracker: AxisTickTracker, next: readonly number[], _axis: 'y' | 'time'): void {
+    // Tracker owns its own opacity animators now — pushing the next set
+    // diffs internally and starts the appropriate fades. No engine event
+    // emit; chart.renderMain calls `tracker.tick(now)` per frame to
+    // advance them in lockstep with the rest of the chart's animation.
     tracker.setCurrentTicks(next);
-    if (diff.entering.length === 0 && diff.exiting.length === 0) return;
-
-    if (axis === 'y') this.#lastEmittedYTicks = next;
-    else this.#lastEmittedTimeTicks = next;
-
-    const duration = tracker.isArmed ? this.#animationsConfig.axis.tickFadeMs : 0;
-    const now = performance.now();
-    this.#bridge.emitDataTick({
-      duration,
-      xTarget: null,
-      yTarget: null,
-      tickFade: diff,
-      startWall: now,
-    });
   }
 
   /**
@@ -2387,8 +2498,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       const timeTickValues = this.timeScale.niceTickValues(this.#dataInterval).ticks;
       this.#emitTickFade(this.yScale.tickTracker, yTickValues, 'y');
       this.#emitTickFade(this.timeScale.tickTracker, timeTickValues, 'time');
-      const yTickSnap = this.yScale.tickTracker.snapshot(animationState.tickOpacity);
-      const timeTickSnap = this.timeScale.tickTracker.snapshot(animationState.tickOpacity);
+      this.yScale.tickTracker.tick(now);
+      this.timeScale.tickTracker.tick(now);
+      const yTickSnap = this.yScale.tickTracker.snapshot();
+      const timeTickSnap = this.timeScale.tickTracker.snapshot();
       yTickAnimating = yTickSnap.isAnimating;
       timeTickAnimating = timeTickSnap.isAnimating;
       // The engine's overall `animating` flag already covers the fade —
@@ -2418,15 +2531,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       const padding = { top: vpad.top, bottom: vpad.bottom };
       const perfMon = this.#perfMonitor;
       for (const entry of this.#series) {
-        // Per-series alpha drives the show/hide fade. A hidden series with
-        // alpha already at 0 is fully gone — skip. A hidden series
-        // mid-fade still renders at its fading alpha; the entry.visible
-        // flag exists only to gate Y-range inclusion, not rendering.
-        // Engine populates `state.seriesAlpha` on the first visibility
-        // emit for a series; before that the fallback to the boolean
-        // visible flag avoids treating "never toggled" as "alpha 0".
-        const stateAlpha = animationState.seriesAlpha.get(entry.id);
-        const alpha = stateAlpha ?? (entry.visible ? 1 : 0);
+        // Renderer-owned per-series alpha drives the show/hide fade. A
+        // hidden series with alpha at 0 is fully gone — skip. A hidden
+        // series mid-fade still renders at its fading alpha; the
+        // `entry.visible` flag exists only to gate Y-range inclusion, not
+        // rendering. Renderers without `getAlpha` (pie) fall back to the
+        // binary visible flag.
+        const alpha = entry.renderer.getAlpha?.() ?? (entry.visible ? 1 : 0);
         if (alpha <= 0) continue;
 
         const renderArgs = {

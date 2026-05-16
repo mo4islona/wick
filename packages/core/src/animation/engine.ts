@@ -668,10 +668,77 @@ class AnimationEngineImpl implements AnimationEngine {
     this.#state.pulsePhase.delete(seriesId);
   }
 
-  dropEntry(_seriesId: string, _layerIdx: number, _time: number): void {
-    // Phase 2: entry slots remain empty — renderers still own entrance state.
-    // The chart-side keepLast path will start calling this in Phase 3 when
-    // entry events begin emitting from the bridge.
+  dropEntry(seriesId: string, layerIdx: number, time: number): void {
+    const slotKey = entryKey(seriesId, layerIdx, time);
+    this.#entrySlots.delete(slotKey);
+
+    // `state.entryProgress` is keyed `seriesId → (time → progress)`. Drop the
+    // per-time entry and remove the empty per-series map so renderers iterating
+    // the outer Map don't see a zero-entry shell.
+    const perSeries = this.#state.entryProgress.get(seriesId);
+    if (perSeries !== undefined) {
+      perSeries.delete(time);
+      if (perSeries.size === 0) {
+        this.#state.entryProgress.delete(seriesId);
+      }
+    }
+
+    // Strip the dropped point's claim from queued events. Without this an
+    // entrance emit that landed in the same tick as `keepLast` (the trim
+    // path that calls `dropEntry`) would survive — the slot processor
+    // recreates the slot from the in-flight event's entry list every tick.
+    this.#stripEntryClaims(this.#inFlight, seriesId, layerIdx, time);
+    this.#stripEntryClaims(this.#pendingEmits, seriesId, layerIdx, time);
+  }
+
+  #stripEntryClaims(events: SealedEvent[], seriesId: string, layerIdx: number, time: number): void {
+    let write = 0;
+    for (let read = 0; read < events.length; read++) {
+      const ev = events[read];
+      const entries = ev.targets.entry;
+      if (entries === undefined) {
+        events[write++] = ev;
+        continue;
+      }
+
+      let matchIdx = -1;
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        if (e.seriesId === seriesId && e.layerIdx === layerIdx && e.time === time) {
+          matchIdx = i;
+          break;
+        }
+      }
+      if (matchIdx < 0) {
+        events[write++] = ev;
+        continue;
+      }
+
+      const filtered = entries.filter((_, i) => i !== matchIdx);
+      const mutable = ev.targets as {
+        entry?: readonly EntryTarget[];
+        y?: unknown;
+        x?: unknown;
+        alpha?: unknown;
+        tickFade?: unknown;
+        liveScalar?: unknown;
+        liveOHLC?: unknown;
+      };
+      mutable.entry = filtered.length > 0 ? filtered : undefined;
+
+      const stillHasTargets =
+        filtered.length > 0 ||
+        ev.targets.y !== undefined ||
+        ev.targets.x !== undefined ||
+        ev.targets.alpha !== undefined ||
+        ev.targets.tickFade !== undefined ||
+        ev.targets.liveScalar !== undefined ||
+        ev.targets.liveOHLC !== undefined;
+      if (stillHasTargets) {
+        events[write++] = ev;
+      }
+    }
+    events.length = write;
   }
 
   dropSlot(target: SlotTarget, key?: string | number): void {
@@ -894,8 +961,8 @@ class AnimationEngineImpl implements AnimationEngine {
 
   #processLiveScalarSlots(effectiveNow: number): void {
     // Fast path: no in-flight event claims liveScalar AND no slot is stored.
-    // Phase 2 chart-side doesn't emit liveScalar yet (Phase 3 wires it),
-    // so this branch is the entire fast-path during Phase 2 streaming.
+    // Hit every frame for charts whose visible series are settled (the
+    // post-entrance handoff snaps slot to target and drops it from inFlight).
     let hasLiveScalarEvent = false;
     for (const ev of this.#inFlight) {
       if (ev.targets.liveScalar !== undefined) {
@@ -940,8 +1007,8 @@ class AnimationEngineImpl implements AnimationEngine {
 
   #processLiveOHLCSlots(effectiveNow: number): void {
     // Fast path: no in-flight event claims liveOHLC AND no slot is stored.
-    // Phase 3 hooks this up; until then every Phase 2 streaming frame
-    // hits this branch.
+    // Reached every frame for settled charts — the post-entrance snap
+    // drops the slot from `inFlight` so this branch covers the steady state.
     let hasLiveOHLCEvent = false;
     for (const ev of this.#inFlight) {
       if (ev.targets.liveOHLC !== undefined) {
@@ -1001,9 +1068,8 @@ class AnimationEngineImpl implements AnimationEngine {
   }
 
   #processEntrySlots(effectiveNow: number): void {
-    // Fast path: same shape as the other slot processors. Phase 3 emits
-    // entrance events here; through Phase 2 the renderer keeps its own
-    // entries Map and this branch is the entire path.
+    // Fast path: same shape as the other slot processors — entrance events
+    // are short-lived, so steady-state streaming hits this branch.
     let hasEntryEvent = false;
     for (const ev of this.#inFlight) {
       if (ev.targets.entry !== undefined) {

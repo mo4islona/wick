@@ -8,10 +8,12 @@
  * into the package's stability contract).
  */
 
+import type { AnimationEngine } from '../animation/engine';
 import type { ChartInstance } from '../chart';
 import type { Viewport } from '../viewport';
 
 const viewports = new WeakMap<ChartInstance, Viewport>();
+const engines = new WeakMap<ChartInstance, AnimationEngine>();
 
 /** Register a chart's viewport for later test access. Chart constructor only. */
 export function registerChartViewport(chart: ChartInstance, viewport: Viewport): void {
@@ -24,4 +26,21 @@ export function getChartViewportForTest(chart: ChartInstance): Viewport {
   if (!v) throw new Error('getChartViewportForTest: chart has no registered viewport');
 
   return v;
+}
+
+/** Register a chart's animation engine for later test access. Chart constructor only. */
+export function registerChartEngine(chart: ChartInstance, engine: AnimationEngine): void {
+  engines.set(chart, engine);
+}
+
+/**
+ * Retrieve the chart's `AnimationEngine` directly. Lets tests call
+ * `engine.tick(t)` without driving the full render scheduler — needed when
+ * the test wants to assert on engine state in isolation.
+ */
+export function getChartEngineForTest(chart: ChartInstance): AnimationEngine {
+  const e = engines.get(chart);
+  if (!e) throw new Error('getChartEngineForTest: chart has no registered engine');
+
+  return e;
 }

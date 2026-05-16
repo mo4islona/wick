@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type ChartTheme, ThemeProvider, createTheme } from '@wick-charts/react';
 
@@ -160,10 +160,13 @@ export default function App() {
   const isCustom = editorJson !== null;
   const isDarkActive = useMemo(() => luminance(theme.background) < 0.5, [theme.background]);
 
-  const pickTheme = (name: string) => {
-    setThemeName(name);
-    setEditorJson(null);
-  };
+  const pickTheme = useCallback(
+    (name: string) => {
+      setThemeName(name);
+      setEditorJson(null);
+    },
+    [setThemeName, setEditorJson],
+  );
 
   const onEditorChange = (next: JsonValue) => {
     // Clear the override when edits round-trip back to the preset baseline.

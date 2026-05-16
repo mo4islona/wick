@@ -62,7 +62,7 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
   // to surface the new values. Opacity per tick still flows from
   // `state.tickOpacity`, populated when chart.renderMain emits.
   chart.yScale.tickTracker.setCurrentTicks(chart.yScale.niceTickValues());
-  const { entries } = chart.yScale.tickTracker.snapshot(chart.getAnimationState().tickOpacity);
+  const { entries } = chart.yScale.tickTracker.snapshot();
 
   return (
     <div

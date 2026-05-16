@@ -44,7 +44,7 @@ export function TimeAxis({ labelCount, minLabelSpacing }: TimeAxisProps = {}) {
   // See YAxis: seed the tracker for the post-rerender / pre-renderMain
   // window, then read opacity from `state.tickOpacity`.
   chart.timeScale.tickTracker.setCurrentTicks(currentTicks);
-  const { entries } = chart.timeScale.tickTracker.snapshot(chart.getAnimationState().tickOpacity);
+  const { entries } = chart.timeScale.tickTracker.snapshot();
 
   return (
     <div

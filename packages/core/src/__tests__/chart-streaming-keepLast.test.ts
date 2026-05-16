@@ -208,61 +208,9 @@ describe('chart.keepLast — viewport contract', () => {
   });
 });
 
-describe('chart.keepLast — renderer entrance map cleanup', () => {
-  let chart: ChartInstance;
-  let container: HTMLElement;
-
-  beforeEach(() => {
-    ({ chart, container } = makeChart());
-  });
-
-  afterEach(() => {
-    chart.destroy();
-    container.remove();
-  });
-
-  it('candlestick: per-point entries map drops keys for trimmed candles', () => {
-    const id = seedCandles(chart, 50);
-    const r = renderer(chart, id);
-    // Seed entrance-animation entries by appending — the renderer adds
-    // an entry on `appendPoint` per Phase 2 (entrance stays in-renderer
-    // until Phase 3).
-    chart.appendData(id, { time: 1_000_000 + 50 * INTERVAL, open: 100, high: 105, low: 95, close: 102 });
-    const entries = (r as unknown as { entries: Map<number, unknown> }).entries;
-    const sizeBefore = entries.size;
-
-    chart.keepLast(id, 5);
-
-    // Entrance entries for trimmed candles must be evicted along with the
-    // store rows so the next render doesn't keep them alive against a
-    // store that no longer holds those candles.
-    expect(entries.size).toBeLessThanOrEqual(sizeBefore);
-    // Concretely: every remaining entry key must reference a candle that
-    // still lives in the store.
-    const r2 = r as unknown as { store: { getAll: () => OHLCData[] } };
-    const stillThere = new Set(r2.store.getAll().map((c) => c.time));
-    for (const time of entries.keys()) {
-      expect(stillThere.has(time)).toBe(true);
-    }
-  });
-
-  it('multi-layer line: per-layer entries map drops keys for trimmed points', () => {
-    const id = seedLine(chart, 30, 2);
-    const r = renderer(chart, id);
-
-    // Append on layer 0 to seed an entries entry.
-    chart.appendData(id, { time: 1_000_000 + 30 * INTERVAL, value: 999 }, 0);
-    const entriesByLayer = (r as unknown as { entries: Array<Map<number, unknown>> }).entries;
-
-    chart.keepLast(id, 5, 0);
-
-    const remainingTimes = new Set(
-      (r as unknown as { stores: Array<{ getAll: () => TimePoint[] }> }).stores[0].getAll().map((p) => p.time),
-    );
-    for (const time of entriesByLayer[0].keys()) {
-      expect(remainingTimes.has(time)).toBe(true);
-    }
-    // Layer 1 untouched — its entries (if any) remain.
-    expect((r as unknown as { stores: Array<{ length: number }> }).stores[1].length).toBe(30);
-  });
-});
+// Per-point entrance state now lives in `AnimationEngine.state.entryProgress`
+// (Phase 3), not on the renderer. The corresponding cleanup contract is
+// covered by `__tests__/animation/engine/lifecycle.test.ts` against
+// `engine.dropEntry`. Wiring `chart.keepLast` → `engine.dropEntry` for each
+// trimmed point is tracked as a Part B follow-up; until then settled entry
+// slots prune themselves (no in-flight event references them).
