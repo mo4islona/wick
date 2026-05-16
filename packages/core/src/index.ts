@@ -4,6 +4,16 @@ export type { AnimationTime, Milliseconds } from './animation/time';
 export { parseAnimationTime } from './animation/time';
 // Y-bound transition contract.
 export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './animation/transition';
+// Push-model viewport state machine — owns X / Y range animation and exposes
+// `getCurrent` / `getTarget` / `getSettleAt` to renderers and scales.
+export {
+  type PanZoomOptions,
+  type SnapTarget,
+  type ViewportEngine,
+  type ViewportEngineOptions,
+  type ViewportSnapshot,
+  createViewportEngine,
+} from './animation/viewport-engine';
 // Built-in Y transitions. Each factory lives in its own module so unused
 // curves tree-shake out — import only the ones you need.
 export { type HermiteOpts, hermite } from './animation/y-range-hermite';
