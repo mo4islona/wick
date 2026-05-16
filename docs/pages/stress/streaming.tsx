@@ -388,16 +388,24 @@ function OutlierRebound({ theme, perfHud, yEngine }: PanelCtx) {
   );
 }
 
+/** Streaming-cadence panel data cap. React's spread `[...prev, next]` is
+ *  linear in `prev.length`; with three charts running on the same panel
+ *  and the fastest at ~16 ticks/sec, unbounded growth dominates the
+ *  render loop within ~30 seconds. The chart only ever renders the
+ *  visible window, so capping the upstream array is a pure perf knob. */
+const CADENCE_MAX_POINTS = 200;
+
 /**
- * Streaming at three different cadences side-by-side. 32 ms = sub-frame
- * burst (RAF rate), 250 ms = the default `x.dataTick` floor, 2000 ms =
- * sparse feed. Each emits the same data shape; the cadence-EMA inside
- * `StreamingCadence` resolves an adaptive duration so the slide stays in
- * lockstep with the producer without per-tick wobble.
+ * Streaming at three different cadences side-by-side. ~60 ms = fast feed
+ * (sub-frame batches at typical hardware), 250 ms = the default
+ * `x.dataTick` floor, 2000 ms = sparse feed. Each emits the same data
+ * shape; the cadence-EMA inside `StreamingCadence` resolves an adaptive
+ * duration so the slide stays in lockstep with the producer without
+ * per-tick wobble.
  *
- * Eye test: all three should feel smooth; the 2000 ms feed shouldn't
- * stutter between ticks, the 32 ms feed shouldn't restart its X easing
- * curve on every micro-shift.
+ * Eye test: all three should feel smooth; the 2 s feed shouldn't stutter
+ * between ticks, the fast feed shouldn't restart its X easing curve on
+ * every micro-shift.
  */
 function CadenceMatrix({ theme, perfHud, yEngine }: PanelCtx) {
   const startTime = useMemo(() => Date.now() - 30 * INTERVAL, []);
@@ -417,7 +425,7 @@ function CadenceMatrix({ theme, perfHud, yEngine }: PanelCtx) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, height: '100%' }}>
-      {cell(32, 'fast · 32 ms')}
+      {cell(60, 'fast · 60 ms')}
       {cell(250, 'default · 250 ms')}
       {cell(2000, 'slow · 2 s')}
     </div>
@@ -446,13 +454,16 @@ function CadenceChart({
     const id = setInterval(() => {
       setData((prev) => {
         const last = prev[prev.length - 1];
-        return [
-          ...prev,
-          {
-            time: last.time + INTERVAL,
-            value: 100 + Math.sin(prev.length / 6) * 10 + (Math.random() - 0.5) * 1.5,
-          },
-        ];
+        const next: LineData = {
+          time: last.time + INTERVAL,
+          value: 100 + Math.sin(prev.length / 6) * 10 + (Math.random() - 0.5) * 1.5,
+        };
+        // Rolling window — keep the spread cost constant.
+        if (prev.length >= CADENCE_MAX_POINTS) {
+          return [...prev.slice(1), next];
+        }
+
+        return [...prev, next];
       });
     }, intervalMs);
 
@@ -495,13 +506,13 @@ function ConcurrentEvents({ theme, perfHud, yEngine }: PanelCtx) {
     const id = setInterval(() => {
       setData((prev) => {
         const last = prev[prev.length - 1];
-        return [
-          ...prev,
-          {
-            time: last.time + INTERVAL,
-            value: 100 + Math.sin(prev.length / 5) * 12 + (Math.random() - 0.5) * 2,
-          },
-        ];
+        const next: LineData = {
+          time: last.time + INTERVAL,
+          value: 100 + Math.sin(prev.length / 5) * 12 + (Math.random() - 0.5) * 2,
+        };
+        if (prev.length >= 250) return [...prev.slice(1), next];
+
+        return [...prev, next];
       });
     }, 200);
 
@@ -616,23 +627,33 @@ export const streamingPanels: readonly StressPanel[] = [
     render: (ctx) => <OutlierRebound {...ctx} />,
     minHeight: 360,
   },
+];
+
+/**
+ * Phase 2 verification panels — separated from the main `streamingPanels`
+ * group so the streaming group stays at its pre-migration weight (the
+ * cadence matrix below spawns three sub-charts, and side-by-side these
+ * panels add ~5 chart instances on top of the existing six). Reached via
+ * the "Animation" group selector on the stress page.
+ */
+export const animationPanels: readonly StressPanel[] = [
   {
-    id: 'stream-cadence-matrix',
+    id: 'anim-cadence-matrix',
     title: 'Streaming cadence — three rates side by side',
-    hint: 'Same chart at 32 ms / 250 ms / 2 s update rates. The cadence-EMA inside StreamingCadence adapts the X-slide duration to the producer, so all three should feel smooth.',
-    note: 'Phase 2 acceptance: no per-tick jerks across the three cadences. The 32 ms feed must not restart its X easing curve on every micro-shift (sub-threshold filter); the 2 s feed must not stutter between ticks.',
+    hint: 'Same chart at 60 ms / 250 ms / 2 s update rates. The cadence-EMA inside StreamingCadence adapts the X-slide duration to the producer, so all three should feel smooth.',
+    note: 'Phase 2 acceptance: no per-tick jerks across the three cadences. The 60 ms feed must not restart its X easing curve on every micro-shift (sub-threshold filter); the 2 s feed must not stutter between ticks.',
     render: (ctx) => <CadenceMatrix {...ctx} />,
     minHeight: 360,
   },
   {
-    id: 'stream-concurrent-events',
+    id: 'anim-concurrent-events',
     title: 'Concurrent events — gesture preempts streaming',
     hint: 'Drag to pan while the chart is streaming. The engine prioritises gesture (3) over data_tick (1) on the X slot, so the pan target wins instantly and streaming resumes from the new position.',
     note: "`x.gesture: 200ms` is set on this panel so the pan eases into place rather than snapping — exercises the engine's handoff path between two events with different priorities.",
     render: (ctx) => <ConcurrentEvents {...ctx} />,
   },
   {
-    id: 'stream-background-tab',
+    id: 'anim-background-tab',
     title: 'Background-tab recovery',
     hint: "Open this panel, then switch to another browser tab for 5+ seconds and return. The engine's MAX_FRAME_DT clamp (32 ms) caps the resume dt so any in-flight easing doesn't teleport.",
     note: 'Eye test: no visible blink, no Y-range snap on resume. The tail should pick up smoothly from where it was when the tab was hidden.',

@@ -10,7 +10,7 @@ import { StressPanels } from './stress/panel';
 import { piePanels } from './stress/pie';
 import { reactPanels } from './stress/react';
 import { scalePanels } from './stress/scale';
-import { streamingPanels } from './stress/streaming';
+import { animationPanels, streamingPanels } from './stress/streaming';
 import { themePanels } from './stress/theme';
 import { timeAxisPanels } from './stress/timeaxis';
 import { viewportPanels } from './stress/viewport';
@@ -19,6 +19,7 @@ import { volumePanels } from './stress/volume';
 type GroupId =
   | 'volume'
   | 'streaming'
+  | 'animation'
   | 'data'
   | 'scale'
   | 'timeaxis'
@@ -31,6 +32,7 @@ type GroupId =
 const GROUPS: { id: GroupId; label: string; hint: string }[] = [
   { id: 'volume', label: 'Volume', hint: '10k · 100k points · streaming' },
   { id: 'streaming', label: 'Streaming', hint: 'warm-up · jumps · jitter · pause' },
+  { id: 'animation', label: 'Animation', hint: 'cadence · gesture · bg-tab' },
   { id: 'data', label: 'Data hygiene', hint: 'empty · nulls · NaN · gaps' },
   { id: 'scale', label: 'Scale', hint: 'constant · tiny · giant · negative' },
   { id: 'timeaxis', label: 'Time axis', hint: 'ms · days · years · decades' },
@@ -88,6 +90,8 @@ export function StressTestPage({ theme }: { theme: ChartTheme }) {
         return volumePanels;
       case 'streaming':
         return streamingPanels;
+      case 'animation':
+        return animationPanels;
       case 'data':
         return dataPanels;
       case 'scale':
