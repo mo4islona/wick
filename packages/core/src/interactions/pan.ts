@@ -9,17 +9,7 @@ export class PanHandler {
     private viewport: Viewport,
     private timeScale: TimeScale,
     private canvas: HTMLCanvasElement,
-    /**
-     * Per-event ease duration for the visual side of pan commits. `0` keeps
-     * the legacy instant-apply behaviour. See `ChartOptions.animations.viewport.inputResponseMs`.
-     */
-    private inputResponseMs = 0,
   ) {}
-
-  /** Update the input-response duration without recreating the handler. */
-  setInputResponseMs(ms: number): void {
-    this.inputResponseMs = Math.max(0, ms);
-  }
 
   handleMouseDown(e: MouseEvent): void {
     if (e.button !== 0) return;
@@ -33,16 +23,18 @@ export class PanHandler {
     const deltaX = e.clientX - this.lastX;
     this.lastX = e.clientX;
     const timeDelta = this.timeScale.pixelDeltaToTimeDelta(-deltaX);
-    this.viewport.pan(timeDelta, this.timeScale.getMediaWidth(), this.inputResponseMs);
+    this.viewport.pan(timeDelta, this.timeScale.getMediaWidth());
   }
 
   handleMouseUp(): void {
     if (!this.dragging) return;
     this.dragging = false;
     this.canvas.style.cursor = 'crosshair';
-    // Snap the viewport back into soft bounds if the drag ended past an edge.
-    // No-op when the gesture stayed inside bounds.
-    this.viewport.startRebound(this.timeScale.getMediaWidth());
+    // Pan release no longer snaps the viewport back. Phase 2 step 2 removes
+    // rebound entirely — the viewport stays where the user left it; the
+    // engine's gesture event already eased the visual to the committed
+    // logical, and streaming returns to tail-tracking via
+    // `AutoscrollController.tick`.
   }
 
   isDragging(): boolean {

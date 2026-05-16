@@ -1,14 +1,14 @@
 /**
- * Regression test for a user-reported bug: after the rubber-band scroll rework,
- * the candlestick page stopped following the last point during live streaming.
+ * Streaming-X target computation regression coverage.
  *
- * The failure mode: scrollToEnd's threshold logic was eating legitimate
- * per-bar updates, leaving the visible range stuck one bar behind the head.
- *
- * These tests drive the Viewport directly — no Canvas, no React — so they
- * capture the exact sequence Chart.onDataChanged produces during streaming
- * and assert that the visible window stays pinned to the latest bar's right
- * padding.
+ * Post Phase-2 step 2 the X animator lives in {@link AnimationEngine}; the
+ * viewport no longer owns `scrollToEnd` / `tick`. The legacy regression
+ * suite exercised the chart-pinned right-edge contract via the viewport
+ * directly. That end-to-end coverage now lives in
+ * `chart-streaming-autoscroll.test.ts` (drives `chart.appendData`); these
+ * tests pin the lower-level helper — {@link Viewport.computeStreamingTargetX} —
+ * which encapsulates the offset preservation + sub-threshold filter the
+ * old `scrollToEnd` baked in.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -16,6 +16,7 @@ import { Viewport } from '../viewport';
 
 const INTERVAL = 60_000;
 const CHART_WIDTH = 800;
+const RIGHT_PAD = 3 * INTERVAL;
 
 function makeViewport(): Viewport {
   const v = new Viewport({ padding: { right: { intervals: 3 }, left: { intervals: 0 } } });
@@ -23,95 +24,58 @@ function makeViewport(): Viewport {
   v.setDataStart(0);
   v.setDataEnd(100 * INTERVAL);
   v.fitToData(0, 100 * INTERVAL, { chartWidth: CHART_WIDTH });
+
   return v;
 }
 
-/** Run the animation to completion. */
-function completeAnimation(v: Viewport): void {
-  // Multiple ticks to cover 150ms + safety margin.
-  const now = performance.now();
-  for (let i = 0; i < 20; i++) v.tick(now + i * 20);
-}
-
-describe('scrollToEnd streaming regression', () => {
-  it('pins the right edge to the latest bar after a sequence of new-bar updates', () => {
+describe('Viewport.computeStreamingTargetX', () => {
+  it('first call with no prior dataEnd lands the right edge at lastTime + rightPad', () => {
     const v = makeViewport();
-    const rightPad = 3 * INTERVAL;
+    v.setDataEnd(101 * INTERVAL);
+    const target = v.computeStreamingTargetX(101 * INTERVAL, CHART_WIDTH);
 
-    let lastTime = 100 * INTERVAL;
-    for (let i = 0; i < 10; i++) {
-      lastTime += INTERVAL;
-      v.setDataEnd(lastTime);
-      v.scrollToEnd(lastTime, CHART_WIDTH);
-      completeAnimation(v);
-    }
-
-    // Right edge must now sit exactly at lastTime + rightPad (within 1 unit).
-    expect(v.visibleRange.to).toBeCloseTo(lastTime + rightPad, -1);
+    expect(target).not.toBeNull();
+    expect(target?.to).toBeCloseTo(101 * INTERVAL + RIGHT_PAD, -1);
   });
 
-  it('updateLast-style re-scrollToEnd with unchanged lastTime is a cheap no-op (no animation)', () => {
+  it('preserves pan offset across successive ticks (slide-by-advance, not snap-to-tail)', () => {
     const v = makeViewport();
-    const lastTime = 100 * INTERVAL;
-    const targetTo = lastTime + 3 * INTERVAL;
-    // Already pinned: visibleRange.to equals target.
-    expect(v.visibleRange.to).toBeCloseTo(targetTo, -1);
+    // Simulate a user pan that left a 1-bar offset between viewport.right and dataEnd.
+    const pannedTo = 100 * INTERVAL + 2 * INTERVAL; // offset = 2 bars right of dataEnd
+    v.setRange({ from: pannedTo - 50 * INTERVAL, to: pannedTo });
+    // Stream advances; computeStreamingTargetX preserves the offset.
+    v.setDataEnd(101 * INTERVAL);
+    const target = v.computeStreamingTargetX(101 * INTERVAL, CHART_WIDTH);
 
-    v.scrollToEnd(lastTime, CHART_WIDTH);
-    expect(v.animating).toBe(false);
-    // Many repeats simulating updateLast bursts shouldn't accumulate drift.
-    for (let i = 0; i < 50; i++) v.scrollToEnd(lastTime, CHART_WIDTH);
-    expect(v.animating).toBe(false);
-    expect(v.visibleRange.to).toBeCloseTo(targetTo, -1);
+    expect(target).not.toBeNull();
+    // Offset clamped to [0, rightPad]; here we panned 2 intervals past
+    // dataEnd which is below rightPad (3 intervals) → preserved verbatim.
+    // The math: rawOffset = anchorTo (logical.to = pannedTo)
+    //         − _prevDataEnd (set by setDataEnd to 100*INTERVAL when fitToData seeded it).
+    // anchorTo = 100*INTERVAL + 2*INTERVAL = 102*INTERVAL; rawOffset = 2*INTERVAL.
+    expect(target?.to).toBeCloseTo(101 * INTERVAL + 2 * INTERVAL, -1);
   });
 
-  it('continuous streaming where each new bar arrives before the prior animation finishes', () => {
+  it('sub-threshold delta returns null (updateLast bursts on the same bar)', () => {
     const v = makeViewport();
-    const rightPad = 3 * INTERVAL;
-    let lastTime = 100 * INTERVAL;
-
-    // Emit a new bar every 60ms — the 150ms scroll animation is always mid-flight.
-    let simNow = performance.now();
-    for (let i = 0; i < 30; i++) {
-      lastTime += INTERVAL;
-      v.setDataEnd(lastTime);
-      v.scrollToEnd(lastTime, CHART_WIDTH);
-      // Advance mock clock by 60ms and tick the animation partway.
-      simNow += 60;
-      v.tick(simNow);
-    }
-    // Let any in-flight animation finish.
-    for (let i = 0; i < 10; i++) {
-      simNow += 20;
-      v.tick(simNow);
-    }
-
-    // After 30 new bars, the right edge must track the latest, not lag behind.
-    expect(v.visibleRange.to).toBeCloseTo(lastTime + rightPad, -1);
+    v.setDataEnd(101 * INTERVAL);
+    const first = v.computeStreamingTargetX(101 * INTERVAL, CHART_WIDTH);
+    expect(first).not.toBeNull();
+    // Same lastTime — pending delta = 0, below half-bar + 4-px thresholds.
+    const second = v.computeStreamingTargetX(101 * INTERVAL, CHART_WIDTH);
+    expect(second).toBeNull();
   });
 
-  it('rapid micro-updates (updateLast + occasional new bar) still converge to the pinned right edge', () => {
+  it('hold-until-filled returns null while the latest data still fits the warm-up window', () => {
     const v = makeViewport();
-    const rightPad = 3 * INTERVAL;
-    let lastTime = 100 * INTERVAL;
-
-    let simNow = performance.now();
-    for (let i = 0; i < 60; i++) {
-      // 9 of 10 ticks are updateLast on the same bar; every 10th adds a new bar.
-      if (i % 10 === 9) {
-        lastTime += INTERVAL;
-        v.setDataEnd(lastTime);
-      }
-      v.scrollToEnd(lastTime, CHART_WIDTH);
-      simNow += 50;
-      v.tick(simNow);
-    }
-    // Drain to settle.
-    for (let i = 0; i < 20; i++) {
-      simNow += 20;
-      v.tick(simNow);
-    }
-
-    expect(v.visibleRange.to).toBeCloseTo(lastTime + rightPad, -1);
+    // Seed a 50-bar warm-up window from time 0.
+    v.setRangeHold({ from: 0, to: 50 * INTERVAL });
+    // Append a bar that fits inside the window — hold still active.
+    v.setDataEnd(40 * INTERVAL);
+    expect(v.computeStreamingTargetX(40 * INTERVAL, CHART_WIDTH)).toBeNull();
+    // Append past the right edge — hold releases, target produced.
+    v.setDataEnd(50 * INTERVAL);
+    const target = v.computeStreamingTargetX(50 * INTERVAL, CHART_WIDTH);
+    expect(target).not.toBeNull();
   });
 });

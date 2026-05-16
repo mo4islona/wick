@@ -18,9 +18,8 @@ import type { Viewport } from '../viewport';
  */
 describe('PanHandler', () => {
   function setup() {
-    const viewport = { pan: vi.fn(), startRebound: vi.fn() } as unknown as Viewport & {
+    const viewport = { pan: vi.fn() } as unknown as Viewport & {
       pan: ReturnType<typeof vi.fn>;
-      startRebound: ReturnType<typeof vi.fn>;
     };
     const timeScale = {
       pixelDeltaToTimeDelta: vi.fn((px: number) => px * 100), // 1 px = 100 ms
@@ -63,9 +62,7 @@ describe('PanHandler', () => {
     handler.handleMouseMove(mouse('mousemove', { clientX: 250 }));
 
     expect(timeScale.pixelDeltaToTimeDelta).toHaveBeenCalledWith(-50);
-    // Trailing 0 is the default `inputResponseMs` for the handler when the
-    // chart hasn't opted into input animation.
-    expect(viewport.pan).toHaveBeenCalledWith(-50 * 100, 800, 0);
+    expect(viewport.pan).toHaveBeenCalledWith(-50 * 100, 800);
   });
 
   it('mousemove without an active drag is a no-op', () => {
@@ -98,23 +95,15 @@ describe('PanHandler', () => {
     expect(viewport.pan).not.toHaveBeenCalled();
   });
 
-  it('mouseup after a drag triggers viewport rebound', () => {
+  it('mouseup after a drag does not trigger rebound (rebound removed in Phase 2 step 2)', () => {
     const { viewport, handler } = setup();
     handler.handleMouseDown(mouse('mousedown', { button: 0, clientX: 100 }));
     handler.handleMouseMove(mouse('mousemove', { clientX: 120 }));
-
     handler.handleMouseUp();
 
-    expect(viewport.startRebound).toHaveBeenCalledTimes(1);
-    expect(viewport.startRebound).toHaveBeenCalledWith(800); // chartWidth
-  });
-
-  it('mouseup without an active drag does not trigger rebound', () => {
-    // Happens on mouseleave when the cursor was never pressed, or after a failed
-    // non-left-button mousedown. Firing rebound here would be a needless no-op
-    // but also risks cancelling an in-flight programmatic animation.
-    const { viewport, handler } = setup();
-    handler.handleMouseUp();
-    expect(viewport.startRebound).not.toHaveBeenCalled();
+    // Viewport stays where the user left it — `pan` was called during the
+    // drag, but mouseup no longer schedules a snap-back. The engine eases
+    // the visual to the committed logical via the chart-side gesture emit.
+    expect((viewport as unknown as Record<string, unknown>).startRebound).toBeUndefined();
   });
 });

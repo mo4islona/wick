@@ -21,12 +21,20 @@ export interface YEmitTarget {
  * (data_tick) update. `xTarget === null` skips the X claim — chart-side
  * helpers (`viewport.computeStreamingTargetX`) return null while warm-up
  * hold is active or when the visible window already covers the new data.
+ *
+ * `startWall` (every emit shape) pins the event's wall-clock anchor. The
+ * chart captures `performance.now()` once and passes the same value to the
+ * matching `engine.tick(now)` so a zero-duration event isn't pruned by
+ * microsecond drift between emit and tick before the slot processor sees
+ * it. Omit to let the engine fall back to its idle-sentinel / last-tick
+ * logic.
  */
 export interface DataTickEmit {
   duration: Milliseconds;
   xTarget: VisibleRange | null;
   yTarget: YEmitTarget | null;
   tickFade?: TickFadeTarget;
+  startWall?: number;
   /**
    * Minimum X movement (`to` delta) that justifies an X emit. High-frequency
    * streams produce many sub-pixel ticks; below this threshold the bridge
@@ -42,17 +50,20 @@ export interface VisibilityEmit {
   visible: boolean;
   yTarget: YEmitTarget | null;
   tickFade?: TickFadeTarget;
+  startWall?: number;
 }
 
 export interface GestureEmit {
   duration: Milliseconds;
   xTarget?: VisibleRange;
   yTarget?: YEmitTarget;
+  startWall?: number;
 }
 
 export interface InstantEmit {
   xTarget?: VisibleRange;
   yTarget?: YEmitTarget;
+  startWall?: number;
 }
 
 /**
@@ -100,6 +111,7 @@ export class AnimationBridge {
     this.#engine.emit({
       kind: 'data_tick',
       duration: opts.duration,
+      startWall: opts.startWall,
       targets: {
         x: xTarget !== null ? { target: xTarget } : undefined,
         y: opts.yTarget !== null ? opts.yTarget : undefined,
@@ -117,6 +129,7 @@ export class AnimationBridge {
     this.#engine.emit({
       kind: 'visibility',
       duration: opts.duration,
+      startWall: opts.startWall,
       targets: {
         alpha: [{ key: opts.seriesId, target: opts.visible ? 1 : 0 }],
         y: opts.yTarget !== null ? opts.yTarget : undefined,
@@ -134,6 +147,7 @@ export class AnimationBridge {
     this.#engine.emit({
       kind: 'gesture',
       duration: opts.duration,
+      startWall: opts.startWall,
       targets: {
         x: opts.xTarget !== undefined ? { target: opts.xTarget } : undefined,
         y: opts.yTarget !== undefined ? opts.yTarget : undefined,
@@ -154,6 +168,7 @@ export class AnimationBridge {
     this.#engine.emit({
       kind: 'instant',
       duration: 0,
+      startWall: opts.startWall,
       targets: {
         x: opts.xTarget !== undefined ? { target: opts.xTarget } : undefined,
         y: opts.yTarget !== undefined ? opts.yTarget : undefined,

@@ -517,7 +517,20 @@ class AnimationEngineImpl implements AnimationEngine {
     // 9. droppedClaims sweep — eventIds that pruned out can be removed.
     this.#cleanDroppedClaims();
 
-    // 10. animating flag.
+    // 10. Post-process zero-duration events. The startup prune (step 4)
+    //     keeps them on their own `startWall` frame so slot processors can
+    //     snap to their target. After all processors have run their effect
+    //     is fully realised — leaving the event in `inFlight` would let it
+    //     preempt later `data_tick` / `gesture` events at the same wall
+    //     `now` (e.g., a synchronous `setSeriesData → appendData` burst
+    //     where the chart's `#applyEngineState` ticks twice at the same
+    //     mocked time in tests). Drop them here so the next emit on the
+    //     same wall sees a clean slot.
+    if (this.#inFlight.length > 0) {
+      this.#inFlight = this.#inFlight.filter((ev) => ev.duration > 0);
+    }
+
+    // 11. animating flag.
     this.#state.animating = this.#computeAnimating();
 
     this.#lastEffectiveNow = effectiveNow;

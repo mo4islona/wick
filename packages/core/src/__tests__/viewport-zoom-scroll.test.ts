@@ -1,16 +1,16 @@
 /**
- * Regression for "zoom + stream leaves the pulse off screen".
+ * Zoom + streaming X target — clamp the preserved offset at `rightPad`.
  *
- * scrollToEnd preserves the user's offset from the live tail (task #13) so
- * small pans survive streaming ticks. But a zoom that leaves the viewport
- * past the natural-pin position (right edge to the right of `dataEnd + pr`)
- * would record a huge offset; subsequent ticks kept extending that offset
- * instead of pulling back, so `dataEnd` drifted off the left side of the
- * viewport — pulse rendered outside the visible band even though autoScroll
- * was still reporting true.
+ * A zoom centered to the right of `dataEnd` leaves the right edge past
+ * the natural-pin position. `computeStreamingTargetX` then sees a raw
+ * offset > rightPad and must clamp to rightPad so streaming ticks pull
+ * the viewport back toward the natural tail-track instead of locking the
+ * overshoot in as a permanent offset (which would leave the live point
+ * drifting off the left side as new data arrives).
  *
- * Fix contract: the preserved offset is clamped at `rightPad` — pulling the
- * viewport back past the natural tail-track position is never desirable.
+ * Post Phase-2 step 2: viewport no longer animates X. Tests assert the
+ * pure helper output; chart-level visual easing is verified by
+ * `chart-streaming-autoscroll.test.ts`.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -18,6 +18,7 @@ import { Viewport } from '../viewport';
 
 const INTERVAL = 60_000;
 const CHART_WIDTH = 800;
+const RIGHT_PAD = 3 * INTERVAL;
 
 function primed(): Viewport {
   const v = new Viewport();
@@ -29,56 +30,40 @@ function primed(): Viewport {
   return v;
 }
 
-describe('zoom + scrollToEnd keep the last point on screen', () => {
-  it('zoom-in centered to the right of dataEnd must not drift the view past the data on streaming ticks', () => {
+describe('zoom + streaming X target', () => {
+  it('zoom past dataEnd: offset clamps to rightPad on the next streaming tick', () => {
     const v = primed();
 
-    // Zoom in centered well past dataEnd — a realistic "wheel zoom on the
-    // right-pad area" gesture. The zoom math pins nothing and leaves the
-    // right edge past `dataEnd + rightPad`.
+    // Zoom centered well past dataEnd — leaves logical.to past `dataEnd + rightPad`.
     v.zoomAt(150 * INTERVAL, 0.5, CHART_WIDTH);
-    const dataEnd = 100 * INTERVAL;
-    const rightPad = 3 * INTERVAL;
+    const overshootBefore = v.logicalRange.to - 100 * INTERVAL;
+    expect(overshootBefore).toBeGreaterThan(RIGHT_PAD);
 
-    // After a handful of streaming ticks, dataEnd must stay visible. The
-    // natural tail-track position is `to - rightPad`; the viewport should
-    // settle there instead of drifting further right each tick.
-    for (let i = 1; i <= 5; i++) {
-      const newDataEnd = (100 + i) * INTERVAL;
-      v.setDataEnd(newDataEnd);
-      v.scrollToEnd(newDataEnd, CHART_WIDTH);
-      v.tick(performance.now() + 10_000);
+    // Streaming tick: target clamps the preserved offset at rightPad.
+    const newDataEnd = 101 * INTERVAL;
+    v.setDataEnd(newDataEnd);
+    const target = v.computeStreamingTargetX(newDataEnd, CHART_WIDTH);
 
-      const { from, to } = v.visibleRange;
-      expect(newDataEnd).toBeGreaterThanOrEqual(from);
-      expect(newDataEnd).toBeLessThanOrEqual(to);
-      // And the gap between the right edge and dataEnd must not exceed
-      // the natural right-pad — otherwise pulse drifts left-of-center.
-      expect(to - newDataEnd).toBeLessThanOrEqual(rightPad + 1);
-    }
-
-    // Sanity: after tracking stabilises the viewport sits at the natural pin.
-    const finalDataEnd = 105 * INTERVAL;
-    expect(v.visibleRange.to - finalDataEnd).toBeCloseTo(rightPad, -1);
-    void dataEnd;
+    expect(target).not.toBeNull();
+    expect(target!.to - newDataEnd).toBeLessThanOrEqual(RIGHT_PAD + 1);
+    expect(target!.from).toBeLessThanOrEqual(newDataEnd);
+    expect(target!.to).toBeGreaterThanOrEqual(newDataEnd);
   });
 
-  it('pan-right past dataEnd (rubber-banded) does not leave a residual offset larger than rightPad', () => {
+  it('pan-right past dataEnd: target offset clamps to rightPad (no residual lock-in)', () => {
     const v = primed();
-    const rightPad = 3 * INTERVAL;
 
-    // Pan aggressively right — rubber-band will clamp but the viewport can
-    // still end up a little past the natural pin. A streaming tick must pull
-    // back rather than lock that overshoot in as a permanent offset.
+    // Pan aggressively right — rubber-band clamps but viewport can still end
+    // slightly past the natural pin. computeStreamingTargetX must pull back.
     v.pan(10 * INTERVAL, CHART_WIDTH);
 
     const newDataEnd = 101 * INTERVAL;
     v.setDataEnd(newDataEnd);
-    v.scrollToEnd(newDataEnd, CHART_WIDTH);
-    v.tick(performance.now() + 10_000);
+    const target = v.computeStreamingTargetX(newDataEnd, CHART_WIDTH);
 
-    const offset = v.visibleRange.to - newDataEnd;
+    expect(target).not.toBeNull();
+    const offset = target!.to - newDataEnd;
     expect(offset).toBeGreaterThanOrEqual(0);
-    expect(offset).toBeLessThanOrEqual(rightPad + 1);
+    expect(offset).toBeLessThanOrEqual(RIGHT_PAD + 1);
   });
 });

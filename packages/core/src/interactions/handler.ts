@@ -19,23 +19,14 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
   private yScale: YScale;
   private viewport: Viewport;
 
-  constructor(
-    canvas: HTMLCanvasElement,
-    viewport: Viewport,
-    timeScale: TimeScale,
-    yScale: YScale,
-    /** Per-event ease applied to the visual side of pan/zoom commits. `0`
-     * collapses to instant apply. Pulled from
-     * `ChartOptions.animations.viewport.inputResponseMs`. */
-    inputResponseMs = 0,
-  ) {
+  constructor(canvas: HTMLCanvasElement, viewport: Viewport, timeScale: TimeScale, yScale: YScale) {
     super();
     this.canvas = canvas;
     this.viewport = viewport;
     this.timeScale = timeScale;
     this.yScale = yScale;
-    this.zoom = new ZoomHandler(viewport, timeScale, inputResponseMs);
-    this.pan = new PanHandler(viewport, timeScale, canvas, inputResponseMs);
+    this.zoom = new ZoomHandler(viewport, timeScale);
+    this.pan = new PanHandler(viewport, timeScale, canvas);
 
     canvas.style.cursor = 'crosshair';
     canvas.style.touchAction = 'none';
@@ -86,7 +77,6 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
 
   // Touch handling
   private lastTouchDist = 0;
-  private lastTouchCenter = 0;
   private touchCount = 0;
 
   private onTouchStart = (e: TouchEvent): void => {
@@ -102,7 +92,6 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
       } as MouseEvent);
     } else if (e.touches.length === 2) {
       this.lastTouchDist = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
-      this.lastTouchCenter = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     }
   };
 
@@ -120,38 +109,21 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
       if (this.lastTouchDist > 0) {
         const factor = this.lastTouchDist / dist;
         const centerTime = this.timeScale.xToTime(center - rect.left);
-        // Touch pinch-zoom shares the per-event ease with wheel zoom — one
-        // source of truth, even though pinch bypasses `zoom.handleWheel`.
-        this.viewport.zoomAt(centerTime, factor, this.timeScale.getMediaWidth(), this.zoom.getInputResponseMs());
+        this.viewport.zoomAt(centerTime, factor, this.timeScale.getMediaWidth());
       }
 
       this.lastTouchDist = dist;
-      this.lastTouchCenter = center;
     }
   };
 
   private onTouchEnd = (e: TouchEvent): void => {
     if (e.touches.length === 0) {
-      // pan.handleMouseUp already triggers rebound for the single-finger case.
-      // For a two-finger pinch we never went through pan, so trigger it here.
-      const wasPinching = this.touchCount === 2;
       this.pan.handleMouseUp();
-      if (wasPinching) {
-        this.viewport.startRebound(this.timeScale.getMediaWidth());
-      }
       this.touchCount = 0;
       this.lastTouchDist = 0;
       this.emit('crosshairMove', null);
     }
   };
-
-  /** Update the per-event ease duration applied to pan/zoom commits. Both
-   * the wheel/drag handler and the touch-pinch path (which reads via
-   * `ZoomHandler.getInputResponseMs`) get the new value. */
-  setInputResponseMs(ms: number): void {
-    this.pan.setInputResponseMs(ms);
-    this.zoom.setInputResponseMs(ms);
-  }
 
   private emitCrosshair(offsetX: number, offsetY: number): void {
     const time = this.timeScale.xToTime(offsetX);
