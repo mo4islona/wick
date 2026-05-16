@@ -1783,6 +1783,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
         totalLength += entry.store.length;
       }
     }
+    const added = totalLength - this.#prevDataLength;
+    const isBatchLoad = added > 5;
     this.#prevDataLength = totalLength;
 
     // X target computed inside the data block; default null = no X claim
@@ -1814,41 +1816,28 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           this.#initialVisibleRange = undefined;
         }
         xTarget = this.#viewport.logicalRange;
-      } else if (this.#dataReplaceSnapPending && this.#viewport.autoScroll) {
-        // Explicit bulk replace via `chart.setSeriesData` mid-life. Refit
-        // to the full new span — the user has swapped the entire dataset,
-        // not appended to it.
+      } else if (isBatchLoad && this.#viewport.autoScroll) {
         this.#viewport.fitToData(first, last, { chartWidth });
         xTarget = this.#viewport.logicalRange;
-      } else if (this.#viewport.autoScroll) {
-        // Streaming append — covers both the single-tick case and the
-        // React-18-batched burst (where automatic batching may coalesce
-        // several `setInterval` fires into one commit). The cadence EMA
-        // sizes the next slide so the viewport keeps moving through to
-        // the next producer tick instead of settling early; the
-        // `computeStreamingTargetX` offset math preserves any pan offset
-        // across ticks.
+      } else if (!isBatchLoad && this.#viewport.autoScroll) {
+        // Single streaming tick — preserve any pan offset across ticks via
+        // `_prevDataEnd` (viewport.computeStreamingTargetX encapsulates the
+        // legacy `scrollToEnd` target math without animating). Cadence EMA
+        // sizes the next slide so the viewport keeps moving through to the
+        // next producer tick instead of settling at a fixed 250 ms and
+        // sitting idle.
         this.#cadence.observe(performance.now());
         xTarget = this.#viewport.computeStreamingTargetX(last, chartWidth);
       }
     }
 
-    // Snap Y/X on the first paint (forced inside `#emitYAndX` when
-    // `#yInited` / `#xInited` is false) and on explicit bulk replaces
-    // (`chart.setSeriesData` flips `#dataReplaceSnapPending`). Streaming
-    // appends — even when React 18 automatic batching coalesces several
-    // ticks into a single `chart.batch` — ride the engine's `data_tick`
-    // ease.
-    //
-    // The legacy `isBatchLoad = added > 5` heuristic survived Phase 1 only
-    // because the legacy X / Y animators eased continuously and an instant
-    // snap during streaming was visually identical to data_tick. Phase 2's
-    // engine actually snaps on instant: it settles `state.animating=false`
-    // and the RAF chain breaks until the next React commit, producing the
-    // "0 FPS / jerky" rendering reported on the stress-streaming page when
-    // automatic batching grouped > 5 setInterval fires per commit.
+    // Snap Y range on batch loads, on first paint (forced to instant inside
+    // `#emitYTarget` when `#yInited` is false), or when the caller signalled
+    // a bulk replace via `#dataReplaceSnapPending`. Streaming ticks ease
+    // through the engine's asymmetric sticky-Y baseline.
     const replaceSnap = this.#dataReplaceSnapPending;
     this.#dataReplaceSnapPending = false;
+    const ySnap = isBatchLoad || replaceSnap;
 
     // Capture "was this the first onDataChanged call that actually had
     // data" *before* `#emitYTarget` flips `#yInited`. Initial mounts where
@@ -1858,14 +1847,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // setting `#yInited`.
     const isFirstDataPaint = !this.#yInited && first !== undefined;
 
-    // Bulk replaces (full dataset swap) land on entirely new tick values.
-    // If the tick trackers stay armed with the previous dataset they'd
-    // fade the old labels out and the new ones in over the next 250 ms,
-    // briefly showing "ghost" grid lines from the prior range. Reset so
-    // the dataset swap snaps the same way the Y emit below is about to
-    // snap the Y bound. Streaming bursts don't qualify — old and new tick
-    // sets overlap by definition.
-    if (replaceSnap) {
+    // Bulk replaces (full dataset swap) and batch loads land on entirely
+    // new tick values. If the tick trackers stay armed with the previous
+    // dataset they'd fade the old labels out and the new ones in over
+    // the next 250 ms, briefly showing "ghost" grid lines from the prior
+    // range. Reset so the dataset swap snaps the same way the Y emit below
+    // is about to snap the Y bound.
+    if (replaceSnap || isBatchLoad) {
       this.yScale.tickTracker.reset();
       this.timeScale.tickTracker.reset();
       // Clear the per-axis diff baselines too — otherwise the next
@@ -1876,7 +1864,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#lastEmittedTimeTicks = [];
     }
 
-    const yKind: 'instant' | 'data_tick' = replaceSnap ? 'instant' : 'data_tick';
+    const yKind: 'instant' | 'data_tick' = ySnap ? 'instant' : 'data_tick';
     // Combined Y+X emit. Previously this was two `bridge.emit*` calls each
     // with its own `#applyEngineState` (engine.tick + viewport push +
     // syncScales). Streaming ticks at 60 ms × 8 charts in the stress group

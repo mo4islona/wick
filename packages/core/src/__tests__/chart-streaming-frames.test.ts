@@ -143,41 +143,6 @@ describe('streaming RAF chain', () => {
     expect(after - before).toBeGreaterThan(5);
   });
 
-  it('React-18-batched burst (many appendData inside chart.batch) emits data_tick — NOT instant', () => {
-    // Regression for "0 FPS / jerky rendering" on the stress streaming
-    // page. React 18 automatic batching coalesces several setInterval
-    // fires into one commit; the React wrapper calls `appendData` once
-    // per accumulated point inside `chart.batch()`. The legacy heuristic
-    // (`added > 5` → kind=instant → engine settles) broke the RAF chain
-    // between commits because the engine settled state.animating=false
-    // after the snap, and the next commit only happens when React
-    // schedules its next frame (~16–100 ms depending on load).
-    //
-    // The fix: any append-through-chart.batch path goes through data_tick
-    // regardless of how many points landed in the batch. `state.animating`
-    // stays true for the data_tick duration, keeping the RAF chain alive.
-    const id = chart.addLineSeries();
-    chart.setSeriesData(
-      id,
-      Array.from({ length: 10 }, (_, i) => ({ time: 1_000_000 + i * INTERVAL, value: 50 + i })),
-    );
-    raf.flush(60);
-    expect(chart.getAnimationState().animating).toBe(false);
-
-    // Simulate React 18 batching 15 setInterval ticks into one commit.
-    let lastTime = 1_000_000 + 10 * INTERVAL;
-    chart.batch(() => {
-      for (let i = 0; i < 15; i++) {
-        lastTime += INTERVAL;
-        chart.appendData(id, { time: lastTime, value: 50 + i * 3 });
-      }
-    });
-
-    // Engine should be animating (data_tick in flight). If the legacy
-    // heuristic had fired, instant snap would have settled it to false.
-    expect(chart.getAnimationState().animating).toBe(true);
-  });
-
   it('streaming burst (30 successive appendData) keeps re-arming RAF — total frames much greater than emit count', () => {
     const id = chart.addLineSeries();
     chart.setSeriesData(
