@@ -1538,8 +1538,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       return this.#logical;
     }
 
-    this.#cadence.observe(performance.now());
-
     const result = computeStreamingTarget({
       currentLogical: this.#logical,
       lastTime: this.#dataEnd,
@@ -1553,6 +1551,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     if (result.releaseHold) this.#holdUntilFilled = false;
     if (result.reengageAutoScroll) this.#autoScroll = true;
     if (result.newLogical === null) return null;
+
+    // Observe cadence only when X actually advances. Sub-tick / intra-bar
+    // emissions that don't move `lastTime` would otherwise poison the EMA
+    // with their wall-clock spacing — a 1-bar-per-second producer with
+    // 2 intra updates per bar would converge to ~500ms gap, then slide
+    // each bar over 500ms followed by 500ms of visible idle.
+    this.#cadence.observe(performance.now());
 
     this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
     this.#prevDataEnd = this.#dataEnd;
