@@ -3,35 +3,39 @@
  * viewport animations.
  *
  * Inputs are push signals from the chart (`onPointAppended`,
- * `onSeriesVisibilityChanged`, `onPanZoom`, `onDataReplaced`, `snap`). Targets
- * are pulled on demand via the two callbacks the chart supplies at
- * construction time — `computeXTarget` and `computeYTarget` — so the engine
- * itself stays free of series / data-store knowledge.
+ * `onSeriesVisibilityChanged`, `onPanZoom`, `onProgrammaticZoom`,
+ * `onAxisReconfig`, `onDataReplaced`, `snap`). Targets are pulled on demand
+ * via the two callbacks the chart supplies at construction time —
+ * `computeXTarget` and `computeYTarget` — so the engine itself stays free of
+ * series / data-store knowledge.
  *
  * **Implicit ordering contract:** the chart must mutate its own series /
  * dataInterval / chartWidth state BEFORE calling any `on*` signal. Otherwise,
  * the callback reads stale data, and the engine targets the previous frame's
  * state.
  *
- * Currently, a thin wrapper over the legacy slot-based {@link AnimationEngine}
- * + {@link AnimationBridge} pair while the chart migration is in progress;
- * the wrapper collapses to a standalone X / Y implementation once chart
- * call sites stop reaching the inner engine directly.
+ * Internals: one `Animator<VisibleRange>` (linear easing) for X and a
+ * pluggable `Transition` (Hermite / Spring / Snap) for Y. No event queue,
+ * no slot priority — every `on*` retargets immediately, so chart code must
+ * order calls so higher-priority intents (gestures, axis snaps) come AFTER
+ * any lower-priority streaming retargets that may be in flight.
  */
 
-import { AnimationBridge } from '../chart/animation-bridge';
 import type { VisibleRange, YRange } from '../types';
-import type { AnimationEngine } from './engine';
-import { createAnimationEngine } from './engine';
+import { Animator } from './animator';
+import { easeLinear } from './easing';
 import type { Milliseconds } from './time';
 import type { Transition } from './transition';
 
-export interface ViewportSnapshot {
-  readonly current: { readonly x: VisibleRange; readonly y: YRange };
-  readonly target: { readonly x: VisibleRange; readonly y: YRange };
+/**
+ * Per-frame engine snapshot — same shape returned by the legacy
+ * `AnimationEngine.tick()` so existing consumers (chart render loop,
+ * `chart.getAnimationState()` public API, series overlay hooks) keep working.
+ */
+export interface AnimationState {
+  readonly yRange: YRange;
+  readonly xRange: VisibleRange;
   readonly animating: boolean;
-  /** Wall-clock ms when `current` is projected to reach `target`. Equals `now` when settled. */
-  readonly settleAt: number;
 }
 
 export interface PanZoomOptions {
@@ -105,10 +109,10 @@ export interface ViewportEngine {
    *
    * Every `on*` signal accepts an optional `now` so the caller can capture
    * `performance.now()` once and pass it both here and to a subsequent
-   * `tick(now)`. Keeping `effectiveNow === startWall` is required by the
-   * underlying engine's zero-duration prune step; if you let the engine
-   * read the wall itself, microsecond drift between the emit and the tick
-   * silently drops `instant` events.
+   * `tick(now)`. Keeping the emit's start wall equal to the tick's wall
+   * matters for zero-duration retargets — without it the animator could
+   * round its start time slightly later than the tick and skip the first
+   * frame of the new ease.
    */
   onPointAppended(now?: number): void;
   /** Series visibility toggled — Y target only (X is untouched). */
@@ -133,10 +137,10 @@ export interface ViewportEngine {
   /** Instant-apply specific X / Y values without easing. */
   snap(target: SnapTarget, now?: number): void;
 
-  /** Advance against `now`; returns the per-frame snapshot. */
-  tick(now: number): ViewportSnapshot;
+  /** Advance against `now`; returns the per-frame state. */
+  tick(now: number): AnimationState;
   /** Last-tick value (no advance). */
-  getCurrent(): { x: VisibleRange; y: YRange };
+  getAnimationState(): AnimationState;
   /** Latest target value. Equals `current` when settled. */
   getTarget(): { x: VisibleRange; y: YRange };
   /** Wall-clock the visible range will reach target. Equals `now` when settled. */
@@ -145,26 +149,29 @@ export interface ViewportEngine {
   readonly animating: boolean;
   /**
    * Most recently committed X target, or `null` if no X retarget has fired
-   * yet. Mirrors the legacy {@link AnimationBridge.lastXTarget} contract —
-   * autoscroll consults this when deciding tail re-engagement so the choice
-   * sees the *logical* destination, not the in-flight visual.
+   * yet. Autoscroll consults this when deciding tail re-engagement so the
+   * choice sees the *logical* destination, not the in-flight visual.
    */
   readonly lastXTarget: VisibleRange | null;
 
   /**
    * Sub-threshold X filter — emitted X retargets ignore deltas below this
-   * value. Set on the underlying bridge by chart callers that want to
-   * suppress micro-jitter during streaming.
+   * value. Set by chart callers that want to suppress micro-jitter during
+   * streaming.
    */
   setXThreshold(threshold: number | null): void;
-
-  /** Hook into the underlying low-level engine for back-compat call sites. */
-  readonly inner: AnimationEngine;
 }
 
+const rangeLerp = (from: VisibleRange, to: VisibleRange, t: number): VisibleRange => ({
+  from: from.from + (to.from - from.from) * t,
+  to: from.to + (to.to - from.to) * t,
+});
+
+const rangeEquals = (a: VisibleRange, b: VisibleRange): boolean => a.from === b.from && a.to === b.to;
+
 class ViewportEngineImpl implements ViewportEngine {
-  readonly #engine: AnimationEngine;
-  readonly #bridge: AnimationBridge;
+  readonly #xAnimator: Animator<VisibleRange>;
+  readonly #yTransition: Transition;
   readonly #computeX: () => VisibleRange | null;
   readonly #computeY: (args: { xTarget: VisibleRange }) => YRange | null;
   readonly #dataTickMsOpt: Milliseconds | (() => Milliseconds);
@@ -173,18 +180,23 @@ class ViewportEngineImpl implements ViewportEngine {
   readonly #yGestureMs: Milliseconds;
   readonly #xGestureMs: Milliseconds;
   readonly #yVisibilityMs: Milliseconds;
-  #xTarget: VisibleRange;
-  #yTarget: YRange;
+  readonly #onWake: (() => void) | undefined;
+  /** Last call's projected wall-clock arrival; equals current `now` when settled. */
   #settleAt = 0;
   #xThreshold: number | null = null;
+  #lastXTarget: VisibleRange | null = null;
+  /** Per-frame `animating` snapshot — updated by `tick` so `get animating()` is O(1). */
+  #lastAnimating = false;
 
   constructor(opts: ViewportEngineOptions) {
-    this.#engine = createAnimationEngine({
-      initial: opts.initial,
-      yTransition: opts.yTransition,
-      onWake: opts.onWake,
+    this.#xAnimator = new Animator<VisibleRange>({
+      initial: { from: opts.initial.xRange.from, to: opts.initial.xRange.to },
+      duration: 0,
+      lerp: rangeLerp,
+      equals: rangeEquals,
+      easing: easeLinear,
     });
-    this.#bridge = new AnimationBridge({ engine: this.#engine });
+    this.#yTransition = opts.yTransition;
     this.#computeX = opts.computeXTarget;
     this.#computeY = opts.computeYTarget;
     this.#dataTickMsOpt = opts.dataTickMs;
@@ -193,169 +205,192 @@ class ViewportEngineImpl implements ViewportEngine {
     this.#yGestureMs = opts.yGestureMs;
     this.#xGestureMs = opts.xGestureMs;
     this.#yVisibilityMs = opts.yVisibilityMs;
-    this.#xTarget = { from: opts.initial.xRange.from, to: opts.initial.xRange.to };
-    this.#yTarget = { min: opts.initial.yRange.min, max: opts.initial.yRange.max };
+    this.#onWake = opts.onWake;
   }
+
+  // --- Helpers -------------------------------------------------------------
 
   #dataTickMs(): Milliseconds {
     return typeof this.#dataTickMsOpt === 'function' ? this.#dataTickMsOpt() : this.#dataTickMsOpt;
+  }
+
+  /**
+   * Retarget X with the supplied duration. Honors `#xThreshold` (filters
+   * sub-threshold drift) and updates `#lastXTarget` only when the retarget
+   * actually fires — autoscroll consults that field, so we must not
+   * advertise an X destination the animator didn't accept.
+   */
+  #retargetX(target: VisibleRange, duration: Milliseconds, now: number): void {
+    if (this.#xThreshold !== null && this.#xThreshold > 0 && this.#lastXTarget !== null) {
+      const delta = Math.abs(target.to - this.#lastXTarget.to);
+      if (delta < this.#xThreshold) return;
+    }
+    this.#xAnimator.setTarget(target, { duration, now });
+    this.#lastXTarget = { from: target.from, to: target.to };
+  }
+
+  #snapX(target: VisibleRange): void {
+    this.#xAnimator.snap({ from: target.from, to: target.to });
+    this.#lastXTarget = { from: target.from, to: target.to };
+  }
+
+  /** Fire `onWake` once when an idle engine receives a new retarget. */
+  #wake(wasIdle: boolean): void {
+    if (wasIdle) this.#onWake?.();
   }
 
   // --- Inputs --------------------------------------------------------------
 
   onPointAppended(now?: number): void {
     const newX = this.#computeX();
-    const newY = newX !== null ? this.#computeY({ xTarget: newX }) : this.#computeY({ xTarget: this.#xTarget });
+    const yWindow = newX ?? this.#xAnimator.target;
+    const newY = this.#computeY({ xTarget: yWindow });
     if (newX === null && newY === null) return;
 
     const startWall = now ?? performance.now();
+    const wasIdle = !this.#lastAnimating;
     const dataTickMs = this.#dataTickMs();
-    if (newX !== null) this.#xTarget = { from: newX.from, to: newX.to };
-    if (newY !== null) this.#yTarget = { min: newY.min, max: newY.max };
-    this.#settleAt = startWall + dataTickMs;
 
-    this.#bridge.emitDataTick({
-      duration: dataTickMs,
-      xTarget: newX,
-      yTarget: newY !== null ? { target: newY, expandMs: this.#yExpandMs, contractMs: this.#yContractMs } : null,
-      xThreshold: this.#xThreshold ?? undefined,
-      startWall,
-    });
+    if (newX !== null) this.#retargetX(newX, dataTickMs, startWall);
+    if (newY !== null) {
+      this.#yTransition.retarget(newY, {
+        now: startWall,
+        expandMs: this.#yExpandMs,
+        contractMs: this.#yContractMs,
+      });
+    }
+    this.#settleAt = startWall + dataTickMs;
+    this.#wake(wasIdle);
   }
 
   onSeriesVisibilityChanged(now?: number): void {
-    const newY = this.#computeY({ xTarget: this.#xTarget });
+    const newY = this.#computeY({ xTarget: this.#xAnimator.target });
     if (newY === null) return;
 
     const startWall = now ?? performance.now();
-    this.#yTarget = { min: newY.min, max: newY.max };
-    this.#settleAt = startWall + this.#yVisibilityMs;
-
-    this.#bridge.emitVisibility({
-      duration: this.#yVisibilityMs,
-      yTarget: { target: newY },
-      startWall,
+    const wasIdle = !this.#lastAnimating;
+    this.#yTransition.retarget(newY, {
+      now: startWall,
+      expandMs: this.#yVisibilityMs,
+      contractMs: this.#yVisibilityMs,
     });
+    this.#settleAt = startWall + this.#yVisibilityMs;
+    this.#wake(wasIdle);
   }
 
   onPanZoom(opts: PanZoomOptions, now?: number): void {
     const startWall = now ?? performance.now();
-    this.#xTarget = { from: opts.xTarget.from, to: opts.xTarget.to };
+    const wasIdle = !this.#lastAnimating;
 
-    let yTarget: YRange | null = null;
+    this.#retargetX(opts.xTarget, this.#xGestureMs, startWall);
+
     if (opts.yAuto) {
-      yTarget = this.#computeY({ xTarget: opts.xTarget });
-      if (yTarget !== null) this.#yTarget = { min: yTarget.min, max: yTarget.max };
+      const yTarget = this.#computeY({ xTarget: opts.xTarget });
+      if (yTarget !== null) {
+        this.#yTransition.retarget(yTarget, {
+          now: startWall,
+          expandMs: this.#yGestureMs,
+          contractMs: this.#yGestureMs,
+        });
+      }
     }
     this.#settleAt = startWall + Math.max(this.#xGestureMs, this.#yGestureMs);
-
-    this.#bridge.emitGesture({
-      duration: this.#xGestureMs,
-      xTarget: opts.xTarget,
-      yTarget:
-        yTarget !== null ? { target: yTarget, expandMs: this.#yGestureMs, contractMs: this.#yGestureMs } : undefined,
-      startWall,
-    });
+    this.#wake(wasIdle);
   }
 
   onAxisReconfig(now?: number): void {
-    const newY = this.#computeY({ xTarget: this.#xTarget });
+    const newY = this.#computeY({ xTarget: this.#xAnimator.target });
     if (newY === null) return;
 
     const startWall = now ?? performance.now();
-    this.#yTarget = { min: newY.min, max: newY.max };
+    const wasIdle = !this.#lastAnimating;
+    this.#yTransition.snap(newY, { now: startWall });
     this.#settleAt = startWall;
-
-    this.#bridge.emitInstant({
-      yTarget: { target: newY },
-      startWall,
-    });
+    this.#wake(wasIdle);
   }
 
   onProgrammaticZoom(opts: ProgrammaticZoomOptions, now?: number): void {
     const newY = this.#computeY({ xTarget: opts.xTarget });
-
     const startWall = now ?? performance.now();
-    this.#xTarget = { from: opts.xTarget.from, to: opts.xTarget.to };
-    if (newY !== null) this.#yTarget = { min: newY.min, max: newY.max };
+    const wasIdle = !this.#lastAnimating;
 
     if (opts.xEase === true) {
       const dataTickMs = this.#dataTickMs();
-      this.#bridge.emitDataTick({
-        duration: dataTickMs,
-        xTarget: opts.xTarget,
-        yTarget: newY !== null ? { target: newY, expandMs: this.#yExpandMs, contractMs: this.#yContractMs } : null,
-        startWall,
-      });
+      this.#retargetX(opts.xTarget, dataTickMs, startWall);
+      if (newY !== null) {
+        this.#yTransition.retarget(newY, {
+          now: startWall,
+          expandMs: this.#yExpandMs,
+          contractMs: this.#yContractMs,
+        });
+      }
       this.#settleAt = startWall + dataTickMs;
+      this.#wake(wasIdle);
 
       return;
     }
 
-    this.#bridge.emitInstant({ xTarget: opts.xTarget, startWall });
-
+    this.#snapX(opts.xTarget);
     if (newY !== null) {
-      this.#bridge.emitDataTick({
-        duration: this.#yExpandMs,
-        xTarget: null,
-        yTarget: { target: newY, expandMs: this.#yExpandMs, contractMs: this.#yContractMs },
-        startWall,
+      this.#yTransition.retarget(newY, {
+        now: startWall,
+        expandMs: this.#yExpandMs,
+        contractMs: this.#yContractMs,
       });
       this.#settleAt = startWall + this.#yExpandMs;
     } else {
       this.#settleAt = startWall;
     }
+    this.#wake(wasIdle);
   }
 
   onDataReplaced(now?: number): void {
     const newX = this.#computeX();
-    const newY = this.#computeY({ xTarget: newX ?? this.#xTarget });
+    const newY = this.#computeY({ xTarget: newX ?? this.#xAnimator.target });
     if (newX === null && newY === null) return;
 
     const startWall = now ?? performance.now();
-    if (newX !== null) this.#xTarget = { from: newX.from, to: newX.to };
-    if (newY !== null) this.#yTarget = { min: newY.min, max: newY.max };
+    const wasIdle = !this.#lastAnimating;
+    if (newX !== null) this.#snapX(newX);
+    if (newY !== null) this.#yTransition.snap(newY, { now: startWall });
     this.#settleAt = startWall;
-
-    this.#bridge.emitInstant({
-      xTarget: newX ?? undefined,
-      yTarget: newY !== null ? { target: newY } : undefined,
-      startWall,
-    });
+    this.#wake(wasIdle);
   }
 
   snap(target: SnapTarget, now?: number): void {
     const startWall = now ?? performance.now();
-    if (target.x !== undefined) this.#xTarget = { from: target.x.from, to: target.x.to };
-    if (target.y !== undefined) this.#yTarget = { min: target.y.min, max: target.y.max };
+    const wasIdle = !this.#lastAnimating;
+    if (target.x !== undefined) this.#snapX(target.x);
+    if (target.y !== undefined) this.#yTransition.snap(target.y, { now: startWall });
     this.#settleAt = startWall;
-
-    this.#bridge.emitInstant({
-      xTarget: target.x,
-      yTarget: target.y !== undefined ? { target: target.y } : undefined,
-      startWall,
-    });
+    this.#wake(wasIdle);
   }
 
   // --- Outputs -------------------------------------------------------------
 
-  tick(now: number): ViewportSnapshot {
-    const state = this.#engine.tick(now);
+  tick(now: number): AnimationState {
+    this.#xAnimator.tick(now);
+    this.#yTransition.tick(now);
+    const animating = this.#xAnimator.animating || this.#yTransition.animating;
+    this.#lastAnimating = animating;
+
     return {
-      current: { x: state.xRange, y: state.yRange },
-      target: { x: this.#xTarget, y: this.#yTarget },
-      animating: state.animating,
-      settleAt: this.#settleAt,
+      xRange: this.#xAnimator.current,
+      yRange: this.#yTransition.current,
+      animating,
     };
   }
 
-  getCurrent(): { x: VisibleRange; y: YRange } {
-    const state = this.#engine.getAnimationState();
-    return { x: state.xRange, y: state.yRange };
+  getAnimationState(): AnimationState {
+    return {
+      xRange: this.#xAnimator.current,
+      yRange: this.#yTransition.current,
+      animating: this.#xAnimator.animating || this.#yTransition.animating,
+    };
   }
 
   getTarget(): { x: VisibleRange; y: YRange } {
-    return { x: this.#xTarget, y: this.#yTarget };
+    return { x: this.#xAnimator.target, y: this.#yTransition.target };
   }
 
   getSettleAt(): number {
@@ -363,19 +398,15 @@ class ViewportEngineImpl implements ViewportEngine {
   }
 
   get animating(): boolean {
-    return this.#engine.getAnimationState().animating;
+    return this.#xAnimator.animating || this.#yTransition.animating;
   }
 
   get lastXTarget(): VisibleRange | null {
-    return this.#bridge.lastXTarget;
+    return this.#lastXTarget;
   }
 
   setXThreshold(threshold: number | null): void {
     this.#xThreshold = threshold;
-  }
-
-  get inner(): AnimationEngine {
-    return this.#engine;
   }
 }
 

@@ -1,4 +1,4 @@
-import type { AnimationState } from '../animation/engine';
+import type { AnimationState } from '../animation/viewport-engine';
 import type { BitmapCoordinateSpace } from '../canvas-manager';
 import type { TimeScale } from '../scales/time-scale';
 import type { YScale } from '../scales/y-scale';

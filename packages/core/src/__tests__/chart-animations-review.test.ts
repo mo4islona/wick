@@ -188,18 +188,4 @@ describe('engine-driven lockstep', () => {
     expect(afterY.max).toBeGreaterThanOrEqual(2000);
   });
 
-  it('getAnimationState returns a stable reference across calls (X / Y same Map instance)', () => {
-    const chart = makeSizedChart();
-    const id = chart.addLineSeries();
-    chart.setSeriesData(id, [
-      { time: 1, value: 1 },
-      { time: 2, value: 2 },
-    ]);
-
-    const stateA = chart.getAnimationState();
-    const stateB = chart.getAnimationState();
-    expect(stateA).toBe(stateB);
-    expect(stateA.xRange).toBe(stateB.xRange);
-    expect(stateA.yRange).toBe(stateB.yRange);
-  });
 });

@@ -1,7 +1,6 @@
-import type { AnimationState } from './animation/engine';
 import { type AnimationTime, resolveAnimationTime } from './animation/time';
 import type { TransitionFactory } from './animation/transition';
-import { type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
+import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
 import { hermite } from './animation/y-range-hermite';
 import { snap } from './animation/y-range-snap';
 import {
@@ -23,7 +22,6 @@ import {
   DEFAULT_Y_VISIBILITY,
 } from './animation-constants';
 import { CanvasManager } from './canvas-manager';
-import { AutoscrollController } from './chart/autoscroll-controller';
 import { KeyCache } from './chart/key-cache';
 import { StreamingCadence } from './chart/streaming-cadence';
 import { renderCrosshair } from './components/crosshair';
@@ -32,7 +30,7 @@ import { renderGrid } from './components/grid';
 import { TimeSeriesStore } from './data/store';
 import { EventEmitter } from './events';
 import { InteractionHandler } from './interactions/handler';
-import { registerChartEngine, registerChartViewport } from './internal/test-handles';
+import { registerChartViewport } from './internal/test-handles';
 import { PerfHud } from './perf/perf-hud';
 import { PerfMonitor, type PerfMonitorOptions } from './perf/perf-monitor';
 import { RenderScheduler } from './render-scheduler';
@@ -579,10 +577,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   readonly #cadence: StreamingCadence;
   /** Stable composite-key strings for live-value / entry-progress map lookups. */
   readonly #keys: KeyCache;
-  /** Per-frame autoscroll re-engagement check — reads `engine.lastXTarget`
-   *  (logical) so a pan that brings `dataEnd` back into the destination
-   *  flips tail-tracking without preempting an in-flight X animation. */
-  readonly #autoscroll: AutoscrollController;
   /**
    * Scratch slot for the engine's `computeXTarget` callback. Chart writes
    * the next X target eagerly (so side effects like `viewport.fitToData` /
@@ -644,9 +638,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       padding: options?.padding,
       maxVisibleBars: options?.viewport?.maxVisibleBars,
     });
-    this.#autoscroll = new AutoscrollController({ viewport: this.#viewport, engine: this.#engine });
     registerChartViewport(this, this.#viewport);
-    registerChartEngine(this, this.#engine.inner);
     this.timeScale = new TimeScale();
     this.yScale = new YScale();
     const tickFadeMs = this.#animationsConfig.axis.tickFadeMs;
@@ -951,7 +943,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#series[idx].renderer.dispose();
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
-      this.#engine.inner.dropSlot('alpha', id);
       this.#keys.dropSeries(id);
       this.updateViewportPadding();
       this.#mainScheduler.markDirty();
@@ -961,14 +952,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   }
 
   /**
-   * Read-only snapshot of every chart-level animation timeline driven by
-   * the engine. Renderers in the new architecture read `state.pulsePhase`,
-   * `state.entryProgress`, `state.liveValues` etc. from this. The same
-   * reference is returned every frame (P2 contract) — do not cache it
-   * across frames; read the values inside the current render pass.
+   * Read-only snapshot of the chart's X / Y viewport animation. The same
+   * shape (`xRange`, `yRange`, `animating`) every frame — call this inside
+   * the current render pass rather than caching the reference, as the
+   * underlying animator mutates between frames.
    */
   getAnimationState(): AnimationState {
-    return this.#engine.inner.getAnimationState();
+    return this.#engine.getAnimationState();
   }
 
   /**
@@ -2115,7 +2105,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * events long enough for the slot processor to snap them.
    */
   #applyEngineState(now: number): void {
-    const state = this.#engine.inner.tick(now);
+    const state = this.#engine.tick(now);
     const size = this.#canvasManager.size;
     if (size.media.width === 0 || size.media.height === 0) return;
 
@@ -2188,7 +2178,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // from synthetic frame time instead of the real wall clock.
     const now = typeof timestamp === 'number' ? timestamp : performance.now();
 
-    const animationState = this.#engine.inner.tick(now);
+    const animationState = this.#engine.tick(now);
     if (animationState.animating) {
       this.#mainScheduler.markDirty();
     }
@@ -2214,10 +2204,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.updateScales();
 
     // Re-engage tail-following when a user pan brings the destination back
-    // into the data zone. Reads the logical X target (engine.lastXTarget)
-    // so the flip happens at the *destination*, not one or two frames
-    // earlier when the eased visual dips through.
-    this.#autoscroll.tick(this.#viewport.dataEnd);
+    // into the data zone. Reads the *logical* X target (engine.lastXTarget,
+    // not the in-flight visual) so the flip happens at the destination, not
+    // one or two frames earlier when the eased visual dips through.
+    const dataEnd = this.#viewport.dataEnd;
+    if (dataEnd !== null) {
+      const logical = this.#engine.lastXTarget ?? this.#viewport.logicalRange;
+      this.#viewport.checkAutoScrollReengagement(dataEnd, logical);
+    }
 
     if (yChanged) {
       this.emit('viewportChange');
@@ -2405,7 +2399,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       // Dispatch to each renderer's overlay hook — crosshair dots, pulses, etc.
       const ovpad = this.#viewport.getPadding();
       const overlayPadding = { top: ovpad.top, bottom: ovpad.bottom };
-      const overlayState = this.#engine.inner.getAnimationState();
+      const overlayState = this.#engine.getAnimationState();
       for (const entry of this.#series) {
         if (!entry.visible) continue;
         entry.renderer.drawOverlay?.({

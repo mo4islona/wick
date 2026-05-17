@@ -53,8 +53,9 @@ function setup(args: SetupArgs = {}): {
 describe('ViewportEngine — push-model contract', () => {
   it('starts with current === initial, target === initial, settleAt === 0', () => {
     const { engine } = setup();
-    expect(engine.getCurrent().x).toEqual({ from: 0, to: 1000 });
-    expect(engine.getCurrent().y).toEqual({ min: 0, max: 100 });
+    const state = engine.getAnimationState();
+    expect(state.xRange).toEqual({ from: 0, to: 1000 });
+    expect(state.yRange).toEqual({ min: 0, max: 100 });
     expect(engine.getTarget().x).toEqual({ from: 0, to: 1000 });
     expect(engine.getTarget().y).toEqual({ min: 0, max: 100 });
     expect(engine.getSettleAt()).toBe(0);
