@@ -214,6 +214,18 @@ export interface SeriesRenderer {
   /** Current series-level opacity in `[0, 1]`. Chart applies it as `globalAlpha` during render. */
   getAlpha?(): number;
 
+  /**
+   * Start a per-layer alpha cross-fade. Chart calls this on `setLayerVisible`
+   * so the toggled layer fades over the same `toggleMs` window the engine
+   * uses to ease the Y axis. Renderers that don't support per-layer alpha
+   * (single-store: candlestick, pie) leave it unimplemented; the chart
+   * skips the call and the layer toggles binary.
+   */
+  setLayerAlpha?(index: number, target: number, durationMs: number): void;
+
+  /** Current per-layer opacity in `[0, 1]`. Multiplied into `globalAlpha` by the renderer at draw time. */
+  getLayerAlpha?(index: number): number;
+
   /** True while the renderer has an active animation (Chart polls per frame). */
   readonly needsAnimation?: boolean;
   /**

@@ -156,8 +156,8 @@ describe('streaming coordination — unified animation', () => {
     chart.setSeriesData(id, [{ time: 1_000_000, open: 100, high: 105, low: 95, close: 101 }]);
     raf.flush(1);
 
-    // Append a new candle. Streaming retarget runs over `ANIM.streamTick`
-    // (250 ms ≈ 16 frames at 60 Hz). Entrance also runs at 250 ms but is
+    // Append a new candle. Streaming retarget runs over the shared 250 ms
+    // baseline (≈ 16 frames at 60 Hz). Entrance also runs at 250 ms but is
     // tracked by a per-point animator independent of the viewport/Y/live-
     // track triplet — they happen to share a duration today, but nothing
     // in the code paths couples them.

@@ -21,6 +21,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hermite, snap } from '../../animation';
+import type { AnimationsConfig } from '../../animation/config';
 import { ChartInstance } from '../../chart';
 
 const INTERVAL = 60_000;
@@ -80,20 +81,22 @@ function makeChart(opts: { yAxisMs?: number } = {}): { chart: ChartInstance; con
   Object.defineProperty(container, 'clientHeight', { value: 400, configurable: true });
   document.body.appendChild(container);
 
-  // Tests historically pinned the Y-chase duration via `yAxisMs`. The public
-  // API now lets callers swap the Y transition curve via `y.transition`;
-  // the shortcut here maps `yAxisMs` to `hermite()` (default curve) with
-  // the requested expand/contract time, or to `snap()` when 0 — preserves
-  // the existing test semantics without touching every call site.
-  const transition =
-    opts.yAxisMs === undefined
-      ? undefined
-      : opts.yAxisMs === 0
-        ? snap()
-        : hermite({ expand: opts.yAxisMs, contract: opts.yAxisMs });
+  // Tests historically pinned the Y-chase duration via `yAxisMs`. The new
+  // public API uses `axis.y.settle` (expand) and `axis.y.sticky` (contract);
+  // for symmetric test behaviour we set both to the same value, or use
+  // `snap()` when 0 — preserves the existing test semantics without
+  // touching every call site.
+  let animations: boolean | AnimationsConfig | undefined;
+  if (opts.yAxisMs === undefined) {
+    animations = undefined;
+  } else if (opts.yAxisMs === 0) {
+    animations = { axis: { y: { curve: snap() } } };
+  } else {
+    animations = { axis: { y: { curve: hermite(), settle: opts.yAxisMs, sticky: opts.yAxisMs } } };
+  }
   const chart = new ChartInstance(container, {
     interactive: false,
-    animations: transition !== undefined ? { y: { transition } } : undefined,
+    animations,
   });
 
   return { chart, container };
@@ -334,7 +337,7 @@ describe('chart Y-range animator', () => {
     expect(count).toBeGreaterThanOrEqual(5);
   });
 
-  it('setSeriesVisible eases the Y range over visibilityMs (matches the alpha fade)', () => {
+  it('setSeriesVisible eases the Y range over toggleMs (matches the alpha fade)', () => {
     ({ chart, container } = makeChart({ yAxisMs: 200 }));
     seedLine(chart, [10, 20, 30, 40, 50]);
     const id2 = chart.addLineSeries();

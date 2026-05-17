@@ -1,6 +1,11 @@
 // Chart
 
 export type { AnimationsConfig } from './animation/config';
+// Built-in transitions. Each factory lives in its own module so unused
+// curves tree-shake out — import only the ones you need. `spring` is the
+// universal critically-damped spring; pass `<YRange>` to plug it into the
+// Y axis or `<VisibleRange>` for X.
+export { spring } from './animation/spring';
 export type { AnimationTime, Milliseconds } from './animation/time';
 export { parseAnimationTime } from './animation/time';
 // Y-bound transition contract.
@@ -16,11 +21,11 @@ export {
   type ViewportEngineOptions,
   createViewportEngine,
 } from './animation/viewport-engine';
-// Built-in Y transitions. Each factory lives in its own module so unused
-// curves tree-shake out — import only the ones you need.
-export { type HermiteOpts, hermite } from './animation/y-range-hermite';
+export { hermite } from './animation/y-range-hermite';
 export { snap } from './animation/y-range-snap';
-export { type SpringOpts, spring } from './animation/y-range-spring';
+// Axis helpers
+export type { MountAxisLabelsOptions } from './axis/dom-labels';
+export { mountAxisLabels } from './axis/dom-labels';
 export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays

@@ -82,7 +82,7 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
     // Emitted as a bare identifier (`spring()` / `snap()`) via the
     // CodePreview VAR_REF_NAMES allow-list, so the snippet shows the
     // function call instead of a quoted string.
-    yBlock.transition = `${s.yEngine}()`;
+    yBlock.curve = `${s.yEngine}()`;
   }
 
   const xBlock: Record<string, PropValue> = {};
@@ -92,9 +92,12 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
   // panel; we just don't emit a config field for it.
   void s.reboundMs;
 
+  const animationsAxis: Record<string, PropValue> = {};
+  if (Object.keys(yBlock).length > 0) animationsAxis.y = yBlock;
+  if (Object.keys(xBlock).length > 0) animationsAxis.x = xBlock;
+
   const animations: Record<string, PropValue> = {};
-  if (Object.keys(yBlock).length > 0) animations.y = yBlock;
-  if (Object.keys(xBlock).length > 0) animations.x = xBlock;
+  if (Object.keys(animationsAxis).length > 0) animations.axis = animationsAxis;
   if (Object.keys(series).length > 0) animations.series = series;
   if (Object.keys(animations).length > 0) out.animations = animations;
 
@@ -117,7 +120,7 @@ export function buildAnimationsProp(s: PlaygroundChartProps): AnimationsConfig |
         };
 
   const yEngineFactory = Y_ENGINE_FACTORIES[s.yEngine];
-  const yBlock = s.yEngine === Y_ENGINE_DEFAULT ? undefined : { transition: yEngineFactory };
+  const yBlock = s.yEngine === Y_ENGINE_DEFAULT ? undefined : { curve: yEngineFactory };
   const xBlock = s.inputResponseMs === INPUT_RESPONSE_MS_DEFAULT ? undefined : { gesture: s.inputResponseMs };
 
   // Slider for the (now-removed) public rebound field stays in the panel
@@ -128,8 +131,12 @@ export function buildAnimationsProp(s: PlaygroundChartProps): AnimationsConfig |
 
   const out: AnimationsConfig = {};
   if (linePoints !== undefined) out.series = { line: linePoints };
-  if (yBlock !== undefined) out.y = yBlock;
-  if (xBlock !== undefined) out.x = xBlock;
+  if (yBlock !== undefined || xBlock !== undefined) {
+    const axis: { y?: typeof yBlock; x?: typeof xBlock } = {};
+    if (yBlock !== undefined) axis.y = yBlock;
+    if (xBlock !== undefined) axis.x = xBlock;
+    out.axis = axis;
+  }
 
   return out;
 }

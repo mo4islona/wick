@@ -34,14 +34,12 @@ describe('Phase 1 API rename', () => {
     }
   });
 
-  it('hermite accepts string time inputs in options', async () => {
-    const { hermite } = await import('../../animation');
-    // Smoke — would throw inside parseAnimationTime if string parsing was broken.
-    expect(() => hermite({ expand: '500ms', contract: '2.5s' })).not.toThrow();
-  });
-
-  it('spring accepts string time inputs in options', async () => {
-    const { spring } = await import('../../animation');
-    expect(() => spring({ expandSpeed: '250ms', contractSpeed: '5s' })).not.toThrow();
+  it('curve factories are parameterless — durations live in the engine', async () => {
+    const { hermite, spring, snap } = await import('../../animation');
+    // Smoke — curves no longer carry their own settle baselines; the engine
+    // pushes durations per-call via RetargetOptions.
+    expect(() => hermite()).not.toThrow();
+    expect(() => spring()).not.toThrow();
+    expect(() => snap()).not.toThrow();
   });
 });

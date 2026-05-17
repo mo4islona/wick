@@ -15,8 +15,13 @@ import {
   DEFAULT_LINE_ENTRY,
   DEFAULT_LINE_PULSE,
   DEFAULT_LINE_SMOOTH,
-  DEFAULT_X_GESTURE,
-  DEFAULT_Y_VISIBILITY,
+  DEFAULT_TICKS_MS,
+  DEFAULT_TOGGLE_MS,
+  DEFAULT_X_GESTURE_MS,
+  DEFAULT_X_SETTLE_MS,
+  DEFAULT_Y_GESTURE_MS,
+  DEFAULT_Y_SETTLE_MS,
+  DEFAULT_Y_STICKY_MS,
 } from '../animation/config';
 import { ChartInstance } from '../chart';
 import type { CandlestickRenderer } from '../series/candlestick';
@@ -26,39 +31,64 @@ const resolveAnimationsConfig = (input: boolean | AnimationsConfig | undefined) 
 describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {
     expect(resolveAnimationsConfig(undefined)).toMatchObject({
-      y: { gestureMs: 100, visibilityMs: DEFAULT_Y_VISIBILITY, transition: expect.any(Function) },
-      x: { dataTickMs: 250, gestureMs: DEFAULT_X_GESTURE },
+      axis: {
+        y: {
+          curve: expect.any(Function),
+          settleMs: DEFAULT_Y_SETTLE_MS,
+          stickyMs: DEFAULT_Y_STICKY_MS,
+          gestureMs: DEFAULT_Y_GESTURE_MS,
+        },
+        x: {
+          curve: expect.any(Function),
+          settleMs: DEFAULT_X_SETTLE_MS,
+          gestureMs: DEFAULT_X_GESTURE_MS,
+        },
+        ticksMs: DEFAULT_TICKS_MS,
+      },
+      toggleMs: DEFAULT_TOGGLE_MS,
       series: {
         line: { entryMs: DEFAULT_LINE_ENTRY, smoothMs: DEFAULT_LINE_SMOOTH, pulseMs: DEFAULT_LINE_PULSE },
         candlestick: { entryMs: DEFAULT_CANDLESTICK_ENTRY, smoothMs: DEFAULT_CANDLESTICK_SMOOTH },
       },
-      axis: { tickFadeMs: 250 },
     });
   });
 
   it('true is equivalent to undefined', () => {
     const a = resolveAnimationsConfig(true);
     const b = resolveAnimationsConfig(undefined);
-    // transition is a freshly-constructed factory each call (reference inequality
+    // curve factories are fresh closures each call (reference inequality
     // is expected), so compare shape minus the factory and assert separately
-    // that both produced a factory.
-    const { transition: aT, ...aY } = a.y;
-    const { transition: bT, ...bY } = b.y;
-    expect({ ...a, y: aY }).toEqual({ ...b, y: bY });
-    expect(typeof aT).toBe('function');
-    expect(typeof bT).toBe('function');
+    // that both produced factories.
+    const { curve: aYCurve, ...aY } = a.axis.y;
+    const { curve: bYCurve, ...bY } = b.axis.y;
+    const { curve: aXCurve, ...aX } = a.axis.x;
+    const { curve: bXCurve, ...bX } = b.axis.x;
+    expect({
+      ...a,
+      axis: { ...a.axis, y: aY, x: aX },
+    }).toEqual({
+      ...b,
+      axis: { ...b.axis, y: bY, x: bX },
+    });
+    expect(typeof aYCurve).toBe('function');
+    expect(typeof bYCurve).toBe('function');
+    expect(typeof aXCurve).toBe('function');
+    expect(typeof bXCurve).toBe('function');
   });
 
   it('false collapses every field to 0', () => {
     expect(resolveAnimationsConfig(false)).toMatchObject({
-      y: { gestureMs: 0, visibilityMs: 0, transition: expect.any(Function) },
-      x: { dataTickMs: 0, gestureMs: 0 },
+      axis: {
+        y: { settleMs: 0, stickyMs: 0, gestureMs: 0 },
+        x: { settleMs: 0, gestureMs: 0 },
+        ticksMs: 0,
+      },
+      toggleMs: 0,
       series: {
         line: { entryMs: 0, smoothMs: 0, pulseMs: 0 },
         candlestick: { entryMs: 0, smoothMs: 0 },
         bar: { entryMs: 0, smoothMs: 0 },
       },
-      axis: { tickFadeMs: 0 },
     });
   });
 
@@ -69,13 +99,28 @@ describe('resolveAnimationsConfig', () => {
         candlestick: { entryMs: 0, smoothMs: 0 },
         bar: { entryMs: 0, smoothMs: 0 },
       },
-      y: { gestureMs: 100, visibilityMs: DEFAULT_Y_VISIBILITY, transition: expect.any(Function) },
+      axis: { y: { settleMs: DEFAULT_Y_SETTLE_MS } },
     });
-    expect(resolveAnimationsConfig({ y: false })).toMatchObject({
+    expect(resolveAnimationsConfig({ axis: { y: false } })).toMatchObject({
       series: {
         line: { entryMs: DEFAULT_LINE_ENTRY, smoothMs: DEFAULT_LINE_SMOOTH, pulseMs: DEFAULT_LINE_PULSE },
       },
-      y: { gestureMs: 0, visibilityMs: 0, transition: expect.any(Function) },
+      axis: { y: { settleMs: 0, stickyMs: 0, gestureMs: 0 } },
+    });
+  });
+
+  it('axis: false disables both axes and ticks', () => {
+    expect(resolveAnimationsConfig({ axis: false })).toMatchObject({
+      axis: {
+        y: { settleMs: 0, stickyMs: 0, gestureMs: 0 },
+        x: { settleMs: 0, gestureMs: 0 },
+        ticksMs: 0,
+      },
+      // Series still on (we only disabled the axis category).
+      series: {
+        line: { entryMs: DEFAULT_LINE_ENTRY },
+      },
+      toggleMs: DEFAULT_TOGGLE_MS,
     });
   });
 
@@ -99,9 +144,27 @@ describe('resolveAnimationsConfig', () => {
   });
 
   it('string time inputs parse', () => {
-    const out = resolveAnimationsConfig({ y: { visibility: '500ms' }, x: { gesture: '0.1s' } });
-    expect(out.y.visibilityMs).toBe(500);
-    expect(out.x.gestureMs).toBe(100);
+    const out = resolveAnimationsConfig({ toggle: '500ms', axis: { x: { settle: '0.1s' } } });
+    expect(out.toggleMs).toBe(500);
+    expect(out.axis.x.settleMs).toBe(100);
+  });
+
+  it('axis.y.sticky overrides the sticky-Y default', () => {
+    const out = resolveAnimationsConfig({ axis: { y: { sticky: 4000 } } });
+    expect(out.axis.y.stickyMs).toBe(4000);
+    expect(out.axis.y.settleMs).toBe(DEFAULT_Y_SETTLE_MS);
+  });
+
+  it('axis.x.gesture overrides the X gesture default', () => {
+    const out = resolveAnimationsConfig({ axis: { x: { gesture: 90 } } });
+    expect(out.axis.x.gestureMs).toBe(90);
+    expect(out.axis.x.settleMs).toBe(DEFAULT_X_SETTLE_MS);
+  });
+
+  it('axis.ticks: false disables tick crossfade without touching axes', () => {
+    const out = resolveAnimationsConfig({ axis: { ticks: false } });
+    expect(out.axis.ticksMs).toBe(0);
+    expect(out.axis.y.settleMs).toBe(DEFAULT_Y_SETTLE_MS);
   });
 });
 

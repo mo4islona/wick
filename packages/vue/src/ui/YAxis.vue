@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { resolveAxisFontSize, resolveAxisTextColor, type ValueFormatter } from '@wick-charts/core';
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { type ValueFormatter, mountAxisLabels } from '@wick-charts/core';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 
-import { useVisibleRange } from '../composables';
 import { useChartInstance } from '../context';
 
 const props = defineProps<{
@@ -17,14 +16,8 @@ const props = defineProps<{
   minLabelSpacing?: number;
 }>();
 
-interface TrackedTick {
-  opacity: number;
-  addedAt: number;
-}
-
 const chart = useChartInstance();
-// Subscribe to visible range to trigger re-renders on viewport changes
-const visibleRange = useVisibleRange(chart);
+const containerRef = ref<HTMLDivElement | null>(null);
 
 // Route the formatter through yScale so Crosshair / YLabel fallback use
 // the same function as the axis labels.
@@ -39,53 +32,24 @@ const applyDensity = () => {
     minLabelSpacing: props.minLabelSpacing ?? null,
   });
 };
-// Run during setup (before first paint) to match TimeAxis.vue and avoid a
-// post-mount density change that would cause a visible tick "jump".
 applyDensity();
 watch(() => [props.labelCount, props.minLabelSpacing], applyDensity);
 onUnmounted(() => chart.setYAxisLabelDensity({ labelCount: null, minLabelSpacing: null }));
 
-const tickMap = new Map<number, TrackedTick>();
-
-const theme = computed(() => chart.getTheme());
-
-const allTicks = computed(() => {
-  // Access visibleRange.value to track dependency
-  void visibleRange.value;
-
-  const currentTicks = chart.yScale.niceTickValues();
-  const currentSet = new Set(currentTicks);
-  const now = performance.now();
-
-  // Mark current ticks as visible
-  for (const p of currentTicks) {
-    if (!tickMap.has(p)) {
-      tickMap.set(p, { opacity: 1, addedAt: now });
-    } else {
-      tickMap.get(p)!.opacity = 1;
-    }
-  }
-
-  // Mark missing ticks for fade-out
-  for (const [p, entry] of tickMap) {
-    if (!currentSet.has(p)) {
-      entry.opacity = 0;
-    }
-  }
-
-  // Clean up old faded-out ticks
-  for (const [p, entry] of tickMap) {
-    if (entry.opacity === 0 && now - entry.addedAt > 5000) {
-      tickMap.delete(p);
-    }
-  }
-
-  return Array.from(tickMap.entries());
+let cleanup: (() => void) | null = null;
+onMounted(() => {
+  if (containerRef.value === null) return;
+  cleanup = mountAxisLabels({ chart, container: containerRef.value, axis: 'y' });
+});
+onUnmounted(() => {
+  cleanup?.();
+  cleanup = null;
 });
 </script>
 
 <template>
   <div
+    ref="containerRef"
     :style="{
       position: 'absolute',
       right: '0',
@@ -94,26 +58,5 @@ const allTicks = computed(() => {
       width: chart.yAxisWidth + 'px',
       pointerEvents: 'none',
     }"
-  >
-    <span
-      v-for="[price, entry] in allTicks"
-      :key="price"
-      :style="{
-        position: 'absolute',
-        right: '8px',
-        top: chart.yScale.valueToY(price) + 'px',
-        transform: 'translateY(-50%)',
-        color: resolveAxisTextColor(theme, 'y'),
-        fontSize: resolveAxisFontSize(theme, 'y') + 'px',
-        fontFamily: theme.typography.fontFamily,
-        fontVariantNumeric: 'tabular-nums',
-        userSelect: 'none',
-        opacity: entry.opacity,
-        transition: 'opacity 0.25s ease',
-        willChange: 'opacity',
-      }"
-    >
-      {{ chart.yScale.formatY(price) }}
-    </span>
-  </div>
+  />
 </template>

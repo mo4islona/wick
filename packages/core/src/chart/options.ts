@@ -81,8 +81,9 @@ export interface ChartOptions {
   /** Background grid configuration. Default: `{ visible: true }`. */
   grid?: { visible: boolean };
   /**
-   * Animation control. Split into per-axis (`y`, `x`), per-series-type
-   * (`series.{line,candlestick,bar,pie}`), and `axis.tickFade` categories.
+   * Animation control. Grouped as `axis: { y, x, ticks }` (axis-side
+   * behaviour), `toggle` (series visibility — alpha + Y refit), and
+   * `series.{line,candlestick,bar,pie}` (per-series-type data tweens).
    * See {@link AnimationsConfig} for the full shape and defaults.
    *
    * Shorthands:

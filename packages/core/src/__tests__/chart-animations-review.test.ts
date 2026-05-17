@@ -134,7 +134,7 @@ describe('updateSeriesOptions honors chart-level animation gates', () => {
  */
 describe('engine-driven lockstep', () => {
   it('setSeriesVisible(false) drops alpha to 0 and contracts Y in one engine tick', () => {
-    const chart = makeSizedChart({ y: { visibility: 0 } });
+    const chart = makeSizedChart({ toggle: 0 });
     const small = chart.addLineSeries();
     const big = chart.addLineSeries();
     chart.setSeriesData(small, [
@@ -151,7 +151,7 @@ describe('engine-driven lockstep', () => {
 
     chart.setSeriesVisible(big, false);
 
-    // visibilityMs=0 routes through the engine's zero-duration guard for
+    // toggle=0 routes through the engine's zero-duration guard for
     // the Y reflow; the renderer-owned alpha animator snaps to 0
     // synchronously.
     const renderer = (

@@ -9,8 +9,15 @@ import { hexToRgba } from '../utils/color';
 import { lerp } from '../utils/math';
 import { isPoisonedNumber, reportPoisonedData } from '../utils/poisoned-data-reporter';
 import { normalizeOHLCArray, normalizeTime } from '../utils/time';
-import { resolveMs } from './shared-animation';
 import type { SeriesRenderContext, SeriesRenderer } from './types';
+
+/** Internal resolved shape: `entryMs` / `smoothMs` are concrete numbers
+ *  (`false` from the public surface gets normalized to `0` at the merge
+ *  boundary, so downstream reads never see the disable sentinel). */
+type ResolvedCandlestickOptions = Omit<CandlestickSeriesOptions, 'entryMs' | 'smoothMs'> & {
+  entryMs: number;
+  smoothMs: number;
+};
 
 /** Per-candle entrance state — start wall-time so progress is `(now - startTime) / entryMs`. */
 interface EntryState {
@@ -46,15 +53,25 @@ function ohlcEquals(a: OHLCData, b: OHLCData): boolean {
   );
 }
 
-const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
+const DEFAULT_OPTIONS: ResolvedCandlestickOptions = {
   up: { body: '#26a69a', wick: '#26a69a' },
   down: { body: '#ef5350', wick: '#ef5350' },
   bodyWidthRatio: 0.6,
+  entryMs: DEFAULT_CANDLESTICK_ENTRY,
+  smoothMs: DEFAULT_CANDLESTICK_SMOOTH,
 };
+
+function normalize(options: CandlestickSeriesOptions): ResolvedCandlestickOptions {
+  return {
+    ...options,
+    entryMs: options.entryMs === false ? 0 : (options.entryMs ?? DEFAULT_CANDLESTICK_ENTRY),
+    smoothMs: options.smoothMs === false ? 0 : (options.smoothMs ?? DEFAULT_CANDLESTICK_SMOOTH),
+  };
+}
 
 export class CandlestickRenderer implements SeriesRenderer {
   readonly store: TimeSeriesStore<OHLCData>;
-  private options: CandlestickSeriesOptions;
+  private options: ResolvedCandlestickOptions;
 
   // --- Animation state ----------------------------------------------------
   /** Smoothed OHLC for the live last candle. Reset on `appendPoint` (new
@@ -72,7 +89,7 @@ export class CandlestickRenderer implements SeriesRenderer {
 
   constructor(store: TimeSeriesStore<OHLCData>, options?: Partial<CandlestickSeriesOptions>) {
     this.store = store;
-    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.options = normalize({ ...DEFAULT_OPTIONS, ...options });
     // Seed `displayedLast` from the (possibly pre-populated) store — `setData`
     // doesn't run when the caller pre-loaded the store before construction,
     // so without this seed the first `updateLastPoint` would lazily anchor
@@ -80,20 +97,12 @@ export class CandlestickRenderer implements SeriesRenderer {
     this.displayedLast = store.last() ?? null;
   }
 
-  private resolvedEntryMs(): number {
-    return resolveMs(this.options.entryMs, DEFAULT_CANDLESTICK_ENTRY);
-  }
-
-  private resolvedSmoothMs(): number {
-    return resolveMs(this.options.smoothMs, DEFAULT_CANDLESTICK_SMOOTH);
-  }
-
   private isEntryEnabled(): boolean {
     return (this.options.entryAnimation ?? 'unfold') !== 'none';
   }
 
   updateOptions(options: Partial<CandlestickSeriesOptions>): void {
-    this.options = { ...this.options, ...options };
+    this.options = normalize({ ...this.options, ...options });
   }
 
   getColor(): string {
@@ -125,7 +134,7 @@ export class CandlestickRenderer implements SeriesRenderer {
     this.displayedLast = candle;
     this.#liveAnimator = null;
 
-    const entryMs = this.resolvedEntryMs();
+    const entryMs = this.options.entryMs;
     if (this.isEntryEnabled() && entryMs > 0) {
       this.entries.set(time, { startTime: performance.now() });
     }
@@ -137,7 +146,7 @@ export class CandlestickRenderer implements SeriesRenderer {
     const target: OHLCData = { ...p, time };
     this.store.updateLast(target);
 
-    const smoothMs = this.resolvedSmoothMs();
+    const smoothMs = this.options.smoothMs;
     if (smoothMs <= 0) {
       this.displayedLast = target;
       this.#liveAnimator = null;
@@ -216,7 +225,7 @@ export class CandlestickRenderer implements SeriesRenderer {
       if (!stillAnimating) this.#liveAnimator = null;
     }
 
-    const entryMs = this.resolvedEntryMs();
+    const entryMs = this.options.entryMs;
     if (entryMs <= 0) {
       this.entries.clear();
       return;
@@ -286,7 +295,7 @@ export class CandlestickRenderer implements SeriesRenderer {
     // downstream branches read `entranceByTime?.get(time) ?? 1` and fast-path.
     let entranceByTime: Map<number, number> | null = null;
     if (this.entries.size > 0) {
-      const entryMs = this.resolvedEntryMs();
+      const entryMs = this.options.entryMs;
       const now = performance.now();
       for (const c of visibleData) {
         const state = this.entries.get(c.time);

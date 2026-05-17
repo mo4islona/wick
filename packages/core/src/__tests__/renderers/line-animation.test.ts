@@ -680,4 +680,55 @@ describe('LineRenderer — animation', () => {
       }
     });
   });
+
+  describe('per-layer alpha — fade-in after all layers hidden', () => {
+    // Regression: if every layer's alpha is at 0 and at rest, `getAlpha()`
+    // returns 0 — chart's render gate (`if (alpha <= 0) continue;`) skips the
+    // renderer, so its animators never tick. Toggling a layer back in must
+    // still kick the gate open via `animating`, otherwise the fade-in
+    // deadlocks at 0.
+    it('getAlpha reports active even when current=0, when an animator is in flight', () => {
+      const r = new LineRenderer(3);
+      r.setData([{ time: 10, value: 5 }], 0);
+      r.setData([{ time: 10, value: 10 }], 1);
+      r.setData([{ time: 10, value: 15 }], 2);
+
+      // Snap every layer to 0 — simulates the "all hidden, settled" state.
+      r.setLayerAlpha(0, 0, 0);
+      r.setLayerAlpha(1, 0, 0);
+      r.setLayerAlpha(2, 0, 0);
+      expect(r.getAlpha()).toBe(0);
+
+      // Toggle one layer back in. `current` is still 0, but the animator is
+      // animating — the gate must read as alive so render is called.
+      r.setLayerAlpha(1, 1, 250);
+      expect(r.getAlpha()).toBe(1);
+      expect(r.getLayerAlpha(1)).toBe(0);
+
+      // After a frame, the alpha must actually move — that proves render
+      // was called and ticked the animator.
+      advance(16);
+      renderFrame(r);
+      expect(r.getLayerAlpha(1)).toBeGreaterThan(0);
+    });
+
+    it('fade-in eventually settles at 1', () => {
+      const r = new LineRenderer(2);
+      r.setData([{ time: 10, value: 5 }], 0);
+      r.setData([{ time: 10, value: 10 }], 1);
+
+      r.setLayerAlpha(0, 0, 0);
+      r.setLayerAlpha(1, 0, 0);
+      r.setLayerAlpha(0, 1, 250);
+
+      for (let i = 0; i < 30; i++) {
+        advance(16);
+        renderFrame(r);
+      }
+
+      expect(r.getLayerAlpha(0)).toBe(1);
+      expect(r.getLayerAlpha(1)).toBe(0);
+      expect(r.getAlpha()).toBe(1);
+    });
+  });
 });

@@ -20,7 +20,7 @@ const TIME_PATTERN = /^(\d+(?:\.\d+)?)(ms|s)$/;
 
 /**
  * Parse an {@link AnimationTime} to milliseconds. Invalid strings throw at
- * config-resolution time so a typo surfaces at startup, not silently as zero
+ * config-resolution time, so a typo surfaces at startup, not silently as zero
  * animation later. Used once per field in `resolveAnimationsConfig`.
  */
 export function parseAnimationTime(value: AnimationTime): Milliseconds {

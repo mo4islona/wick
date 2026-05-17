@@ -1,4 +1,4 @@
-import { AnimationConfig, DEFAULT_HERMITE_CONTRACT, DEFAULT_HERMITE_EXPAND } from './animation/config';
+import { AnimationConfig } from './animation/config';
 import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
 import { CanvasManager } from './canvas-manager';
 import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
@@ -18,6 +18,7 @@ import {
 import { computePan, computeZoom } from './chart/pan-zoom-math';
 import { StreamingCadence } from './chart/streaming-cadence';
 import { computeStreamingTarget } from './chart/streaming-target';
+import { resolvePaddingTime } from './chart/viewport-padding';
 import { computeTargetYRange, resolveBound } from './chart/y-target';
 import { renderCrosshair } from './components/crosshair';
 import { renderGrid } from './components/grid';
@@ -177,9 +178,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    * closures supplied at construction.
    */
   readonly #engine: ViewportEngine;
-  /** EMA-smoothed real-wall-clock cadence between streaming appends. Drives
-   *  the adaptive `data_tick` duration so the X slide stays in lockstep
-   *  with the producer through small jitter. */
+  /** EMA-smoothed real-wall-clock cadence between streaming appends. The
+   *  X spring's `setSettleMs` is fed from this so the settle time stays just
+   *  longer than the producer's tick interval — the spring never quite
+   *  settles between ticks, so velocity carries continuously and the slide
+   *  doesn't pulse. */
   readonly #cadence: StreamingCadence;
   /**
    * Set by `onDataChanged` before the engine signal so the
@@ -261,18 +264,22 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // last-value smoothing) live on the renderers / series / scale trackers
     // and tick independently.
     this.#cadence = new StreamingCadence();
+    const animY = this.#animationsConfig.axis.y;
+    const animX = this.#animationsConfig.axis.x;
     this.#engine = createViewportEngine({
       initial: { yRange: { min: 0, max: 0 }, xRange: { from: 0, to: 0 } },
-      yTransition: this.#animationsConfig.y.transition({ initial: { min: 0, max: 0 } }),
-      dataTickMs: () => {
-        const floor = this.#animationsConfig.x.dataTickMs;
-        return floor > 0 ? this.#cadence.pickDuration(floor) : 0;
+      y: {
+        curve: animY.curve,
+        settleMs: animY.settleMs,
+        stickyMs: animY.stickyMs,
+        gestureMs: animY.gestureMs,
+        toggleMs: this.#animationsConfig.toggleMs,
       },
-      yStickyExpandMs: DEFAULT_HERMITE_EXPAND,
-      yStickyContractMs: DEFAULT_HERMITE_CONTRACT,
-      yGestureMs: this.#animationsConfig.y.gestureMs,
-      xGestureMs: this.#animationsConfig.x.gestureMs,
-      yVisibilityMs: this.#animationsConfig.y.visibilityMs,
+      x: {
+        curve: animX.curve,
+        settleMs: animX.settleMs,
+        gestureMs: animX.gestureMs,
+      },
       computeXTarget: () => this.#computeXTarget(),
       computeYTarget: ({ xTarget }) => this.#computeYTarget(xTarget),
       onWake: () => this.#mainScheduler?.markDirty(),
@@ -289,9 +296,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     this.timeScale = new TimeScale();
     this.yScale = new YScale();
 
-    const tickFadeMs = this.#animationsConfig.axis.tickFadeMs;
-    this.timeScale.tickTracker.setFadeMs(tickFadeMs);
-    this.yScale.tickTracker.setFadeMs(tickFadeMs);
+    const ticksMs = this.#animationsConfig.axis.ticksMs;
+    this.timeScale.tickTracker.setFadeMs(ticksMs);
+    this.yScale.tickTracker.setFadeMs(ticksMs);
 
     const monitor = this.#perfMonitor;
     if (monitor) {
@@ -649,11 +656,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   }
 
   /** Show or hide a series. The series cross-fades over
-   *  `animations.viewport.visibilityMs`; the Y range re-fits on the same
-   *  schedule (one-shot duration override) so the fade and the axis
-   *  adjustment finish on the same frame. Hidden series are excluded
-   *  from Y-range computation immediately so the axis can start moving
-   *  while the line fades out in parallel.
+   *  `animations.toggle`; the Y range re-fits on the same schedule
+   *  (one-shot duration override) so the fade and the axis adjustment
+   *  finish on the same frame. Hidden series are excluded from Y-range
+   *  computation immediately so the axis can start moving while the line
+   *  fades out in parallel.
    */
   setSeriesVisible(seriesId: string, visible: boolean): void {
     const entry = this.#series.find((s) => s.id === seriesId);
@@ -666,8 +673,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // Y retarget below so the cross-fade lives next to the geometry that
     // draws it. Pie and other renderers without `setAlpha` ride the binary
     // `entry.visible` flag and skip the fade entirely.
-    const visibilityMs = this.#animationsConfig.y.visibilityMs;
-    entry.renderer.setAlpha?.(visible ? 1 : 0, visibilityMs);
+    const toggleMs = this.#animationsConfig.toggleMs;
+    entry.renderer.setAlpha?.(visible ? 1 : 0, toggleMs);
     this.#mainScheduler.markDirty();
 
     if (this.#batchDepth > 0) {
@@ -698,7 +705,16 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     return this.#series.find((s) => s.id === seriesId)?.visible ?? true;
   }
 
-  /** Show or hide a specific layer within a multi-layer series. */
+  /**
+   * Show or hide a specific layer within a multi-layer series.
+   *
+   * Symmetric with {@link setSeriesVisible}: drives both the renderer's
+   * per-layer alpha fade and the engine's Y re-fit through `toggleMs` so the
+   * line fade and the axis adjustment finish on the same frame. Hidden layers
+   * are excluded from Y-range computation immediately (via the renderer's
+   * `getValueRange` reading `store.isVisible()`); the alpha fade keeps the
+   * layer's geometry on screen until the engine's Y ease settles.
+   */
   setLayerVisible(seriesId: string, layerIndex: number, visible: boolean): void {
     const entry = this.#series.find((s) => s.id === seriesId);
     if (!entry) return;
@@ -710,6 +726,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     entry.renderer.setLayerVisible(layerIndex, visible);
     this.#bumpOverlayVersion();
+
+    // Per-layer alpha fade rides alongside the engine's Y ease. Renderers
+    // without per-layer alpha (candlestick, pie) are already excluded above
+    // by the layer-count guard, so the optional call is just type-level safety.
+    const toggleMs = this.#animationsConfig.toggleMs;
+    entry.renderer.setLayerAlpha?.(layerIndex, visible ? 1 : 0, toggleMs);
+    this.#mainScheduler.markDirty();
+
     if (this.#batchDepth > 0) {
       this.#batchVisualDirty = true;
 
@@ -718,9 +742,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     this.#yInited = true;
     const now = performance.now();
-    this.#engine.onAxisReconfig(now);
+    this.#engine.onSeriesVisibilityChanged(now);
     this.#applyEngineState(now);
-    this.#mainScheduler.markDirty();
   }
 
   isLayerVisible(seriesId: string, layerIndex: number): boolean {
@@ -734,9 +757,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     if (first === undefined || last === undefined) return;
     const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
     this.#fitVisibleToData(first, last, chartWidth);
-    // Y and X both ease through the engine — `data_tick` rides the sticky-Y
-    // baseline + the cadence-smoothed X duration so the axis and viewport
-    // converge on the same frame.
+    // Y and X both ease through the engine — Y rides the sticky-Y baseline,
+    // X rides the spring's settle time, so the axis and viewport converge on
+    // the same frame.
     this.#commitProgrammaticZoom({ xEase: true });
   }
 
@@ -1384,10 +1407,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     // Engine pulls the X target by calling `#computeXTarget`
     // through the `computeXTarget` closure — the closure runs viewport
-    // fit / cadence.observe / streaming-target math on demand and reads
-    // `#dataStart` / `#dataEnd` (for the timestamps) plus `#isBatchLoad`
-    // (set just below) to pick the right path. Y is pulled separately
-    // via the `computeYTarget` closure against the new X window.
+    // fit / streaming-target math on demand and reads `#dataStart` /
+    // `#dataEnd` (for the timestamps) plus `#isBatchLoad` (set just below)
+    // to pick the right path. Y is pulled separately via the
+    // `computeYTarget` closure against the new X window.
     // `#yInited` flips optimistically — `#computeYTarget` self-clears
     // it when no series has data in the window, so the next paint with
     // values lands as a first-paint snap.
@@ -1502,10 +1525,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    *   First-paint fit.
    * - **batch load + autoscroll** → fit to data, return logical. React-
    *   batched bursts / large `setSeriesData` payloads come here.
-   * - **streaming append + autoscroll** → `cadence.observe` (smooth the
-   *   inter-tick wall for the engine's `dataTickMs` callback to read),
-   *   `computeStreamingTarget` (preserves any pan offset across ticks
-   *   via `#prevDataEnd`).
+   * - **streaming append + autoscroll** → `computeStreamingTarget` (preserves
+   *   any pan offset across ticks via `#prevDataEnd`). The engine's X spring
+   *   absorbs the new target — velocity carries across retargets so a burst
+   *   of ticks doesn't restart easing on each one.
    * - **autoscroll off** → `null` (no X retarget; user has panned away
    *   from the tail).
    */
@@ -1538,8 +1561,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       return this.#logical;
     }
 
-    this.#cadence.observe(performance.now());
-
     const result = computeStreamingTarget({
       currentLogical: this.#logical,
       lastTime: this.#dataEnd,
@@ -1553,6 +1574,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     if (result.releaseHold) this.#holdUntilFilled = false;
     if (result.reengageAutoScroll) this.#autoScroll = true;
     if (result.newLogical === null) return null;
+
+    // Observe cadence only when X actually advances. Sub-tick / intra-bar
+    // emissions that don't move `lastTime` would otherwise poison the EMA
+    // with their wall-clock spacing. The spring's baseline settle time is
+    // then nudged so it stays slightly longer than the measured tick — the
+    // spring keeps velocity instead of decaying to rest between ticks.
+    this.#cadence.observe(performance.now());
+    this.#engine.setXSettleMs(this.#cadence.pickSettleMs(this.#animationsConfig.axis.x.settleMs));
 
     this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
     this.#prevDataEnd = this.#dataEnd;
@@ -1689,6 +1718,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#onEdgeReached?.(result.edgeReached);
     }
 
+    this.#cadence.pause();
     this.#emitGestureToEngine();
   }
 
@@ -1697,6 +1727,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    * Zoom-in pins the right edge; zoom-out is hard-capped at the padded
    * data span. Forwards the committed target to the engine as a gesture
    * for visual easing. Public so consumers can drive zoom programmatically.
+   *
+   * Sticky-follow: while `#autoScroll` is on, the new window is repositioned
+   * so its right edge sits at `dataEnd + paddingRight` (follow position).
+   * Span (zoom level) from `computeZoom` is preserved; only the position
+   * is locked to the tail. This avoids the next-tick `computeStreamingTarget`
+   * offset clamp (which would otherwise slide X left to the follow position
+   * and produce a visible jump). Cursor-anchored zoom is intentionally
+   * sacrificed in follow-live mode — pan first to inspect history.
    */
   zoomAt(centerTime: number, factor: number, chartWidth = this.#lastChartWidth): void {
     if (chartWidth > 0) this.#lastChartWidth = chartWidth;
@@ -1714,14 +1752,25 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     });
     if (result.newLogical === null) return;
 
-    this.#commitLogical(result.newLogical, { emitChange: true });
+    let newLogical = result.newLogical;
+
+    if (this.#autoScroll && this.#dataEnd !== null) {
+      const span = newLogical.to - newLogical.from;
+      const prTime = resolvePaddingTime(this.#padding.right, span, this.#dataInterval, chartWidth);
+      const desiredTo = this.#dataEnd + prTime;
+      newLogical = { from: desiredTo - span, to: desiredTo };
+      this.#prevDataEnd = this.#dataEnd;
+    }
+
+    this.#commitLogical(newLogical, { emitChange: true });
+    this.#cadence.pause();
     this.#emitGestureToEngine();
   }
 
   /**
    * Common tail for `pan` / `zoomAt`: routes the just-committed `#logical`
-   * to the engine as a gesture so the engine eases the visual over
-   * `x.gestureMs` / `y.gestureMs`.
+   * to the engine as a gesture so the X spring retargets and the Y spring
+   * eases over `animations.axis.y.gesture`.
    */
   #emitGestureToEngine(): void {
     const target = this.#logical;
@@ -1870,15 +1919,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       const timeTickSnap = this.timeScale.tickTracker.snapshot();
       yTickAnimating = yTickSnap.isAnimating;
       timeTickAnimating = timeTickSnap.isAnimating;
-      // The engine's overall `animating` flag already covers the fade —
-      // renderMain marks dirty unconditionally when state.animating is
-      // true (see the early `engine.tick` block). No extra emit needed
-      // here; React / Svelte / Vue axis components subscribe to
-      // `viewportChange` (which fires on Y change) for re-render kicks,
-      // and to `tickFrame` for the in-between opacity advances. Emit
-      // `tickFrame` whenever this snapshot reads a fading tick so DOM
-      // surfaces refresh without a synthetic Y-change.
-      if (yTickSnap.isAnimating || timeTickSnap.isAnimating) {
+      // DOM axis components (TimeAxis, YAxis) re-render off `tickFrame`.
+      // Emit on every animating frame — both tick-tracker fades and the
+      // engine's X / Y slides count. Without the engine clause, an X-only
+      // streaming slide between tick boundaries would emit nothing and
+      // labels would hold the slide-start `timeToX(time)` value while the
+      // canvas glides past them, then snap forward on the next event.
+      if (yTickSnap.isAnimating || timeTickSnap.isAnimating || animationState.animating) {
         this.emit('tickFrame');
       }
 

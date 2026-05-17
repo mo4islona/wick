@@ -1,20 +1,26 @@
 import { Animator } from '../animation/animator';
 import { TimeSeriesStore } from '../data/store';
+import type { ChartTheme } from '../theme/types';
 import type { TimePoint, TimePointInput } from '../types';
 import { normalizeTime, normalizeTimePointArray } from '../utils/time';
 import { renderedStackPercentTop, renderedStackTop, sumStack } from './stack-math';
 import type { SeriesRenderContext, SeriesRenderer } from './types';
 
 /**
- * Shape of the options that {@link BaseMultiLayerSeries} reads directly from
- * its concrete subclass. Each subclass narrows its own options type and
- * returns this projection via {@link BaseMultiLayerSeries.getCommonOptions}.
+ * Shape of the options that {@link BaseMultiLayerSeries} reads directly.
+ * Subclasses store a narrower options object (with all their concrete
+ * fields) and assign it to {@link BaseMultiLayerSeries.options}; structural
+ * subtyping lets the base see only this slice.
+ *
+ * Durations are concrete numbers — subclasses normalize `false → 0` at
+ * their option-merge boundary (constructor + `updateOptions`), so the base
+ * never has to handle the disable sentinel.
  */
 export interface CommonSeriesOptions {
   colors: string[];
   stacking: 'off' | 'normal' | 'percent';
-  entryMs?: number | false;
-  smoothMs?: number | false;
+  entryMs: number;
+  smoothMs: number;
 }
 
 /** Per-point entrance animation state — start wall-time so `render` can
@@ -38,10 +44,19 @@ const scalarLerp = (a: number, b: number, t: number): number => a + (b - a) * t;
  *      for the layer's last point, with a {@link Animator}-driven chase so
  *      `updateLastPoint` smooths instead of snapping.
  *
- * Concrete subclasses provide entry-style + duration via the three resolver
- * hooks below.
+ * Concrete subclasses populate {@link options} with their own narrower
+ * resolved-options shape; the base reads only the common slice declared
+ * by {@link CommonSeriesOptions}.
  */
 export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements SeriesRenderer {
+  /**
+   * Common-slice view of the subclass's options. Each subclass widens the
+   * field type in its own declaration (via `declare`) to its full resolved
+   * shape and assigns the merged + normalized options in its constructor /
+   * `updateOptions`.
+   */
+  protected abstract options: CommonSeriesOptions;
+
   protected readonly stores: TimeSeriesStore<TData>[];
 
   // --- Animation state (per layer) ----------------------------------------
@@ -59,29 +74,24 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   /** Per-layer chase animator. `null` when settled or when smoothing is off. */
   readonly #liveAnimators: Array<Animator<number> | null>;
   /**
-   * Series-level alpha for the visibility cross-fade. Starts at 1 — series
-   * are visible by default; chart calls {@link setAlpha} on hide.
+   * Per-layer alpha for the visibility cross-fade. `setAlpha` (whole series)
+   * fans out across the array; `setLayerAlpha` targets a single index. Render
+   * loops multiply the layer's alpha into `globalAlpha` per draw.
    */
-  readonly #alphaAnimator: Animator<number>;
+  readonly #layerAlphaAnimators: Animator<number>[];
 
   constructor(layerCount: number) {
     this.stores = Array.from({ length: layerCount }, () => new TimeSeriesStore<TData>());
     this.entries = Array.from({ length: layerCount }, () => new Map<number, EntryState>());
     this.displayedLastValues = new Array(layerCount).fill(null);
     this.#liveAnimators = new Array(layerCount).fill(null);
-    this.#alphaAnimator = new Animator<number>({ initial: 1, duration: 0, lerp: scalarLerp });
+    this.#layerAlphaAnimators = Array.from(
+      { length: layerCount },
+      () => new Animator<number>({ initial: 1, duration: 0, lerp: scalarLerp }),
+    );
   }
 
   // --- Subclass hooks -------------------------------------------------------
-
-  /** Return the subset of options that the base class needs to read. */
-  protected abstract getCommonOptions(): CommonSeriesOptions;
-
-  /** Resolved entrance duration in ms. `0` disables the entrance animation. */
-  protected abstract resolvedEntryMs(): number;
-
-  /** Resolved live-value chase duration in ms. `0` disables smoothing. */
-  protected abstract resolvedSmoothMs(): number;
 
   /**
    * Whether the subclass's entry-animation style is anything other than
@@ -92,18 +102,18 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   // --- SeriesRenderer interface (abstract — subclass provides) --------------
 
   abstract render(ctx: SeriesRenderContext): void;
-  abstract applyTheme(theme: import('../theme/types').ChartTheme, prev: import('../theme/types').ChartTheme): void;
+  abstract applyTheme(theme: ChartTheme, prev: ChartTheme): void;
   // biome-ignore lint/suspicious/noExplicitAny: each renderer narrows this in its concrete signature
   abstract updateOptions(options: any): void;
 
   // --- Color accessors ------------------------------------------------------
 
   getColor(): string {
-    return this.getCommonOptions().colors[0];
+    return this.options.colors[0];
   }
 
   getColors(): string[] {
-    return this.getCommonOptions().colors;
+    return this.options.colors;
   }
 
   // --- Data ingest ----------------------------------------------------------
@@ -136,11 +146,10 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     // distinct points would interpolate the trailing-segment Y between the
     // previous last and the new one — distinct from the per-point entrance,
     // which already owns the visual unfurl.
-    const value = p.value as number;
-    this.displayedLastValues[layerIndex] = value;
+    this.displayedLastValues[layerIndex] = p.value;
     this.#liveAnimators[layerIndex] = null;
 
-    const entryMs = this.resolvedEntryMs();
+    const entryMs = this.options.entryMs;
     if (this.isEntryEnabled() && entryMs > 0) {
       this.entries[layerIndex].set(time, { startTime: performance.now() });
     }
@@ -154,7 +163,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     store.updateLast({ ...p, time: normalizeTime(p.time) } as unknown as TData);
 
     const target = p.value as number;
-    const smoothMs = this.resolvedSmoothMs();
+    const smoothMs = this.options.smoothMs;
     if (smoothMs <= 0) {
       this.displayedLastValues[layerIndex] = target;
       this.#liveAnimators[layerIndex] = null;
@@ -228,7 +237,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     const state = this.entries[layerIndex]?.get(time);
     if (state === undefined) return 1;
 
-    const entryMs = this.resolvedEntryMs();
+    const entryMs = this.options.entryMs;
     if (entryMs <= 0) return 1;
 
     const elapsed = performance.now() - state.startTime;
@@ -259,7 +268,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
    * `performance.now`) can drive progression deterministically.
    */
   protected tickAnimations(now: number): void {
-    this.#alphaAnimator.tick(now);
+    for (const a of this.#layerAlphaAnimators) a.tick(now);
 
     for (let li = 0; li < this.stores.length; li++) {
       const anim = this.#liveAnimators[li];
@@ -269,7 +278,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
         if (!stillAnimating) this.#liveAnimators[li] = null;
       }
 
-      const entryMs = this.resolvedEntryMs();
+      const entryMs = this.options.entryMs;
       if (entryMs <= 0) {
         this.entries[li].clear();
         continue;
@@ -284,7 +293,9 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
 
   /** True while any layer has an active chase, unsettled entry, or alpha fade. */
   get needsAnimation(): boolean {
-    if (this.#alphaAnimator.animating) return true;
+    for (const a of this.#layerAlphaAnimators) {
+      if (a.animating) return true;
+    }
     for (const anim of this.#liveAnimators) {
       if (anim !== null) return true;
     }
@@ -305,16 +316,49 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   }
 
   /**
-   * Start a fade toward `target` over `durationMs`. `durationMs <= 0` snaps
-   * the alpha to the new value. Idempotent on equal targets.
+   * Start a series-wide fade toward `target` over `durationMs`. Fans out
+   * across every per-layer animator so a `setSeriesVisible` toggle is just
+   * "set every layer to the same target". `durationMs <= 0` snaps.
    */
   setAlpha(target: number, durationMs: number): void {
-    this.#alphaAnimator.setTarget(target, { duration: durationMs });
+    for (const a of this.#layerAlphaAnimators) {
+      a.setTarget(target, { duration: durationMs });
+    }
   }
 
-  /** Latest rendered alpha. Chart applies as `globalAlpha *= getAlpha()`. */
+  /**
+   * `1` while any layer has alpha > 0 OR is animating, `0` when every layer
+   * has fully faded and is at rest. Per-layer alpha is composed into
+   * `globalAlpha` by the renderer's own draw loops, so this stays a binary
+   * skip-gate at the chart level.
+   *
+   * The `animating` check matters when every layer is at `current = 0` and
+   * the user toggles one back in: `setLayerAlpha(idx, 1, ms)` flips the
+   * animator to `animating = true` but `current` is still `0` until the next
+   * `tick`. If chart skipped the render based on `current` alone, the
+   * animator would never tick (render is what advances it), and the fade-in
+   * would deadlock at `0`.
+   */
   getAlpha(): number {
-    return this.#alphaAnimator.current;
+    for (const a of this.#layerAlphaAnimators) {
+      if (a.current > 0 || a.animating) return 1;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Start a fade for a single layer toward `target` over `durationMs`.
+   * Subclass draw loops multiply this into `globalAlpha` per layer so the
+   * fade lives next to the geometry it affects.
+   */
+  setLayerAlpha(index: number, target: number, durationMs: number): void {
+    this.#layerAlphaAnimators[index]?.setTarget(target, { duration: durationMs });
+  }
+
+  /** Latest rendered per-layer alpha. Defaults to 1 for out-of-range indices. */
+  getLayerAlpha(index: number): number {
+    return this.#layerAlphaAnimators[index]?.current ?? 1;
   }
 
   // --- Data queries ---------------------------------------------------------
@@ -389,7 +433,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     }
     if (lastTime === -Infinity) return null;
 
-    const stacking = this.getCommonOptions().stacking;
+    const stacking = this.options.stacking;
     if (stacking === 'off') {
       // Non-stacked multi-layer: there's no single "top" — report the last
       // value of the last visible layer. Callers that want per-layer values
@@ -448,7 +492,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   }
 
   getValueRange(from: number, to: number): { min: number; max: number } | null {
-    const stacking = this.getCommonOptions().stacking;
+    const stacking = this.options.stacking;
     if (stacking === 'percent') {
       return { min: 0, max: 100 };
     }

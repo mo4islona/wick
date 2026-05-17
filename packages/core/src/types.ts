@@ -30,10 +30,13 @@ export interface TimePoint {
 export type TimePointInput = Omit<TimePoint, 'time'> & { time: TimeValue };
 
 /** Time range (timestamps in milliseconds) of the currently visible portion of the chart. */
-export interface VisibleRange {
+export interface XRange {
   from: number;
   to: number;
 }
+
+/** @deprecated Use {@link XRange} instead. Visible time range of the chart. */
+export type VisibleRange = XRange;
 
 /** Value range covered by the chart's Y axis at a given frame. Animated as a
  *  single struct so the upper and lower bounds always move in lockstep — no
