@@ -1,15 +1,21 @@
-import {
-  AnimationConfig,
-  type AnimationsConfig,
-  DEFAULT_HERMITE_CONTRACT,
-  DEFAULT_HERMITE_EXPAND,
-} from './animation/config';
+import { AnimationConfig, DEFAULT_HERMITE_CONTRACT, DEFAULT_HERMITE_EXPAND } from './animation/config';
 import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
 import { CanvasManager } from './canvas-manager';
 import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
 import { computeFitToData } from './chart/fit-to-data';
 import { getLastValue, getPreviousClose, getStackedLastValue } from './chart/last-value';
-import { DEFAULT_MAX_VISIBLE_BARS, MIN_VISIBLE_BARS, computePan, computeZoom } from './chart/pan-zoom-math';
+import {
+  type ChartOptions,
+  type EdgeReachedInfo,
+  type EdgeSide,
+  type EdgeState,
+  type ResolvedPadding,
+  isSameHorizontalPadding,
+  resolveMaxVisibleBars,
+  resolvePadding,
+  resolvePerfOptions,
+} from './chart/options';
+import { computePan, computeZoom } from './chart/pan-zoom-math';
 import { StreamingCadence } from './chart/streaming-cadence';
 import { computeStreamingTarget } from './chart/streaming-target';
 import { computeTargetYRange, resolveBound } from './chart/y-target';
@@ -19,7 +25,7 @@ import { TimeSeriesStore } from './data/store';
 import { EventEmitter } from './events';
 import { InteractionHandler } from './interactions/handler';
 import type { PanZoomTarget } from './interactions/pan-zoom-target';
-import { PerfHud, PerfMonitor, type PerfMonitorOptions } from './perf';
+import { PerfHud, type PerfMonitor } from './perf';
 import { RenderScheduler } from './render-scheduler';
 import { TimeScale } from './scales/time-scale';
 import { YScale } from './scales/y-scale';
@@ -37,7 +43,6 @@ import type {
   CandlestickSeriesOptions,
   ChartLayout,
   CrosshairPosition,
-  HorizontalPadding,
   LineSeriesOptions,
   OHLCData,
   OHLCInput,
@@ -50,25 +55,7 @@ import type {
 } from './types';
 import { detectInterval, normalizeTime } from './utils/time';
 
-/** Which data side the user pulled past during a gesture. */
-export type EdgeSide = 'left' | 'right';
-/**
- * Host-controlled visual state for a chart edge:
- * - `idle`: nothing rendered (default).
- * - `loading`: a subtle spinner appears in the overshoot area.
- * - `no-data`: a dashed boundary line + "No more data" label appears at the data edge.
- * - `has-more`: reserved — currently behaves like `idle`. Use when more data exists but is not being fetched.
- */
-export type EdgeState = 'idle' | 'loading' | 'no-data' | 'has-more';
-
-/** Payload for {@link ChartOptions.onEdgeReached}. */
-export interface EdgeReachedInfo {
-  side: EdgeSide;
-  /** Time units the user pulled past the soft bound. */
-  overshoot: number;
-  /** Soft-bound timestamp that was crossed (dataStart - leftPad or dataEnd + rightPad). */
-  boundaryTime: number;
-}
+export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart/options';
 
 /** Events emitted by {@link ChartInstance}. */
 interface ChartEvents {
@@ -93,119 +80,6 @@ interface ChartEvents {
    * tracked tick has reached its target opacity.
    */
   tickFrame: () => void;
-}
-
-export interface ChartOptions {
-  theme?: ChartTheme;
-  axis?: AxisConfig;
-  /**
-   * Viewport padding. `top`/`bottom` are in pixels. `left`/`right` accept either pixels (`50`)
-   * or data intervals (`{ intervals: 3 }`). Defaults: `{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }`.
-   */
-  padding?: {
-    top?: number;
-    bottom?: number;
-    right?: number | { intervals: number };
-    left?: number | { intervals: number };
-  };
-  /**
-   * Viewport-level streaming behavior.
-   */
-  viewport?: {
-    /**
-     * Maximum number of data bars (candles/points) the viewport will fit
-     * before it stops growing and switches to tail-scroll. While the data
-     * span is below this threshold, streaming ticks expand the right edge
-     * to absorb new points; once the span exceeds it, the visible window
-     * holds at this width and slides forward as new data arrives.
-     * Default: 200. Values below 2 are clamped.
-     */
-    maxVisibleBars?: number;
-    /**
-     * Initial visible range applied **before** the first paint after data
-     * arrives. Same shape as {@link ChartInstance.setVisibleRange} (a bar
-     * count, an explicit `{from, to}` window, or a `{from, bars}` warm-up
-     * pair). Calling `setVisibleRange` after mount via `useEffect` runs
-     * post-paint and visually re-zooms the chart on the next frame; this
-     * option folds the same intent into the first render so the very first
-     * paint already shows the requested window.
-     *
-     * One-shot — consumed by the first `onDataChanged` call that has data,
-     * then cleared. Subsequent `setSeriesData` calls don't re-apply it.
-     */
-    initialRange?: VisibleRangeSpec;
-  };
-  /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
-  interactive?: boolean;
-  /** Background grid configuration. Default: `{ visible: true }`. */
-  grid?: { visible: boolean };
-  /**
-   * Animation control. Split into `points` (data-series animations) and
-   * `viewport` (pan/zoom rebound + Y-axis smoothing). See
-   * {@link AnimationsConfig} for the full shape and defaults.
-   *
-   * Shorthands:
-   * - `animations: true` (or omitted) uses built-in defaults.
-   * - `animations: false` disables every animation category.
-   * - `animations: { points: false }` disables all data-series animations.
-   * - `animations: { viewport: false }` disables rebound + Y-axis smoothing.
-   *
-   * Per-series options (`enterMs`, `smoothMs`, etc.) override chart-level
-   * defaults unless the category is explicitly `false` — then the chart-
-   * level gate wins.
-   */
-  animations?: boolean | AnimationsConfig;
-  /**
-   * Invoked after the user releases a pan/zoom gesture that pulled the
-   * viewport past a data edge by more than 10% of the visible range. Hosts
-   * typically respond by prefetching more history and calling
-   * {@link ChartInstance.setEdgeState} to show a spinner or "no more data"
-   * indicator at the corresponding edge.
-   */
-  onEdgeReached?: (info: EdgeReachedInfo) => void;
-  /**
-   * Runtime performance instrumentation. Opt-in — absent by default so the
-   * hot render path stays free of timing/counting overhead.
-   *
-   * - `false` / omitted — no instrumentation, no HUD, byte-identical to a perf-free build.
-   * - `true` — create an internal {@link PerfMonitor} and mount a visible HUD overlay.
-   * - `{ hud: true, ...options }` — same, with monitor options forwarded.
-   * - `{ hud: false, ...options }` — instrument but do not render a HUD (useful when
-   *   the host app consumes stats via `monitor.onFrame` and renders its own UI).
-   * - `PerfMonitor` instance — attach to a pre-constructed monitor. Useful when several
-   *   charts share one telemetry sink. HUD defaults to off in this mode.
-   */
-  perf?: boolean | PerfMonitor | (PerfMonitorOptions & { hud?: boolean; monitor?: PerfMonitor });
-}
-
-interface ResolvedPerfOptions {
-  monitor: PerfMonitor | null;
-  /** True when the monitor was constructed by `resolvePerfOptions`; false for caller-supplied monitors we must not destroy. */
-  ownsMonitor: boolean;
-  showHud: boolean;
-}
-
-/**
- * Collapse the polymorphic `perf` option into a concrete monitor + HUD
- * decision. Returning `{ monitor: null }` preserves the zero-instrumentation
- * path — no Proxy, no timing, no HUD.
- */
-function resolvePerfOptions(input: ChartOptions['perf']): ResolvedPerfOptions {
-  if (!input) return { monitor: null, ownsMonitor: false, showHud: false };
-
-  if (input === true) return { monitor: new PerfMonitor(), ownsMonitor: true, showHud: true };
-
-  if (input instanceof PerfMonitor) return { monitor: input, ownsMonitor: false, showHud: false };
-
-  // Object form: may carry an external monitor or construction options, plus a HUD flag.
-  const { hud, monitor, ...monitorOptions } = input;
-  const external = monitor !== undefined;
-
-  return {
-    monitor: monitor ?? new PerfMonitor(monitorOptions),
-    ownsMonitor: !external,
-    showHud: hud ?? !external,
-  };
 }
 
 /** Internal bookkeeping for a registered series. */
@@ -570,9 +444,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       ...this.#animationsConfig.overrides('line'),
     });
 
-    const id = this.#registerSeries(renderer, renderer.store, rest);
-
-    return id;
+    return this.#registerSeries(renderer, renderer.store, rest);
   }
 
   /** Add a bar series and return its unique ID. */
@@ -2195,48 +2067,4 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // Spinner needs a frame cadence of its own, independent of series overlays.
     if (edgeAnimates) this.#overlayScheduler.markDirty();
   }
-}
-
-interface ResolvedPadding {
-  top: number;
-  bottom: number;
-  right: HorizontalPadding;
-  left: HorizontalPadding;
-}
-
-const DEFAULT_PADDING: ResolvedPadding = {
-  top: 20,
-  bottom: 20,
-  right: { intervals: 3 },
-  left: { intervals: 0 },
-};
-
-function resolvePadding(input: ChartOptions['padding']): ResolvedPadding {
-  return {
-    top: input?.top ?? DEFAULT_PADDING.top,
-    bottom: input?.bottom ?? DEFAULT_PADDING.bottom,
-    right: input?.right ?? DEFAULT_PADDING.right,
-    left: input?.left ?? DEFAULT_PADDING.left,
-  };
-}
-
-/**
- * Shallow-compare two horizontal padding values (pixels or `{ intervals }`).
- * Used by `setPadding` to decide whether a viewport refit is needed.
- */
-function isSameHorizontalPadding(a: HorizontalPadding, b: HorizontalPadding): boolean {
-  if (typeof a === 'number' && typeof b === 'number') return a === b;
-  if (typeof a === 'object' && typeof b === 'object') return a.intervals === b.intervals;
-  return false;
-}
-
-/**
- * Resolve the `options.viewport.maxVisibleBars` config into a clamped
- * integer. Mirrors the validation Viewport used to do in its constructor.
- */
-function resolveMaxVisibleBars(input?: number): number {
-  if (input === undefined) return DEFAULT_MAX_VISIBLE_BARS;
-  if (!Number.isFinite(input)) return DEFAULT_MAX_VISIBLE_BARS;
-
-  return Math.max(MIN_VISIBLE_BARS, Math.floor(input));
 }
