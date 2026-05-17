@@ -580,12 +580,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   /** Stable composite-key strings for live-value / entry-progress map lookups. */
   readonly #keys: KeyCache;
   /**
-   * Scratch slot for the engine's `computeXTarget` callback. Chart writes
-   * the next X target eagerly (so side effects like `viewport.fitToData` /
-   * `cadence.observe` run synchronously) and the engine pulls it via the
-   * closure during `engine.onPointAppended` / `engine.onDataReplaced`.
+   * Scratch context for the engine's `computeXTarget` closure. Set on
+   * each `onDataChanged` call (with the data event's `first` / `last`
+   * timestamps and `isBatchLoad` flag), read by the closure when engine
+   * pulls the next X target, then cleared. Carries event context, not a
+   * pre-computed answer — closure does the path math (uninit fit / batch
+   * fit / streaming target / autoscroll-off).
    */
-  #pendingXTarget: VisibleRange | null = null;
+  #dataIngestContext: { first?: number; last?: number; isBatchLoad: boolean } | null = null;
 
   /** Active performance monitor, or `null` when instrumentation is disabled (the default). */
   #perfMonitor: PerfMonitor | null;
@@ -622,7 +624,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       yGestureMs: this.#animationsConfig.y.gestureMs,
       xGestureMs: this.#animationsConfig.x.gestureMs,
       yVisibilityMs: this.#animationsConfig.y.visibilityMs,
-      computeXTarget: () => this.#pendingXTarget,
+      computeXTarget: () => this.#computeXTarget(),
       computeYTarget: ({ xTarget }) => this.#computeYTarget(xTarget),
       onWake: () => this.#mainScheduler?.markDirty(),
     });
@@ -1774,50 +1776,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const isBatchLoad = added > 5;
     this.#prevDataLength = totalLength;
 
-    // X target computed inside the data block; default null = no X claim
-    // (no autoscroll, no fit). Engine eases visual via the data_tick emit
-    // below; first-paint / bulk-replace go through `instant` for a snap.
-    let xTarget: VisibleRange | null = null;
-    if (first !== undefined && last !== undefined) {
-      // Logical, not visual — "has the viewport ever been committed?" is a
-      // logical state question.
-      const { from, to } = this.#viewport.logicalRange;
-      const uninitialized = from === 0 && to === 0;
-      const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
-
-      if (uninitialized) {
-        // First data load — fit immediately. Viewport snaps to its preset
-        // capacity (`maxVisibleBars * dataInterval`); when the data is
-        // smaller than that, it sits flush with the data span. Streaming
-        // charts that want a warm-up window should call
-        // `chart.setVisibleRange({ from, bars })` (or pass
-        // `viewport.initialRange: { from, bars }`); that arms
-        // `viewport.#holdUntilFilled`.
-        this.#viewport.fitToData(first, last, { chartWidth });
-        // One-shot `initialVisibleRange` (e.g. "last 35 bars") — applied
-        // here so the Y range computed by the following engine signal snaps
-        // to the *initial-window* data rather than the full dataset. Folds
-        // post-mount `setVisibleRange` calls into the first paint.
-        if (this.#initialVisibleRange !== undefined) {
-          this.setVisibleRange(this.#initialVisibleRange);
-          this.#initialVisibleRange = undefined;
-        }
-        xTarget = this.#viewport.logicalRange;
-      } else if (isBatchLoad && this.#viewport.autoScroll) {
-        this.#viewport.fitToData(first, last, { chartWidth });
-        xTarget = this.#viewport.logicalRange;
-      } else if (!isBatchLoad && this.#viewport.autoScroll) {
-        // Single streaming tick — preserve any pan offset across ticks via
-        // `_prevDataEnd` (viewport.computeStreamingTargetX encapsulates the
-        // legacy `scrollToEnd` target math without animating). Cadence EMA
-        // sizes the next slide so the viewport keeps moving through to the
-        // next producer tick instead of settling at a fixed 250 ms and
-        // sitting idle.
-        this.#cadence.observe(performance.now());
-        xTarget = this.#viewport.computeStreamingTargetX(last, chartWidth);
-      }
-    }
-
     // Snap Y/X only on a true bulk replace (`chart.setSeriesData` flipped
     // `#dataReplaceSnapPending`) or on the first paint with data. React-
     // batched bursts and `isBatchLoad`-style fits still flow through the
@@ -1846,23 +1804,26 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.timeScale.tickTracker.reset();
     }
 
-    // Engine pulls X via #pendingXTarget (the chart pre-computed it above so
-    // viewport.fitToData / cadence.observe side effects ran synchronously);
-    // Y is pulled via the computeYTarget closure against the new X window.
-    // `#yInited` flips optimistically — `#computeYTarget` self-clears it when
-    // no series has data in the window, so the next paint with values lands
-    // as a first-paint snap.
-    if (xTarget !== null) this.#xInited = true;
-    if (first !== undefined) this.#yInited = true;
-
-    this.#pendingXTarget = xTarget;
+    // Engine pulls the X target by calling `#computeXTarget`
+    // through the `computeXTarget` closure — the closure runs viewport
+    // fit / cadence.observe / streaming-target math on demand and reads
+    // this scratch context for `first` / `last` / `isBatchLoad`. Y is
+    // pulled separately via the `computeYTarget` closure against the
+    // new X window. `#yInited` flips optimistically — `#computeYTarget`
+    // self-clears it when no series has data in the window, so the next
+    // paint with values lands as a first-paint snap.
+    this.#dataIngestContext = { first, last, isBatchLoad };
     const now = performance.now();
     if (replaceSnap || isFirstDataPaint) {
       this.#engine.onDataReplaced(now);
     } else {
       this.#engine.onPointAppended(now);
     }
-    this.#pendingXTarget = null;
+    this.#dataIngestContext = null;
+
+    if (this.#engine.lastXTarget !== null) this.#xInited = true;
+    if (first !== undefined) this.#yInited = true;
+
     this.#applyEngineState(now);
     // Re-sync scales so React components read correct yScale values.
     this.syncScales();
@@ -1951,6 +1912,64 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const max = resolveBound(this.#yBounds.max, raw.max, raw.min, allValues ?? [], 'max');
 
     return { min, max };
+  }
+
+  /**
+   * Engine pull-on-demand X target. Called by the engine's `computeXTarget`
+   * closure during `engine.onPointAppended` / `engine.onDataReplaced`.
+   * Reads `#dataIngestContext` (set just before the engine signal) and
+   * dispatches by path:
+   *
+   * - **uninit (viewport never committed)** → `viewport.fitToData`, apply
+   *   any one-shot `initialVisibleRange`, return the new logical range.
+   *   First-paint fit.
+   * - **batch load + autoscroll** → `viewport.fitToData`, return logical.
+   *   React-batched bursts / large `setSeriesData` payloads come here.
+   * - **streaming append + autoscroll** → `cadence.observe` (smooth the
+   *   inter-tick wall for the engine's `dataTickMs` callback to read),
+   *   `viewport.computeStreamingTargetX` (preserves any pan offset across
+   *   ticks via `_prevDataEnd`).
+   * - **autoscroll off** → `null` (no X retarget; user has panned away
+   *   from the tail).
+   *
+   * Returns `null` outside the data-ingest window (i.e. context wasn't
+   * set) — defensive, shouldn't happen on legitimate engine pulls.
+   */
+  #computeXTarget(): VisibleRange | null {
+    const ctx = this.#dataIngestContext;
+    if (ctx === null || ctx.last === undefined || ctx.first === undefined) return null;
+
+    const { from, to } = this.#viewport.logicalRange;
+    const uninitialized = from === 0 && to === 0;
+    const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
+
+    if (uninitialized) {
+      this.#viewport.fitToData(ctx.first, ctx.last, { chartWidth });
+      // One-shot `initialVisibleRange` (e.g. "last 35 bars") — applied
+      // inside the closure so the Y target the engine pulls next reflects
+      // the *initial-window* data rather than the full dataset. Folds
+      // post-mount `setVisibleRange` calls into the first paint.
+      if (this.#initialVisibleRange !== undefined) {
+        this.setVisibleRange(this.#initialVisibleRange);
+        this.#initialVisibleRange = undefined;
+      }
+
+      return this.#viewport.logicalRange;
+    }
+
+    if (ctx.isBatchLoad && this.#viewport.autoScroll) {
+      this.#viewport.fitToData(ctx.first, ctx.last, { chartWidth });
+
+      return this.#viewport.logicalRange;
+    }
+
+    if (!ctx.isBatchLoad && this.#viewport.autoScroll) {
+      this.#cadence.observe(performance.now());
+
+      return this.#viewport.computeStreamingTargetX(ctx.last, chartWidth);
+    }
+
+    return null;
   }
 
   /**
