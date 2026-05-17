@@ -1,8 +1,7 @@
 /**
- * Lockstep-arrival suite for {@link AnimationEngine}. After PR-2 of the
- * viewport-engine refactor the engine carries only X / Y slots — so the
- * tests here pin parallel and same-duration settlement on X+Y, which is
- * what the chart's streaming retarget relies on.
+ * Lockstep-arrival suite for {@link AnimationEngine}. The engine carries
+ * only X / Y slots; these tests pin parallel and same-duration settlement
+ * on X+Y, which is what the chart's streaming retarget relies on.
  */
 import { describe, expect, it } from 'vitest';
 

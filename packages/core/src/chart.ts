@@ -975,10 +975,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const entry = this.#series.find((s) => s.id === id);
     if (entry === undefined || entry.renderer.appendPoint === undefined) return;
 
-    // Entrance + live-value chase are renderer-owned (PR-1 of viewport-engine
-    // refactor); the renderer's `appendPoint` registers an entry animator
-    // keyed by `time` and seeds the live-track so the new point fades in
-    // and the trailing-Y starts smoothing on the next render frame.
+    // Entrance + live-value chase are renderer-owned: the renderer's
+    // `appendPoint` registers an entry animator keyed by `time` and seeds
+    // the live-track so the new point fades in and the trailing-Y starts
+    // smoothing on the next render frame.
     entry.renderer.appendPoint(point, layerIndex);
   }
 
@@ -1106,10 +1106,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       return;
     }
 
-    // Y reflow still flows through the engine (Phase 2 ownership). The
-    // engine's `alpha` slot keeps writing `state.seriesAlpha` for now —
-    // chart no longer reads it, so it's a dead write that PR-2 will strip
-    // along with the rest of the deprecated slot families.
+    // Y reflow still flows through the engine; renderer owns the alpha fade.
     const yTarget = this.#computeYTarget();
     this.#yInited = true;
     const now = performance.now();

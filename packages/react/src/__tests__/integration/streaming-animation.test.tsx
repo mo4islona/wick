@@ -22,10 +22,9 @@ describe('streaming data routes new points through appendData (entrance animatio
   });
 
   /**
-   * Per-series entrance registry. Renderer-owned again after PR-1 of the
-   * viewport-engine refactor — line/bar use a per-layer array of maps,
-   * candlestick uses a single map (single layer). Reaching in via
-   * type-cast keeps the public API surface untouched.
+   * Per-series entrance registry — renderer-owned. Line/bar use a per-layer
+   * array of maps, candlestick uses a single map (single layer). Reaching
+   * in via type-cast keeps the public API surface untouched.
    */
   function entranceProgressFor(
     chart: ReturnType<typeof mountChart>['chart'],

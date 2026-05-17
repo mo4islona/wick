@@ -13,10 +13,10 @@
  * the callback reads stale data, and the engine targets the previous frame's
  * state.
  *
- * PR-3 of the viewport-engine refactor: this is currently a thin wrapper
- * over the legacy slot-based {@link AnimationEngine} + {@link AnimationBridge}
- * pair. PR-4 will collapse the implementation to hold the X / Y machinery
- * directly without the underlying event/slot direction.
+ * Currently, a thin wrapper over the legacy slot-based {@link AnimationEngine}
+ * + {@link AnimationBridge} pair while the chart migration is in progress;
+ * the wrapper collapses to a standalone X / Y implementation once chart
+ * call sites stop reaching the inner engine directly.
  */
 
 import { AnimationBridge } from '../chart/animation-bridge';

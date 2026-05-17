@@ -114,9 +114,8 @@ export class AnimationBridge {
   /**
    * Series visibility toggle — Y reflow only. Series-side alpha cross-fade
    * lives on the renderer (`BaseSeries.setAlpha`); axis tick fade lives on
-   * `AxisTickTracker`. Both used to ride this event; PR-2 of the
-   * viewport-engine refactor moved them out, so this emit now just
-   * preempts the streaming Y retarget at a higher priority.
+   * `AxisTickTracker`. This emit preempts the streaming Y retarget at a
+   * higher priority kind.
    */
   emitVisibility(opts: VisibilityEmit): void {
     this.#engine.emit({

@@ -152,8 +152,8 @@ describe('engine-driven lockstep', () => {
     chart.setSeriesVisible(big, false);
 
     // visibilityMs=0 routes through the engine's zero-duration guard for
-    // the Y reflow; the renderer-owned alpha animator (PR-1 of the
-    // viewport-engine refactor) snaps to 0 synchronously.
+    // the Y reflow; the renderer-owned alpha animator snaps to 0
+    // synchronously.
     const renderer = (
       chart as unknown as { listSeriesForTest: () => Array<{ id: string; renderer: { getAlpha?: () => number } }> }
     )
