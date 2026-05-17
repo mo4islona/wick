@@ -22,10 +22,12 @@ import {
   DEFAULT_Y_VISIBILITY,
 } from './animation-constants';
 import { CanvasManager } from './canvas-manager';
+import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
 import { KeyCache } from './chart/key-cache';
+import { getLastValue, getPreviousClose, getStackedLastValue } from './chart/last-value';
 import { StreamingCadence } from './chart/streaming-cadence';
+import { computeTargetYRange, resolveBound } from './chart/y-target';
 import { renderCrosshair } from './components/crosshair';
-import { renderEdgeIndicator } from './components/edge-indicator';
 import { renderGrid } from './components/grid';
 import { TimeSeriesStore } from './data/store';
 import { EventEmitter } from './events';
@@ -1320,35 +1322,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
 
   /** Get the last visible value and whether the absolute last point is on screen. */
   getLastValue(seriesId: string): { value: number; isLive: boolean } | null {
-    const entry = this.#series.find((s) => s.id === seriesId);
-    if (!entry?.store) return null;
-
-    const last = entry.store.last();
-    if (!last) return null;
-
-    const extractValue = (p: OHLCData | TimePoint): number => ('close' in p ? p.close : p.value);
-
-    const { from, to } = this.#viewport.visibleRange;
-
-    // Absolute last is on screen
-    if (last.time >= from && last.time <= to) {
-      return { value: extractValue(last), isLive: true };
-    }
-
-    // Find the last visible point
-    const visible = entry.store.getVisibleData(from, to);
-    if (visible.length === 0) return null;
-    return { value: extractValue(visible[visible.length - 1]), isLive: false };
+    return getLastValue(seriesId, this.#series, this.#viewport.visibleRange);
   }
 
   /** Get the second-to-last value, useful for computing change. */
   getPreviousClose(seriesId: string): number | null {
-    const entry = this.#series.find((s) => s.id === seriesId);
-    if (!entry?.store) return null;
-    const all = entry.store.getAll();
-    if (all.length < 2) return null;
-    const prev = all[all.length - 2];
-    return 'close' in prev ? (prev as OHLCData).close : (prev as TimePoint).value;
+    return getPreviousClose(seriesId, this.#series);
   }
 
   getLastData(seriesId: string): OHLCData | TimePoint | null {
@@ -1461,15 +1440,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * Returns `null` for unknown ids or empty series.
    */
   getStackedLastValue(seriesId: string): { value: number; isLive: boolean } | null {
-    const entry = this.#series.find((s) => s.id === seriesId);
-    if (!entry) return null;
-
-    const stacked = entry.renderer.getStackedLastValue?.();
-    if (stacked) return stacked;
-
-    const raw = this.getLastValue(seriesId);
-
-    return raw;
+    return getStackedLastValue(seriesId, this.#series, this.#viewport.visibleRange);
   }
 
   /**
@@ -1954,68 +1925,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   #prevYMax = Number.NaN;
 
   /**
-   * Sample data inside `targetVisible` and return the unbounded [min, max] of
-   * the visible series, or `null` when nothing is in view. Bounds are NOT
-   * applied here — the caller composes them via {@link resolveBound}.
-   *
-   * `targetVisible` is the X *destination* (logicalRange), not the animating
-   * current. Sampling against a moving X would make Y chase a definition of
-   * "in view" that shifts every frame; passing the destination explicitly
-   * keeps Y on a stable target so X and Y converge together.
-   */
-  private computeTargetYRange(
-    targetVisible: VisibleRange,
-    allValues: number[] | null,
-  ): { min: number; max: number } | null {
-    let min = Infinity;
-    let max = -Infinity;
-
-    for (const entry of this.#series) {
-      if (!entry.visible) continue;
-
-      // If the renderer provides a custom value range (e.g. stacked totals), use it
-      if (entry.renderer.getValueRange) {
-        const r = entry.renderer.getValueRange(targetVisible.from, targetVisible.to);
-        if (r) {
-          if (r.max > max) max = r.max;
-          if (r.min < min) min = r.min;
-          allValues?.push(r.min, r.max);
-          continue;
-        }
-      }
-      if (!entry.store) continue;
-      const visible = entry.store.getVisibleData(targetVisible.from, targetVisible.to);
-      for (const point of visible) {
-        if ('high' in point) {
-          const ohlc = point as OHLCData;
-          // Skip non-finite values (null / undefined / NaN / ±Infinity). Without
-          // the guard, `Infinity` poisons max, `-Infinity` poisons min, and
-          // `null` coerces to 0, collapsing the range to a single flat line.
-          if (Number.isFinite(ohlc.high)) {
-            if (ohlc.high > max) max = ohlc.high;
-            allValues?.push(ohlc.high);
-          }
-          if (Number.isFinite(ohlc.low)) {
-            if (ohlc.low < min) min = ohlc.low;
-            allValues?.push(ohlc.low);
-          }
-        } else {
-          const line = point as TimePoint;
-          if (Number.isFinite(line.value)) {
-            if (line.value > max) max = line.value;
-            if (line.value < min) min = line.value;
-            allValues?.push(line.value);
-          }
-        }
-      }
-    }
-
-    if (min === Infinity || max === -Infinity) return null;
-
-    return { min, max };
-  }
-
-  /**
    * Sample the visible data window and return the resolved Y bounds, or
    * `null` when no series has data inside the X destination range.
    * Sampling runs against `logicalRange` (the X target, not the animating
@@ -2032,14 +1941,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       (this.#yBounds.max !== undefined && this.#yBounds.max !== 'auto' && typeof this.#yBounds.max !== 'number');
     const allValues: number[] | null = needsAllValues ? [] : null;
 
-    const raw = this.computeTargetYRange(targetVisible, allValues);
+    const raw = computeTargetYRange(targetVisible, this.#series, allValues);
     if (raw === null) {
       this.#yInited = false;
       return null;
     }
 
-    const min = this.resolveBound(this.#yBounds.min, raw.min, raw.max, allValues ?? [], 'min');
-    const max = this.resolveBound(this.#yBounds.max, raw.max, raw.min, allValues ?? [], 'max');
+    const min = resolveBound(this.#yBounds.min, raw.min, raw.max, allValues ?? [], 'min');
+    const max = resolveBound(this.#yBounds.max, raw.max, raw.min, allValues ?? [], 'max');
 
     return { min, max };
   }
@@ -2117,28 +2026,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.#prevYMin = state.yRange.min;
     this.#prevYMax = state.yRange.max;
     this.syncScales();
-  }
-
-  /** Resolve an {@link AxisBound} to a concrete numeric value. */
-  private resolveBound(
-    bound: AxisBound | undefined,
-    autoValue: number,
-    otherValue: number,
-    values: number[],
-    side: 'min' | 'max',
-  ): number {
-    if (bound === undefined || bound === 'auto') return autoValue;
-    if (typeof bound === 'number') return bound;
-    if (typeof bound === 'function') return bound(values);
-    // Parse percentage string like "+10%", "-5%"
-    const match = String(bound).match(/^([+-]?)\s*(\d+(?:\.\d+)?)\s*%$/);
-    if (match) {
-      const sign = match[1] === '-' ? -1 : 1;
-      const pct = parseFloat(match[2]) / 100;
-      const dataRange = Math.abs(otherValue - autoValue) || Math.abs(autoValue) || 1;
-      return autoValue + sign * pct * dataRange * (side === 'max' ? 1 : -1);
-    }
-    return autoValue;
   }
 
   /**
@@ -2448,37 +2335,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     scope: Parameters<Parameters<CanvasManager['useOverlayLayer']>[0]>[0],
     chartMediaHeight: number,
   ): void {
-    const now = performance.now();
-    for (const side of ['left', 'right'] as const) {
-      const state = this.#edgeStates[side];
-      if (state === 'idle' || state === 'has-more') continue;
-      const boundaryTime = this.resolveEdgeBoundary(side);
-      if (boundaryTime === null) continue;
-      renderEdgeIndicator({
-        scope,
-        timeScale: this.timeScale,
-        theme: this.#theme,
-        chartMediaHeight,
-        boundaryTime,
-        side,
-        state,
-        now,
-      });
-    }
-  }
-
-  /**
-   * Pick the boundary time to anchor the edge indicator at. Prefer the
-   * cached value emitted by the most recent `edgeReached` — that's the
-   * *exact* point the user overshot. Fall back to the current data edge
-   * when no gesture has fired yet (host might invoke `setEdgeState`
-   * directly on mount to show a "no-data" marker from the start).
-   */
-  private resolveEdgeBoundary(side: EdgeSide): number | null {
-    const cached = this.#edgeBoundaries[side];
-    if (cached !== null) return cached;
-    const { first, last } = this.getDataBounds();
-    return side === 'left' ? (first ?? null) : (last ?? null);
+    drawEdgeIndicators({
+      scope,
+      chartMediaHeight,
+      timeScale: this.timeScale,
+      theme: this.#theme,
+      edgeStates: this.#edgeStates,
+      resolveBoundary: (side) => resolveEdgeBoundary(side, this.#edgeBoundaries[side], this.getDataBounds()),
+    });
   }
 }
 
