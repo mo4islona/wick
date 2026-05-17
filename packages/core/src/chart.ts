@@ -462,7 +462,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       // Resize doesn't change the data-driven Y target, but the chart-area
       // height changed: the next setYRange call inside renderMain picks up
       // the new pixel padding so labels reposition without an explicit emit.
-      this.updateScales();
+      this.syncScales();
       this.renderMain();
       // Notify React components — yScale changed due to new canvas dimensions
       // (e.g. Legend appeared and shrank the chart area).
@@ -1247,7 +1247,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     this.#engine.onAxisReconfig(now);
     this.#applyEngineState(now);
     if (this.yAxisWidth !== prevYW || this.xAxisHeight !== prevXH) {
-      this.updateScales();
+      this.syncScales();
     }
     this.#mainScheduler.markDirty();
   }
@@ -1947,17 +1947,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     this.yScale.update(this.#yRange, chartHeight, size.verticalPixelRatio);
   }
 
-  /**
-   * Refresh timeScale + yScale against current viewport state. Identical to
-   * {@link syncScales}; kept as a separate method so callers can grep for
-   * the post-mutation refresh path (resize, axis-bound change). The legacy
-   * version also drove the Y animator — that path now lives entirely on the
-   * engine, refreshed once per renderMain after {@link AnimationEngine.tick}.
-   */
-  private updateScales(): void {
-    this.syncScales();
-  }
-
   /** Expensive: background, grid, all series. Only on data/viewport/resize change. */
   private renderMain(timestamp?: number): void {
     const size = this.#canvasManager.size;
@@ -1991,7 +1980,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#prevYMax = yMax;
     }
 
-    this.updateScales();
+    this.syncScales();
 
     // Re-engage tail-following when a user pan brings the destination back
     // into the data zone. Reads the *logical* X target so the flip happens
