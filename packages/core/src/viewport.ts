@@ -1,4 +1,5 @@
 import { computeFitToData } from './chart/fit-to-data';
+import { DEFAULT_MAX_VISIBLE_BARS, MIN_VISIBLE_BARS, computePan, computeZoom } from './chart/pan-zoom-math';
 import { computeStreamingTarget } from './chart/streaming-target';
 import { EventEmitter } from './events';
 import type { VisibleRange, YRange } from './types';
@@ -68,19 +69,6 @@ const DEFAULT_PADDING: ResolvedPadding = {
   left: { intervals: 0 },
 };
 
-/** Minimum overshoot fraction of visible range before edgeReached fires. */
-const EDGE_REACHED_MIN_FRACTION = 0.1;
-/** Maximum overshoot as a fraction of the visible range during a pan gesture. */
-const PAN_MAX_OVERSHOOT_FRACTION = 0.3;
-/** Maximum zoom-in overshoot as a fraction of softMinRange. */
-const ZOOM_MIN_OVERSHOOT_FRACTION = 0.4;
-/** Default maximum visible bars before fitToData caps the window and tail-scroll takes over. */
-const DEFAULT_MAX_VISIBLE_BARS = 200;
-/** Minimum allowed `maxVisibleBars` — matches the visible-bar floor enforced
- * by {@link Viewport.applyLogical} / {@link Viewport.setRange}, below which
- * the viewport refuses to render. */
-const MIN_VISIBLE_BARS = 2;
-
 /**
  * Manages the visible time range and Y range of the chart.
  *
@@ -141,20 +129,6 @@ export class Viewport extends EventEmitter<ViewportEvents> {
         ? Math.max(MIN_VISIBLE_BARS, Math.floor(maxVisibleBars))
         : DEFAULT_MAX_VISIBLE_BARS;
     }
-  }
-
-  /**
-   * Resolve a {@link HorizontalPadding} value to a time offset.
-   * - `{ intervals: N }` → N * dataInterval (zoom-independent bar count)
-   * - `number` (pixels) → (px / chartWidth) * visibleRange (zoom-dependent)
-   */
-  private resolveHPad(pad: HorizontalPadding, range: number, chartWidth: number): number {
-    if (typeof pad === 'object') {
-      return pad.intervals * this.dataInterval;
-    }
-    if (chartWidth <= 0) return 0;
-
-    return (pad / chartWidth) * range;
   }
 
   /** Engine-eased X currently rendered. Equals {@link logicalRange} once the
@@ -265,45 +239,6 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     this.emit('change');
   }
 
-  /** Compute the left/right soft bound for the given pan-time range and chart width.
-   * Returns null on the side whose data boundary is unset or whose padding resolution fails. */
-  private getSoftBounds(range: number, chartWidth: number): { left: number | null; right: number | null } {
-    // Pixel padding of 0 is trivially resolvable without a chart width.
-    const resolvable = (pad: HorizontalPadding) => typeof pad === 'object' || pad === 0 || chartWidth > 0;
-    const left =
-      this.#dataStart !== null && resolvable(this.padding.left)
-        ? this.#dataStart - this.resolveHPad(this.padding.left, range, chartWidth)
-        : null;
-    const right =
-      this.#dataEnd !== null && resolvable(this.padding.right)
-        ? this.#dataEnd + this.resolveHPad(this.padding.right, range, chartWidth)
-        : null;
-
-    return { left, right };
-  }
-
-  /** Minimum visible range (zoom-in ceiling). Expressed as 10 bars. */
-  private get softMinRange(): number {
-    return 10 * this.dataInterval;
-  }
-
-  /** Maximum visible range (zoom-out floor). Returns null when data bounds
-   *  are unknown — no hard ceiling in that case. */
-  private softMaxRange(): number | null {
-    if (this.#dataStart === null || this.#dataEnd === null) return null;
-    const span = this.#dataEnd - this.#dataStart;
-    if (span <= 0) return null;
-
-    const leftPad = typeof this.padding.left === 'object' ? this.padding.left.intervals * this.dataInterval : null;
-    const rightPad = typeof this.padding.right === 'object' ? this.padding.right.intervals * this.dataInterval : null;
-
-    if (leftPad !== null || rightPad !== null) {
-      return span + (leftPad ?? 0) + (rightPad ?? 0);
-    }
-
-    return span + this.dataInterval * 5;
-  }
-
   /**
    * Imperatively set the visible time range (`ChartInstance.setVisibleRange`).
    * Snaps logical immediately. Auto-scroll policy mirrors pan: if the
@@ -374,59 +309,19 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     // User input cancels a programmatic warm-up hold.
     this.#holdUntilFilled = false;
 
-    const { from, to } = this.#logical;
-    const range = to - from;
-    if (range <= 0) return;
+    const result = computeZoom({
+      currentLogical: this.#logical,
+      centerTime,
+      factor,
+      chartWidth,
+      dataInterval: this.dataInterval,
+      padding: { left: this.padding.left, right: this.padding.right },
+      dataStart: this.#dataStart,
+      dataEnd: this.#dataEnd,
+    });
+    if (result.newLogical === null) return;
 
-    const softMin = this.softMinRange;
-    const { left: softLeft, right: softRight } = this.getSoftBounds(range, chartWidth);
-    const hardMaxRange = softLeft !== null && softRight !== null ? softRight - softLeft : this.softMaxRange();
-
-    let effFactor = factor;
-    const minMaxOver = softMin * ZOOM_MIN_OVERSHOOT_FRACTION;
-
-    // Zoom-in past the 10-bar floor: rubber-band resistance on the factor.
-    if (factor < 1 && range < softMin) {
-      const over = softMin - range;
-      const ratio = Math.min(1, over / minMaxOver);
-      const resistance = (1 - ratio) ** 2;
-      effFactor = 1 - (1 - factor) * resistance;
-    }
-
-    let newRange = range * effFactor;
-
-    if (newRange < softMin - minMaxOver) newRange = softMin - minMaxOver;
-    if (factor > 1 && hardMaxRange !== null && newRange > hardMaxRange) {
-      newRange = hardMaxRange;
-    }
-
-    const ratioAnchor = (centerTime - from) / range;
-    let newFrom = centerTime - ratioAnchor * newRange;
-    let newTo = newFrom + newRange;
-
-    // Zoom-in guardrail: never let the right edge drift left past its
-    // current position. Keeps the last candle in view.
-    if (factor < 1 && newTo < to) {
-      const shift = to - newTo;
-      newFrom += shift;
-      newTo += shift;
-    }
-
-    // Zoom-out: clamp sides into soft bounds.
-    if (factor > 1) {
-      if (softRight !== null && newTo > softRight) {
-        const shift = newTo - softRight;
-        newFrom -= shift;
-        newTo -= shift;
-      }
-      if (softLeft !== null && newFrom < softLeft) {
-        const shift = softLeft - newFrom;
-        newFrom += shift;
-        newTo += shift;
-      }
-    }
-
-    this.applyLogical(newFrom, newTo);
+    this.applyLogical(result.newLogical.from, result.newLogical.to);
     this.emit('interact');
   }
 
@@ -439,61 +334,23 @@ export class Viewport extends EventEmitter<ViewportEvents> {
 
     this.#holdUntilFilled = false;
 
-    const { from, to } = this.#logical;
-    const range = to - from;
-    if (range <= 0) return;
+    const result = computePan({
+      currentLogical: this.#logical,
+      timeDelta,
+      chartWidth,
+      dataInterval: this.dataInterval,
+      padding: { left: this.padding.left, right: this.padding.right },
+      dataStart: this.#dataStart,
+      dataEnd: this.#dataEnd,
+    });
+    if (result.newLogical === null) return;
 
-    const { left: softLeft, right: softRight } = this.getSoftBounds(range, chartWidth);
-    const maxOver = range * PAN_MAX_OVERSHOOT_FRACTION;
+    this._autoScroll = !result.autoScrollOff;
+    this.applyLogical(result.newLogical.from, result.newLogical.to);
 
-    let effDelta = timeDelta;
-
-    if (timeDelta > 0 && softRight !== null) {
-      const overRight = Math.max(0, to - softRight);
-      if (overRight > 0) {
-        effDelta *= 1 / (overRight / maxOver + 1);
-      }
-    } else if (timeDelta < 0 && softLeft !== null) {
-      const overLeft = Math.max(0, softLeft - from);
-      if (overLeft > 0) {
-        effDelta *= 1 / (overLeft / maxOver + 1);
-      }
+    if (result.edgeReached !== null) {
+      this.emit('edgeReached', result.edgeReached);
     }
-
-    let newFrom = from + effDelta;
-    let newTo = to + effDelta;
-
-    if (softRight !== null && newTo > softRight + maxOver) {
-      const excess = newTo - (softRight + maxOver);
-      newFrom -= excess;
-      newTo -= excess;
-    }
-    if (softLeft !== null && newFrom < softLeft - maxOver) {
-      const excess = softLeft - maxOver - newFrom;
-      newFrom += excess;
-      newTo += excess;
-    }
-
-    // A pan that leaves the last data point on screen stays "live"; one
-    // that pushes it off is a deliberate history inspection.
-    const lastVisible = this.#dataEnd !== null && this.#dataEnd >= newFrom && this.#dataEnd <= newTo;
-    this._autoScroll = lastVisible;
-
-    this.applyLogical(newFrom, newTo);
-
-    // Classify the gesture: if it overshot past a soft bound by more than
-    // 10% of the range, fire `edgeReached` so the host can prefetch
-    // history. With rebound gone, there's no follow-up snap-back — the
-    // viewport stays where the user left it; the engine just eases the
-    // visual to the committed logical via the gesture emit the chart
-    // posts on the trailing `interact`.
-    const edgeThreshold = range * EDGE_REACHED_MIN_FRACTION;
-    if (softRight !== null && newTo - softRight > edgeThreshold) {
-      this.emit('edgeReached', { side: 'right', overshoot: newTo - softRight, boundaryTime: softRight });
-    } else if (softLeft !== null && softLeft - newFrom > edgeThreshold) {
-      this.emit('edgeReached', { side: 'left', overshoot: softLeft - newFrom, boundaryTime: softLeft });
-    }
-
     this.emit('interact');
   }
 
