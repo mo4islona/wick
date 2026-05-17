@@ -8,7 +8,6 @@ import { type AnimationState, type ViewportEngine, createViewportEngine } from '
 import { CanvasManager } from './canvas-manager';
 import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
 import { computeFitToData } from './chart/fit-to-data';
-import { KeyCache } from './chart/key-cache';
 import { getLastValue, getPreviousClose, getStackedLastValue } from './chart/last-value';
 import { DEFAULT_MAX_VISIBLE_BARS, MIN_VISIBLE_BARS, computePan, computeZoom } from './chart/pan-zoom-math';
 import { StreamingCadence } from './chart/streaming-cadence';
@@ -20,8 +19,7 @@ import { TimeSeriesStore } from './data/store';
 import { EventEmitter } from './events';
 import { InteractionHandler } from './interactions/handler';
 import type { PanZoomTarget } from './interactions/pan-zoom-target';
-import { PerfHud } from './perf/perf-hud';
-import { PerfMonitor, type PerfMonitorOptions } from './perf/perf-monitor';
+import { PerfHud, PerfMonitor, type PerfMonitorOptions } from './perf';
 import { RenderScheduler } from './render-scheduler';
 import { TimeScale } from './scales/time-scale';
 import { YScale } from './scales/y-scale';
@@ -275,7 +273,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   /**
    * Monotonic counter bumped on any mutation that affects overlay output —
    * data, visibility, series options, theme. Used by snapshot helpers in
-   * `@wick-charts/core` as a cache key so `buildHoverSnapshots` /
+   * `@wick-charts/core` as a cache key, so `buildHoverSnapshots` /
    * `buildLastSnapshots` return the same reference between ticks when
    * nothing observable has changed.
    *
@@ -309,8 +307,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    *  the adaptive `data_tick` duration so the X slide stays in lockstep
    *  with the producer through small jitter. */
   readonly #cadence: StreamingCadence;
-  /** Stable composite-key strings for live-value / entry-progress map lookups. */
-  readonly #keys: KeyCache;
   /**
    * Set by `onDataChanged` before the engine signal so the
    * `computeXTarget` closure can decide between fit-to-data (batch /
@@ -407,7 +403,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       computeYTarget: ({ xTarget }) => this.#computeYTarget(xTarget),
       onWake: () => this.#mainScheduler?.markDirty(),
     });
-    this.#keys = new KeyCache();
 
     this.#onEdgeReached = options?.onEdgeReached;
     this.#initialVisibleRange = options?.viewport?.initialRange;
@@ -632,7 +627,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#series[idx].renderer.dispose();
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
-      this.#keys.dropSeries(id);
       this.#mainScheduler.markDirty();
       this.emit('seriesChange');
       this.#bumpOverlayVersion();
@@ -2200,7 +2194,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // Spinner needs a frame cadence of its own, independent of series overlays.
     if (edgeAnimates) this.#overlayScheduler.markDirty();
   }
-
 }
 
 interface ResolvedPadding {
