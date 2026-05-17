@@ -21,6 +21,9 @@ export {
 export { type HermiteOpts, hermite } from './animation/y-range-hermite';
 export { snap } from './animation/y-range-snap';
 export { type SpringOpts, spring } from './animation/y-range-spring';
+// Axis helpers
+export type { MountAxisLabelsOptions } from './axis/dom-labels';
+export { mountAxisLabels } from './axis/dom-labels';
 export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays

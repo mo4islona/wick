@@ -1870,15 +1870,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       const timeTickSnap = this.timeScale.tickTracker.snapshot();
       yTickAnimating = yTickSnap.isAnimating;
       timeTickAnimating = timeTickSnap.isAnimating;
-      // The engine's overall `animating` flag already covers the fade —
-      // renderMain marks dirty unconditionally when state.animating is
-      // true (see the early `engine.tick` block). No extra emit needed
-      // here; React / Svelte / Vue axis components subscribe to
-      // `viewportChange` (which fires on Y change) for re-render kicks,
-      // and to `tickFrame` for the in-between opacity advances. Emit
-      // `tickFrame` whenever this snapshot reads a fading tick so DOM
-      // surfaces refresh without a synthetic Y-change.
-      if (yTickSnap.isAnimating || timeTickSnap.isAnimating) {
+      // DOM axis components (TimeAxis, YAxis) re-render off `tickFrame`.
+      // Emit on every animating frame — both tick-tracker fades and the
+      // engine's X / Y slides count. Without the engine clause, an X-only
+      // streaming slide between tick boundaries would emit nothing and
+      // labels would hold the slide-start `timeToX(time)` value while the
+      // canvas glides past them, then snap forward on the next event.
+      if (yTickSnap.isAnimating || timeTickSnap.isAnimating || animationState.animating) {
         this.emit('tickFrame');
       }
 
