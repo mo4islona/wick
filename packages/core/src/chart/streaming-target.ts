@@ -10,8 +10,7 @@
  * pure, no state mutation.
  */
 
-import type { VisibleRange } from '../types';
-import type { HorizontalPadding } from '../viewport';
+import type { HorizontalPadding, VisibleRange } from '../types';
 
 /** Minimum pending shift (expressed via dataInterval) before streaming X retargets. */
 const AUTOSCROLL_MIN_DELTA_BARS = 0.5;

@@ -187,5 +187,4 @@ describe('engine-driven lockstep', () => {
     expect(afterY.max).toBeGreaterThan(beforeY);
     expect(afterY.max).toBeGreaterThanOrEqual(2000);
   });
-
 });

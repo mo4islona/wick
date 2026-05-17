@@ -7,8 +7,7 @@
  * end / interval) onto the chart without dragging the viewport class along.
  */
 
-import type { VisibleRange } from '../types';
-import type { HorizontalPadding } from '../viewport';
+import type { HorizontalPadding, VisibleRange } from '../types';
 
 export interface FitToDataInput {
   /** Earliest data timestamp registered across all series. */

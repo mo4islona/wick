@@ -1,9 +1,9 @@
 import type { TimeScale } from '../scales/time-scale';
-import type { Viewport } from '../viewport';
+import type { PanZoomTarget } from './pan-zoom-target';
 
 export class ZoomHandler {
   constructor(
-    private viewport: Viewport,
+    private target: PanZoomTarget,
     private timeScale: TimeScale,
   ) {}
 
@@ -21,7 +21,7 @@ export class ZoomHandler {
     const x = Math.min(e.offsetX, chartWidth);
     const cursorTime = this.timeScale.xToTime(x);
 
-    this.viewport.zoomAt(cursorTime, factor, chartWidth);
+    this.target.zoomAt(cursorTime, factor, chartWidth);
   }
 
   /** Kept for API parity with InteractionHandler.destroy. Phase 2 step 2

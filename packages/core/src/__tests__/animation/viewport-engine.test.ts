@@ -114,5 +114,4 @@ describe('ViewportEngine — push-model contract', () => {
     expect(engine.getTarget().x).toEqual({ from: 0, to: 50 });
     expect(engine.getTarget().y).toEqual({ min: 10, max: 20 });
   });
-
 });

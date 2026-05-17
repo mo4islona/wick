@@ -2,8 +2,8 @@ import { EventEmitter } from '../events';
 import type { TimeScale } from '../scales/time-scale';
 import type { YScale } from '../scales/y-scale';
 import type { CrosshairPosition } from '../types';
-import type { Viewport } from '../viewport';
 import { PanHandler } from './pan';
+import type { PanZoomTarget } from './pan-zoom-target';
 import { ZoomHandler } from './zoom';
 
 interface InteractionEvents {
@@ -17,16 +17,16 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
   private canvas: HTMLCanvasElement;
   private timeScale: TimeScale;
   private yScale: YScale;
-  private viewport: Viewport;
+  private target: PanZoomTarget;
 
-  constructor(canvas: HTMLCanvasElement, viewport: Viewport, timeScale: TimeScale, yScale: YScale) {
+  constructor(canvas: HTMLCanvasElement, target: PanZoomTarget, timeScale: TimeScale, yScale: YScale) {
     super();
     this.canvas = canvas;
-    this.viewport = viewport;
+    this.target = target;
     this.timeScale = timeScale;
     this.yScale = yScale;
-    this.zoom = new ZoomHandler(viewport, timeScale);
-    this.pan = new PanHandler(viewport, timeScale, canvas);
+    this.zoom = new ZoomHandler(target, timeScale);
+    this.pan = new PanHandler(target, timeScale, canvas);
 
     canvas.style.cursor = 'crosshair';
     canvas.style.touchAction = 'none';
@@ -109,7 +109,7 @@ export class InteractionHandler extends EventEmitter<InteractionEvents> {
       if (this.lastTouchDist > 0) {
         const factor = this.lastTouchDist / dist;
         const centerTime = this.timeScale.xToTime(center - rect.left);
-        this.viewport.zoomAt(centerTime, factor, this.timeScale.getMediaWidth());
+        this.target.zoomAt(centerTime, factor, this.timeScale.getMediaWidth());
       }
 
       this.lastTouchDist = dist;

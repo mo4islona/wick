@@ -92,6 +92,7 @@ export type {
   CandlestickSeriesOptions,
   ChartLayout,
   CrosshairPosition,
+  HorizontalPadding,
   /** @deprecated Use {@link TimePoint} instead. */
   LineData,
   LineSeriesOptions,
@@ -115,4 +116,3 @@ export type {
 export type { TooltipField, TooltipFormatter, ValueFormatter } from './utils/format';
 export { formatCompact, formatPriceAdaptive } from './utils/format';
 export { detectInterval, formatDate, formatTime, normalizeTime } from './utils/time';
-export type { HorizontalPadding } from './viewport';

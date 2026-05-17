@@ -9,8 +9,7 @@
  * `edgeReached`) the caller applies as side effects.
  */
 
-import type { VisibleRange } from '../types';
-import type { HorizontalPadding } from '../viewport';
+import type { HorizontalPadding, VisibleRange } from '../types';
 
 /** Minimum overshoot fraction of visible range before edgeReached fires. */
 export const EDGE_REACHED_MIN_FRACTION = 0.1;

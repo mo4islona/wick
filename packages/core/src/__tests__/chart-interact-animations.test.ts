@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { ChartInstance } from '../chart';
-import { getChartViewportForTest } from '../internal/test-handles';
 
 /**
  * Gesture priority on the X slot. The engine's per-kind priority is
@@ -52,7 +51,7 @@ describe('gesture priority on the X slot', () => {
     // INTERVAL`. With gesture preempting, the pan target overrides it.
     chart.appendData(id, { time: 1_000_000 + 20 * INTERVAL, value: 30 });
     // User pan a few intervals left.
-    getChartViewportForTest(chart).pan(-2 * INTERVAL, 800);
+    chart.pan(-2 * INTERVAL, 800);
 
     // viewport.logicalRange reflects the gesture commit; bridge.lastXTarget
     // matches, and chart.getVisibleRange (engine visual) snaps to it
@@ -73,13 +72,12 @@ describe('gesture priority on the X slot', () => {
       Array.from({ length: 20 }, (_, i) => ({ time: 1_000_000 + i * INTERVAL, value: 10 + i })),
     );
 
-    const viewport = getChartViewportForTest(chart);
-    expect(viewport.autoScroll).toBe(true);
+    expect(chart.getAutoScroll()).toBe(true);
 
     // Pan left far enough that the last data point falls off the right edge.
-    viewport.pan(-30 * INTERVAL, 800);
+    chart.pan(-30 * INTERVAL, 800);
 
-    expect(viewport.autoScroll).toBe(false);
+    expect(chart.getAutoScroll()).toBe(false);
   });
 });
 
@@ -120,19 +118,17 @@ describe('autoscroll re-engagement reads logical, not visual', () => {
       Array.from({ length: 20 }, (_, i) => ({ time: 1_000_000 + i * INTERVAL, value: 10 + i })),
     );
 
-    const viewport = getChartViewportForTest(chart);
-
     // Pan off-tail: autoScroll flips false.
-    viewport.pan(-30 * INTERVAL, 800);
-    expect(viewport.autoScroll).toBe(false);
+    chart.pan(-30 * INTERVAL, 800);
+    expect(chart.getAutoScroll()).toBe(false);
 
     // Pan back so the live tail is inside the logical range again.
-    viewport.pan(30 * INTERVAL, 800);
+    chart.pan(30 * INTERVAL, 800);
 
-    // Pan itself already re-arms autoScroll inside viewport.pan when the
-    // last data point is back in view. The AutoscrollController's per-frame
-    // check is for the streaming-tick-brings-dataEnd-back case — that
-    // path is exercised separately in chart-streaming-autoscroll.
-    expect(viewport.autoScroll).toBe(true);
+    // Pan itself already re-arms autoScroll inside chart.pan when the last
+    // data point is back in view. The renderMain per-frame check covers
+    // the streaming-tick-brings-dataEnd-back case (exercised separately
+    // in chart-streaming-autoscroll).
+    expect(chart.getAutoScroll()).toBe(true);
   });
 });

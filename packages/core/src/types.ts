@@ -4,6 +4,9 @@
  */
 export type TimeValue = number | Date;
 
+/** Horizontal padding expressed as a fixed pixel offset or a number of data intervals. */
+export type HorizontalPadding = number | { intervals: number };
+
 /** A single OHLC(V) candlestick data point. Time is a timestamp in milliseconds. */
 export interface OHLCData {
   time: number;
