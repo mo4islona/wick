@@ -1,3 +1,5 @@
+import { computeFitToData } from './chart/fit-to-data';
+import { computeStreamingTarget } from './chart/streaming-target';
 import { EventEmitter } from './events';
 import type { VisibleRange, YRange } from './types';
 
@@ -72,11 +74,6 @@ const EDGE_REACHED_MIN_FRACTION = 0.1;
 const PAN_MAX_OVERSHOOT_FRACTION = 0.3;
 /** Maximum zoom-in overshoot as a fraction of softMinRange. */
 const ZOOM_MIN_OVERSHOOT_FRACTION = 0.4;
-/** Minimum pending shift (expressed via dataInterval) before streaming X retargets. */
-const AUTOSCROLL_MIN_DELTA_BARS = 0.5;
-/** Minimum pending shift in pixels (whichever is smaller vs bars-based). */
-const AUTOSCROLL_MIN_DELTA_PX = 4;
-
 /** Default maximum visible bars before fitToData caps the window and tail-scroll takes over. */
 const DEFAULT_MAX_VISIBLE_BARS = 200;
 /** Minimum allowed `maxVisibleBars` — matches the visible-bar floor enforced
@@ -517,23 +514,16 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     this.#holdUntilFilled = false;
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    const maxRange = this.#maxVisibleBars * this.dataInterval;
-    const dataSpan = lastTime - firstTime;
+    const { from, to } = computeFitToData({
+      firstTime,
+      lastTime,
+      dataInterval: this.dataInterval,
+      maxVisibleBars: this.#maxVisibleBars,
+      chartWidth,
+      padding: { left: this.padding.left, right: this.padding.right },
+    });
 
-    const estimatedRange = dataSpan > 0 ? dataSpan : this.dataInterval * 10;
-    const pr = this.resolveHPad(this.padding.right, estimatedRange, chartWidth);
-    const pl = this.resolveHPad(this.padding.left, estimatedRange, chartWidth);
-
-    let targetTo = lastTime + pr;
-    let targetFrom = firstTime - pl;
-
-    if (targetTo - targetFrom > maxRange) {
-      // Overflow — anchor right edge, trim left.
-      targetTo = lastTime + pr;
-      targetFrom = targetTo - maxRange;
-    }
-
-    this.applyLogical(targetFrom, targetTo);
+    this.applyLogical(from, to);
   }
 
   /**
@@ -566,40 +556,25 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    */
   computeStreamingTargetX(lastTime: number, chartWidth = 0): VisibleRange | null {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
-    const { from: lFrom, to: lTo } = this.#logical;
-    const range = lTo - lFrom;
-    if (range <= 0) return null;
 
-    const pr = this.resolveHPad(this.padding.right, range, chartWidth);
+    const result = computeStreamingTarget({
+      currentLogical: this.#logical,
+      lastTime,
+      prevDataEnd: this._prevDataEnd,
+      dataInterval: this.dataInterval,
+      paddingRight: this.padding.right,
+      chartWidth,
+      holdUntilFilled: this.#holdUntilFilled,
+    });
 
-    if (this.#holdUntilFilled) {
-      const tolerance = this.dataInterval * 0.01;
-      if (lastTime + pr <= lTo + tolerance) {
-        this._autoScroll = true;
-        return null;
-      }
-      this.#holdUntilFilled = false;
-    }
+    if (result.releaseHold) this.#holdUntilFilled = false;
+    if (result.reengageAutoScroll) this._autoScroll = true;
+    if (result.newLogical === null) return null;
 
-    const anchorTo = lTo;
-    const rawOffset = this._prevDataEnd !== null ? anchorTo - this._prevDataEnd : pr;
-    const offset = Math.max(0, Math.min(pr, rawOffset));
-    const targetTo = lastTime + offset;
-    const targetFrom = targetTo - range;
-    this._autoScroll = true;
-
-    // Sub-threshold: whichever is smaller — half a bar, or 4 px in time units.
-    const barsThreshold = AUTOSCROLL_MIN_DELTA_BARS * this.dataInterval;
-    const pxThreshold = chartWidth > 0 ? (AUTOSCROLL_MIN_DELTA_PX / chartWidth) * range : barsThreshold;
-    const threshold = Math.min(barsThreshold, pxThreshold);
-
-    const pending = Math.abs(targetTo - lTo);
-    if (pending < threshold) return null;
-
-    this.#logical = { from: targetFrom, to: targetTo };
+    this.#logical = result.newLogical;
     this._prevDataEnd = this.#dataEnd;
 
-    return { from: targetFrom, to: targetTo };
+    return { from: result.newLogical.from, to: result.newLogical.to };
   }
 
   /**

@@ -1,4 +1,4 @@
-import type { Milliseconds } from '../animation/time';
+import type { Milliseconds } from '../animation';
 
 /**
  * Real wall-clock gap (ms) at or above which an `observe()` call is treated
