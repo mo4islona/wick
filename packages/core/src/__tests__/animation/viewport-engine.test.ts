@@ -2,9 +2,8 @@
  * ViewportEngine — push-model API contract.
  *
  * Pins the input → target round-trip: chart-supplied `computeXTarget` /
- * `computeYTarget` callbacks are invoked on each `on*` signal, the resulting
- * targets show up in `getTarget()`, and `getSettleAt()` advances to the
- * future wall-clock when current is projected to land at target.
+ * `computeYTarget` callbacks are invoked on each `on*` signal and the
+ * resulting targets show up in `getTarget()`.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -51,14 +50,13 @@ function setup(args: SetupArgs = {}): {
 }
 
 describe('ViewportEngine — push-model contract', () => {
-  it('starts with current === initial, target === initial, settleAt === 0', () => {
+  it('starts with current === initial, target === initial', () => {
     const { engine } = setup();
     const state = engine.getAnimationState();
     expect(state.xRange).toEqual({ from: 0, to: 1000 });
     expect(state.yRange).toEqual({ min: 0, max: 100 });
     expect(engine.getTarget().x).toEqual({ from: 0, to: 1000 });
     expect(engine.getTarget().y).toEqual({ min: 0, max: 100 });
-    expect(engine.getSettleAt()).toBe(0);
   });
 
   it('onPointAppended pulls both targets from the callbacks and stores them', () => {
@@ -117,15 +115,4 @@ describe('ViewportEngine — push-model contract', () => {
     expect(engine.getTarget().y).toEqual({ min: 10, max: 20 });
   });
 
-  it('settleAt advances to now + dataTickMs on onPointAppended', () => {
-    const { engine } = setup({
-      nextX: { from: 100, to: 1100 },
-      nextY: { min: 0, max: 200 },
-    });
-    const beforeWall = performance.now();
-    engine.onPointAppended();
-    const settle = engine.getSettleAt();
-    expect(settle - beforeWall).toBeGreaterThanOrEqual(300 - 1);
-    expect(settle - beforeWall).toBeLessThanOrEqual(300 + 50);
-  });
 });

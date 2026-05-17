@@ -5,7 +5,7 @@ export { parseAnimationTime } from './animation/time';
 // Y-bound transition contract.
 export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './animation/transition';
 // Push-model viewport state machine — owns X / Y range animation and exposes
-// `getAnimationState` / `getTarget` / `getSettleAt` to renderers and scales.
+// `getAnimationState` / `getTarget` to renderers and scales.
 export {
   type AnimationState,
   type PanZoomOptions,

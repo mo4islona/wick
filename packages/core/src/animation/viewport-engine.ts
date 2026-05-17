@@ -143,8 +143,6 @@ export interface ViewportEngine {
   getAnimationState(): AnimationState;
   /** Latest target value. Equals `current` when settled. */
   getTarget(): { x: VisibleRange; y: YRange };
-  /** Wall-clock the visible range will reach target. Equals `now` when settled. */
-  getSettleAt(): number;
   /** Whether any axis is still in flight. */
   readonly animating: boolean;
   /**
@@ -181,8 +179,6 @@ class ViewportEngineImpl implements ViewportEngine {
   readonly #xGestureMs: Milliseconds;
   readonly #yVisibilityMs: Milliseconds;
   readonly #onWake: (() => void) | undefined;
-  /** Last call's projected wall-clock arrival; equals current `now` when settled. */
-  #settleAt = 0;
   #xThreshold: number | null = null;
   #lastXTarget: VisibleRange | null = null;
   /** Per-frame `animating` snapshot — updated by `tick` so `get animating()` is O(1). */
@@ -259,7 +255,6 @@ class ViewportEngineImpl implements ViewportEngine {
         contractMs: this.#yContractMs,
       });
     }
-    this.#settleAt = startWall + dataTickMs;
     this.#wake(wasIdle);
   }
 
@@ -274,7 +269,6 @@ class ViewportEngineImpl implements ViewportEngine {
       expandMs: this.#yVisibilityMs,
       contractMs: this.#yVisibilityMs,
     });
-    this.#settleAt = startWall + this.#yVisibilityMs;
     this.#wake(wasIdle);
   }
 
@@ -294,7 +288,6 @@ class ViewportEngineImpl implements ViewportEngine {
         });
       }
     }
-    this.#settleAt = startWall + Math.max(this.#xGestureMs, this.#yGestureMs);
     this.#wake(wasIdle);
   }
 
@@ -305,7 +298,6 @@ class ViewportEngineImpl implements ViewportEngine {
     const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
     this.#yTransition.snap(newY, { now: startWall });
-    this.#settleAt = startWall;
     this.#wake(wasIdle);
   }
 
@@ -324,7 +316,6 @@ class ViewportEngineImpl implements ViewportEngine {
           contractMs: this.#yContractMs,
         });
       }
-      this.#settleAt = startWall + dataTickMs;
       this.#wake(wasIdle);
 
       return;
@@ -337,9 +328,6 @@ class ViewportEngineImpl implements ViewportEngine {
         expandMs: this.#yExpandMs,
         contractMs: this.#yContractMs,
       });
-      this.#settleAt = startWall + this.#yExpandMs;
-    } else {
-      this.#settleAt = startWall;
     }
     this.#wake(wasIdle);
   }
@@ -353,7 +341,6 @@ class ViewportEngineImpl implements ViewportEngine {
     const wasIdle = !this.#lastAnimating;
     if (newX !== null) this.#snapX(newX);
     if (newY !== null) this.#yTransition.snap(newY, { now: startWall });
-    this.#settleAt = startWall;
     this.#wake(wasIdle);
   }
 
@@ -362,7 +349,6 @@ class ViewportEngineImpl implements ViewportEngine {
     const wasIdle = !this.#lastAnimating;
     if (target.x !== undefined) this.#snapX(target.x);
     if (target.y !== undefined) this.#yTransition.snap(target.y, { now: startWall });
-    this.#settleAt = startWall;
     this.#wake(wasIdle);
   }
 
@@ -391,10 +377,6 @@ class ViewportEngineImpl implements ViewportEngine {
 
   getTarget(): { x: VisibleRange; y: YRange } {
     return { x: this.#xAnimator.target, y: this.#yTransition.target };
-  }
-
-  getSettleAt(): number {
-    return this.#settleAt;
   }
 
   get animating(): boolean {
