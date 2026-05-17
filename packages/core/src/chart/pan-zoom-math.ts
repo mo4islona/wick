@@ -10,6 +10,7 @@
  */
 
 import type { HorizontalPadding, VisibleRange } from '../types';
+import { resolvePaddingTime } from './viewport-padding';
 
 /** Minimum overshoot fraction of visible range before edgeReached fires. */
 export const EDGE_REACHED_MIN_FRACTION = 0.1;
@@ -26,23 +27,6 @@ export const MIN_VISIBLE_BARS = 2;
 export interface SoftBounds {
   left: number | null;
   right: number | null;
-}
-
-/**
- * Resolve a {@link HorizontalPadding} value to a time offset.
- * - `{ intervals: N }` → N * dataInterval (zoom-independent bar count)
- * - `number` (pixels) → (px / chartWidth) * visibleRange (zoom-dependent)
- */
-export function resolveHorizontalPaddingTime(
-  pad: HorizontalPadding,
-  range: number,
-  dataInterval: number,
-  chartWidth: number,
-): number {
-  if (typeof pad === 'object') return pad.intervals * dataInterval;
-  if (chartWidth <= 0) return 0;
-
-  return (pad / chartWidth) * range;
 }
 
 export interface SoftBoundsInput {
@@ -66,11 +50,11 @@ export function computeSoftBounds(input: SoftBoundsInput): SoftBounds {
 
   const left =
     dataStart !== null && resolvable(padding.left)
-      ? dataStart - resolveHorizontalPaddingTime(padding.left, range, dataInterval, chartWidth)
+      ? dataStart - resolvePaddingTime(padding.left, range, dataInterval, chartWidth)
       : null;
   const right =
     dataEnd !== null && resolvable(padding.right)
-      ? dataEnd + resolveHorizontalPaddingTime(padding.right, range, dataInterval, chartWidth)
+      ? dataEnd + resolvePaddingTime(padding.right, range, dataInterval, chartWidth)
       : null;
 
   return { left, right };

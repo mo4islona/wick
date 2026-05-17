@@ -11,6 +11,7 @@
  */
 
 import type { HorizontalPadding, VisibleRange } from '../types';
+import { resolvePaddingTime } from './viewport-padding';
 
 /** Minimum pending shift (expressed via dataInterval) before streaming X retargets. */
 const AUTOSCROLL_MIN_DELTA_BARS = 0.5;
@@ -87,9 +88,3 @@ export function computeStreamingTarget(input: StreamingTargetInput): StreamingTa
   };
 }
 
-function resolvePaddingTime(pad: HorizontalPadding, range: number, dataInterval: number, chartWidth: number): number {
-  if (typeof pad === 'object') return pad.intervals * dataInterval;
-  if (chartWidth <= 0) return 0;
-
-  return (pad / chartWidth) * range;
-}

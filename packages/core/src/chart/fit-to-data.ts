@@ -1,13 +1,11 @@
 /**
  * Pure helper: fit a logical X range around a data span, capped at
- * `maxVisibleBars * dataInterval`.
- *
- * Extracted out of `Viewport.fitToData` so the math can be unit-tested in
- * isolation and so the next refactor step can move the data-anchor state (start /
- * end / interval) onto the chart without dragging the viewport class along.
+ * `maxVisibleBars * dataInterval`. Lives chart-side so the math is
+ * unit-testable in isolation from any class instance.
  */
 
 import type { HorizontalPadding, VisibleRange } from '../types';
+import { resolvePaddingTime } from './viewport-padding';
 
 export interface FitToDataInput {
   /** Earliest data timestamp registered across all series. */
@@ -50,16 +48,4 @@ export function computeFitToData(input: FitToDataInput): VisibleRange {
   }
 
   return { from: targetFrom, to: targetTo };
-}
-
-/**
- * Resolve {@link HorizontalPadding} to a time offset. Mirrors the legacy
- * `Viewport.resolveHPad` exactly — kept private here because the viewport
- * still owns the same math for pan/zoom soft bounds.
- */
-function resolvePaddingTime(pad: HorizontalPadding, range: number, dataInterval: number, chartWidth: number): number {
-  if (typeof pad === 'object') return pad.intervals * dataInterval;
-  if (chartWidth <= 0) return 0;
-
-  return (pad / chartWidth) * range;
 }

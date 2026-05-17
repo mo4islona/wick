@@ -37,7 +37,10 @@ export class KeyCache {
     this.#cache.delete(seriesId);
   }
 
-  /** Test-only: number of cached series. Not part of the production API. */
+  /**
+   * Number of cached series.
+   * @internal Test-only; not part of the production API.
+   */
   get size(): number {
     return this.#cache.size;
   }
