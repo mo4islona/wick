@@ -23,7 +23,6 @@ import type { PanZoomTarget } from './interactions/pan-zoom-target';
 import { PerfHud } from './perf/perf-hud';
 import { PerfMonitor, type PerfMonitorOptions } from './perf/perf-monitor';
 import { RenderScheduler } from './render-scheduler';
-import type { AxisTickTracker } from './scales/tick-tracker';
 import { TimeScale } from './scales/time-scale';
 import { YScale } from './scales/y-scale';
 import { BarRenderer } from './series/bar';
@@ -255,9 +254,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   #yBounds: { min?: AxisBound; max?: AxisBound } = {};
   /** Cached series ID list — invalidated on add/remove. */
   #seriesIdCache: string[] | null = null;
-  /** Whether a YLabel overlay is active (used for right-padding calculation). */
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: written via setYLabel, reserved for the right-padding reflow that accommodates the badge — kept so the flag stays consistent with the public API while the reflow logic is in progress.
-  #hasYLabel = false;
   /** Axis visibility and sizing configuration. */
   #axis: AxisConfig = {};
   /** Host-declared state per edge — drives the edge-indicator overlay. */
@@ -614,7 +610,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     renderer.onDataChanged?.(() => this.onDataChanged());
     this.#series.push({ id, label: opts.label, renderer, store, visible: true });
     this.#seriesIdCache = null;
-    this.updateViewportPadding();
     this.emit('seriesChange');
     this.#bumpOverlayVersion();
 
@@ -638,7 +633,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
       this.#keys.dropSeries(id);
-      this.updateViewportPadding();
       this.#mainScheduler.markDirty();
       this.emit('seriesChange');
       this.#bumpOverlayVersion();
@@ -1380,10 +1374,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     return this.#edgeStates[side];
   }
 
-  /** Notify chart that a YLabel is present (affects right padding). */
-  setYLabel(has: boolean): void {
-    this.#hasYLabel = has;
-    this.updateViewportPadding();
+  /**
+   * Notify chart that a YLabel overlay is mounted / unmounted. Currently a
+   * no-op — placeholder for the right-padding reflow that will adjust the
+   * chart area to make room for the badge.
+   * TODO: implement reflow.
+   */
+  setYLabel(_has: boolean): void {
+    // intentionally empty
   }
 
   /**
@@ -1411,10 +1409,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       }
     }
     if (changed) this.#mainScheduler.markDirty();
-  }
-
-  private updateViewportPadding(): void {
-    // TODO: auto-detect padding from series types
   }
 
   /** Tear down the chart: cancel animations, remove listeners, and detach the canvas. */
@@ -1874,23 +1868,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   }
 
   /**
-   * Diff the new tick values against the tracker's current set; when
-   * something entered or exited, emit a `tickFade` event so the engine's
-   * `state.tickOpacity` map can drive both the canvas grid lines and the
-   * DOM axis labels through the same opacity curve. Pre-armed (initial
-   * mount, dataset swap) the emit's `duration: 0` routes through the
-   * zero-duration guard so the tick set snaps to full alpha without an
-   * opening fade.
-   */
-  #emitTickFade(tracker: AxisTickTracker, next: readonly number[], _axis: 'y' | 'time'): void {
-    // Tracker owns its own opacity animators now — pushing the next set
-    // diffs internally and starts the appropriate fades. No engine event
-    // emit; chart.renderMain calls `tracker.tick(now)` per frame to
-    // advance them in lockstep with the rest of the chart's animation.
-    tracker.setCurrentTicks(next);
-  }
-
-  /**
    * Tick the engine at the given wall clock and push the resolved X / Y
    * ranges into the viewport + scales. Called from every emit path so that
    * synchronous readers (`chart.getYRange()`, `chart.getVisibleRange()`
@@ -2014,10 +1991,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       // diff). Each surface that reads ticks (canvas grid, DOM axis
       // labels) sources opacity from `state.tickOpacity` via the same
       // snapshot helper so they animate in lockstep frame-for-frame.
-      const yTickValues = this.yScale.niceTickValues();
-      const timeTickValues = this.timeScale.niceTickValues(this.#dataInterval).ticks;
-      this.#emitTickFade(this.yScale.tickTracker, yTickValues, 'y');
-      this.#emitTickFade(this.timeScale.tickTracker, timeTickValues, 'time');
+      // Tick trackers diff internally against the next tick set and start the
+      // appropriate fade animators; `renderMain` advances them once per frame
+      // via the `.tick(now)` calls below so they tween in lockstep with the rest
+      // of the chart's animation.
+      this.yScale.tickTracker.setCurrentTicks(this.yScale.niceTickValues());
+      this.timeScale.tickTracker.setCurrentTicks(this.timeScale.niceTickValues(this.#dataInterval).ticks);
       this.yScale.tickTracker.tick(now);
       this.timeScale.tickTracker.tick(now);
       const yTickSnap = this.yScale.tickTracker.snapshot();
@@ -2189,7 +2168,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       // Edge indicators last — they paint over any series overlay that happened
       // to land in the overshoot area.
       if (edgeVisible) {
-        this.drawEdgeIndicators(scope, size.media.height - this.xAxisHeight);
+        drawEdgeIndicators({
+          scope,
+          chartMediaHeight: size.media.height - this.xAxisHeight,
+          timeScale: this.timeScale,
+          theme: this.#theme,
+          edgeStates: this.#edgeStates,
+          resolveBoundary: (side) => resolveEdgeBoundary(side, this.#edgeBoundaries[side], this.getDataBounds()),
+        });
       }
 
       scope.context.restore();
@@ -2215,19 +2201,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     if (edgeAnimates) this.#overlayScheduler.markDirty();
   }
 
-  private drawEdgeIndicators(
-    scope: Parameters<Parameters<CanvasManager['useOverlayLayer']>[0]>[0],
-    chartMediaHeight: number,
-  ): void {
-    drawEdgeIndicators({
-      scope,
-      chartMediaHeight,
-      timeScale: this.timeScale,
-      theme: this.#theme,
-      edgeStates: this.#edgeStates,
-      resolveBoundary: (side) => resolveEdgeBoundary(side, this.#edgeBoundaries[side], this.getDataBounds()),
-    });
-  }
 }
 
 interface ResolvedPadding {
