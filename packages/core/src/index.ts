@@ -1,5 +1,6 @@
 // Chart
 
+export type { AnimationsConfig } from './animation/config';
 export type { AnimationTime, Milliseconds } from './animation/time';
 export { parseAnimationTime } from './animation/time';
 // Y-bound transition contract.
@@ -20,7 +21,7 @@ export {
 export { type HermiteOpts, hermite } from './animation/y-range-hermite';
 export { snap } from './animation/y-range-snap';
 export { type SpringOpts, spring } from './animation/y-range-spring';
-export type { AnimationsConfig, ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
+export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays
 export type { LegendItem } from './legend';

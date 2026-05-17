@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AnimationConfig,
+  type AnimationsConfig,
   DEFAULT_CANDLESTICK_ENTRY,
   DEFAULT_CANDLESTICK_SMOOTH,
   DEFAULT_LINE_ENTRY,
@@ -15,9 +17,11 @@ import {
   DEFAULT_LINE_SMOOTH,
   DEFAULT_X_GESTURE,
   DEFAULT_Y_VISIBILITY,
-} from '../animation-constants';
-import { type AnimationsConfig, ChartInstance, resolveAnimationsConfig } from '../chart';
+} from '../animation/config';
+import { ChartInstance } from '../chart';
 import type { CandlestickRenderer } from '../series/candlestick';
+
+const resolveAnimationsConfig = (input: boolean | AnimationsConfig | undefined) => AnimationConfig.resolve(input);
 
 describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {

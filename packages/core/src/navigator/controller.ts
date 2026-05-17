@@ -1,5 +1,5 @@
 import { Animator, easeOutCubic } from '../animation';
-import { DEFAULT_LINE_ENTRY } from '../animation-constants';
+import { DEFAULT_LINE_ENTRY } from '../animation/config';
 import type { ChartInstance } from '../chart';
 import { TimeScale } from '../scales/time-scale';
 import { YScale } from '../scales/y-scale';

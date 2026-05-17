@@ -12,7 +12,7 @@
  */
 
 import { Animator } from '../animation/animator';
-import { DEFAULT_AXIS_TICK_FADE } from '../animation-constants';
+import { DEFAULT_AXIS_TICK_FADE } from '../animation/config';
 
 export interface TickEntry {
   /** Tick value (time or price). */

@@ -1,26 +1,10 @@
-import { type AnimationTime, resolveAnimationTime } from './animation/time';
-import type { TransitionFactory } from './animation/transition';
-import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
-import { hermite } from './animation/y-range-hermite';
-import { snap } from './animation/y-range-snap';
 import {
-  DEFAULT_AXIS_TICK_FADE,
-  DEFAULT_BAR_ENTRY,
-  DEFAULT_BAR_SMOOTH,
-  DEFAULT_CANDLESTICK_ENTRY,
-  DEFAULT_CANDLESTICK_SMOOTH,
+  AnimationConfig,
+  type AnimationsConfig,
   DEFAULT_HERMITE_CONTRACT,
   DEFAULT_HERMITE_EXPAND,
-  DEFAULT_LINE_ENTRY,
-  DEFAULT_LINE_PULSE,
-  DEFAULT_LINE_SMOOTH,
-  DEFAULT_PIE_ENTRY,
-  DEFAULT_PIE_UPDATE,
-  DEFAULT_X_DATA_TICK,
-  DEFAULT_X_GESTURE,
-  DEFAULT_Y_GESTURE,
-  DEFAULT_Y_VISIBILITY,
-} from './animation-constants';
+} from './animation/config';
+import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
 import { CanvasManager } from './canvas-manager';
 import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
 import { computeFitToData } from './chart/fit-to-data';
@@ -114,152 +98,6 @@ interface ChartEvents {
   tickFrame: () => void;
 }
 
-/** Options passed when creating a new {@link ChartInstance}. */
-
-/**
- * Chart-level animation configuration. Four independent domains so timings
- * across the Y axis, X axis, per-series tweens, and tick fade can't bleed
- * into each other.
- *
- * **Two layers — chart-level vs per-series.** The same per-point knobs
- * (`entry` / `smooth` / `pulse`) also exist on individual series options
- * (`<XSeries options={{ entryMs }}>`). The chart-level field acts as the
- * default for any series that hasn't set its own override; an explicit
- * `series.<type>: false` (or top-level `false`) is a hard disable that
- * overrides per-series.
- *
- * - `y` — Y bound chase: pluggable transition curve, gesture-time short
- *   ease, visibility-toggle re-fit duration.
- * - `x` — X viewport: streaming scroll floor, per-event pan/zoom ease.
- * - `series.{line,candlestick,bar,pie}` — per-series-type data tweens.
- * - `axis.tickFade` — axis tick label cross-fade.
- *
- * All settling animations share a 250 ms default so the X re-fit, Y range
- * update, and last-bar live-track all settle on the same frame on a
- * streaming tick. Pulse cycle period (600 ms) and `x.gesture` (0, opt-in)
- * keep their own values.
- */
-export interface AnimationsConfig {
-  /**
-   * Y bound chase. `false` disables: Y range snaps instantly and visibility
-   * toggles skip their fade.
-   */
-  y?:
-    | false
-    | {
-        /**
-         * Y curve factory. Built-in factories live in separate modules so
-         * unused curves tree-shake out:
-         *
-         * - {@link hermite} *(default)* — velocity-matched cubic with a
-         *   fixed deadline. Each retarget reaches the new target in exactly
-         *   the configured duration.
-         * - {@link spring} — critically-damped spring physics. Asymptotic
-         *   approach, no fixed deadline; smoother on continuously-
-         *   retargeted Y.
-         * - {@link snap} — no animation (used internally when `y` is `false`).
-         *
-         * ```ts
-         * import { spring, hermite } from '@wick-charts/core';
-         *
-         * animations={{ y: { transition: spring({ contractSpeed: '5s' }) } }}
-         * ```
-         */
-        transition?: TransitionFactory;
-        /**
-         * One-shot Y settle time applied while a user gesture (pan/zoom) is
-         * active. Shorter than the curve's baseline so contractions during
-         * interaction converge in ~one frame per wheel tick instead of
-         * crawling through the long sticky-Y window. Default: 100 ms.
-         */
-        gesture?: AnimationTime;
-        /**
-         * Duration of the show/hide transition triggered by
-         * {@link ChartInstance.setSeriesVisible}. The line/bar/candle alpha
-         * cross-fades over this window AND the Y range re-fit uses the same
-         * duration (one-shot override over the curve's baseline), so the
-         * fade and the axis adjustment finish on the same frame. Default:
-         * 250 ms. `false` / `0` makes visibility toggles instant.
-         */
-        visibility?: AnimationTime;
-      };
-  /**
-   * X viewport. `false` disables both gesture ease and the streaming-scroll
-   * floor — X changes snap instantly.
-   */
-  x?:
-    | false
-    | {
-        /** Floor duration for streaming X scroll. Default: 250 ms. */
-        dataTick?: AnimationTime;
-        /**
-         * Per-event ease applied to user pan/zoom commits. Logical state
-         * advances synchronously (gesture math, edge detection, autoscroll
-         * all read the committed target); the visual range eases over this
-         * duration so back-to-back wheel/trackpad events interpolate
-         * smoothly through the same animator.
-         *
-         * Default `0` (instant-apply). Opt in via `x: { gesture: 60 }` for
-         * an eased pan/zoom feel — the default is conservative because the
-         * animated visual range diverges from the committed target until
-         * the ease completes, and existing consumers reading
-         * `chart.getVisibleRange()` synchronously after a wheel/pan expect
-         * the new value.
-         */
-        gesture?: AnimationTime;
-      };
-  /**
-   * Per-series-type data animations. `false` disables every per-point
-   * animation across every series — overrides any per-series option set on
-   * the same fields. Setting a single type to `false`
-   * (`series: { line: false }`) disables that type only.
-   *
-   * Per-series options (`<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`)
-   * win over chart-level numeric values. The chart-level field becomes the
-   * default for series that don't set their own.
-   */
-  series?:
-    | false
-    | {
-        line?: false | { entry?: AnimationTime; smooth?: AnimationTime; pulse?: AnimationTime };
-        candlestick?: false | { entry?: AnimationTime; smooth?: AnimationTime };
-        bar?: false | { entry?: AnimationTime; smooth?: AnimationTime };
-        /**
-         * Pie segment entry/update tweens. Parsed at config-time; the actual
-         * wiring lands in a later phase — providing a value here today is a
-         * no-op but the shape is stable.
-         */
-        pie?: false | { entry?: AnimationTime; update?: AnimationTime };
-      };
-  /** Axis tick label cross-fade. `false` makes tick relabel instant. */
-  axis?: false | { tickFade?: AnimationTime };
-}
-
-/**
- * Resolved, flat view of {@link AnimationsConfig} — every field concrete.
- * `0` in any numeric field means "disabled" (matches {@link AnimationTime}).
- *
- * @internal
- */
-export interface ResolvedAnimationsConfig {
-  y: {
-    transition: TransitionFactory;
-    gestureMs: number;
-    visibilityMs: number;
-  };
-  x: {
-    dataTickMs: number;
-    gestureMs: number;
-  };
-  series: {
-    line: { entryMs: number; smoothMs: number; pulseMs: number };
-    candlestick: { entryMs: number; smoothMs: number };
-    bar: { entryMs: number; smoothMs: number };
-    pie: { entryMs: number; updateMs: number };
-  };
-  axis: { tickFadeMs: number };
-}
-
 export interface ChartOptions {
   theme?: ChartTheme;
   axis?: AxisConfig;
@@ -341,110 +179,6 @@ export interface ChartOptions {
    *   charts share one telemetry sink. HUD defaults to off in this mode.
    */
   perf?: boolean | PerfMonitor | (PerfMonitorOptions & { hud?: boolean; monitor?: PerfMonitor });
-}
-
-/**
- * Collapse the public `animations` surface into a flat resolved config.
- * `animations: false` disables everything; category-level `false` disables
- * every field in that category; otherwise missing fields inherit built-in
- * defaults.
- *
- * @internal
- */
-export function resolveAnimationsConfig(input: ChartOptions['animations']): ResolvedAnimationsConfig {
-  if (input === false) {
-    return DISABLED_ANIMATIONS_CONFIG;
-  }
-
-  const cfg = input === true || input === undefined ? undefined : input;
-  const rawY = cfg?.y;
-  const rawX = cfg?.x;
-  const rawSeries = cfg?.series;
-  const rawAxis = cfg?.axis;
-
-  const y =
-    rawY === false
-      ? { transition: snap(), gestureMs: 0, visibilityMs: 0 }
-      : {
-          transition: rawY?.transition ?? hermite(),
-          gestureMs: resolveAnimationTime(rawY?.gesture, DEFAULT_Y_GESTURE),
-          visibilityMs: resolveAnimationTime(rawY?.visibility, DEFAULT_Y_VISIBILITY),
-        };
-
-  const x =
-    rawX === false
-      ? { dataTickMs: 0, gestureMs: 0 }
-      : {
-          dataTickMs: resolveAnimationTime(rawX?.dataTick, DEFAULT_X_DATA_TICK),
-          gestureMs: resolveAnimationTime(rawX?.gesture, DEFAULT_X_GESTURE),
-        };
-
-  const series = resolveSeriesAnimations(rawSeries);
-
-  const axis =
-    rawAxis === false
-      ? { tickFadeMs: 0 }
-      : { tickFadeMs: resolveAnimationTime(rawAxis?.tickFade, DEFAULT_AXIS_TICK_FADE) };
-
-  return { y, x, series, axis };
-}
-
-const ZERO_SERIES_ANIMATIONS: ResolvedAnimationsConfig['series'] = {
-  line: { entryMs: 0, smoothMs: 0, pulseMs: 0 },
-  candlestick: { entryMs: 0, smoothMs: 0 },
-  bar: { entryMs: 0, smoothMs: 0 },
-  pie: { entryMs: 0, updateMs: 0 },
-};
-
-const DISABLED_ANIMATIONS_CONFIG: ResolvedAnimationsConfig = {
-  y: { transition: snap(), gestureMs: 0, visibilityMs: 0 },
-  x: { dataTickMs: 0, gestureMs: 0 },
-  series: ZERO_SERIES_ANIMATIONS,
-  axis: { tickFadeMs: 0 },
-};
-
-function resolveSeriesAnimations(raw: AnimationsConfig['series'] | undefined): ResolvedAnimationsConfig['series'] {
-  if (raw === false) return ZERO_SERIES_ANIMATIONS;
-
-  const rawLine = raw?.line;
-  const rawCandle = raw?.candlestick;
-  const rawBar = raw?.bar;
-  const rawPie = raw?.pie;
-
-  const line =
-    rawLine === false
-      ? { entryMs: 0, smoothMs: 0, pulseMs: 0 }
-      : {
-          entryMs: resolveAnimationTime(rawLine?.entry, DEFAULT_LINE_ENTRY),
-          smoothMs: resolveAnimationTime(rawLine?.smooth, DEFAULT_LINE_SMOOTH),
-          pulseMs: resolveAnimationTime(rawLine?.pulse, DEFAULT_LINE_PULSE),
-        };
-
-  const candlestick =
-    rawCandle === false
-      ? { entryMs: 0, smoothMs: 0 }
-      : {
-          entryMs: resolveAnimationTime(rawCandle?.entry, DEFAULT_CANDLESTICK_ENTRY),
-          smoothMs: resolveAnimationTime(rawCandle?.smooth, DEFAULT_CANDLESTICK_SMOOTH),
-        };
-
-  const bar =
-    rawBar === false
-      ? { entryMs: 0, smoothMs: 0 }
-      : {
-          entryMs: resolveAnimationTime(rawBar?.entry, DEFAULT_BAR_ENTRY),
-          smoothMs: resolveAnimationTime(rawBar?.smooth, DEFAULT_BAR_SMOOTH),
-        };
-
-  const pie =
-    rawPie === false
-      ? { entryMs: 0, updateMs: 0 }
-      : {
-          entryMs: resolveAnimationTime(rawPie?.entry, DEFAULT_PIE_ENTRY),
-          updateMs: resolveAnimationTime(rawPie?.update, DEFAULT_PIE_UPDATE),
-        };
-
-  return { line, candlestick, bar, pie };
 }
 
 interface ResolvedPerfOptions {
@@ -564,7 +298,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   }
 
   /** Resolved animation config derived from `options.animations` at construction. */
-  #animationsConfig: ResolvedAnimationsConfig;
+  #animationsConfig: AnimationConfig;
 
   /**
    * Single source of truth for the chart's X / Y viewport animation.
@@ -654,7 +388,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     }
     this.#theme = options?.theme ?? catppuccin.theme;
     this.#grid = options?.grid?.visible !== false;
-    this.#animationsConfig = resolveAnimationsConfig(options?.animations);
+    this.#animationsConfig = AnimationConfig.resolve(options?.animations);
     this.#maxVisibleBars = resolveMaxVisibleBars(options?.viewport?.maxVisibleBars);
     this.#padding = resolvePadding(options?.padding);
 
@@ -807,16 +541,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     return candidate;
   }
 
-  /**
-   * Option overrides derived from the chart-level `animations.points` config.
-   * Merged BEFORE user-supplied series options so explicit series options
-   * always win — except when a chart-level category resolved to `0`
-   * (disabled), in which case the category is forced off here and the
-   * per-series option cannot re-enable it. Enforcement of the "chart-level
-   * false wins" contract lives in the `addXSeries` wrappers below: they call
-   * `#seriesAnimationDefaults(kind, options)` so the result merges *after*
-   * the user's options for the disable paths.
-   */
   /** Map a renderer instance to its `series.<kind>` config bucket. Pie has
    *  no per-series animation wiring yet (Phase 3), so we return null. */
   #rendererKind(renderer: SeriesRenderer): 'candle' | 'bar' | 'line' | null {
@@ -827,51 +551,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     return null;
   }
 
-  #seriesAnimationDefaults(kind: 'candle' | 'bar' | 'line'): Record<string, unknown> {
-    if (kind === 'line') {
-      const { entryMs, smoothMs, pulseMs } = this.#animationsConfig.series.line;
-      // `enterAnimation` style stays per-series — chart-level config only
-      // influences durations. `pulseMs` is line-only; bars/candles ignore it.
-      return { enterMs: entryMs, smoothMs, pulseMs };
-    }
-
-    if (kind === 'candle') {
-      const { entryMs, smoothMs } = this.#animationsConfig.series.candlestick;
-
-      return { enterMs: entryMs, smoothMs };
-    }
-
-    const { entryMs, smoothMs } = this.#animationsConfig.series.bar;
-
-    return { enterMs: entryMs, smoothMs };
-  }
-
-  /**
-   * Chart-level animation overrides — these *win over* any per-series value
-   * because `animations.series.<type>: false` (or any category set to `false`)
-   * is documented as a hard disable. Merged AFTER user options in the
-   * `addXSeries` wrappers.
-   */
-  #seriesAnimationForceOff(kind: 'candle' | 'bar' | 'line'): Record<string, unknown> {
-    const series = this.#animationsConfig.series;
-    const out: Record<string, unknown> = {};
-
-    if (kind === 'line') {
-      const { entryMs, smoothMs, pulseMs } = series.line;
-      if (entryMs === 0) out.enterMs = 0;
-      if (smoothMs === 0) out.smoothMs = 0;
-      if (pulseMs === 0) out.pulseMs = 0;
-
-      return out;
-    }
-
-    const { entryMs, smoothMs } = kind === 'candle' ? series.candlestick : series.bar;
-    if (entryMs === 0) out.enterMs = 0;
-    if (smoothMs === 0) out.smoothMs = 0;
-
-    return out;
-  }
-
   /** Add a candlestick (OHLC) series and return its unique ID. */
   addCandlestickSeries(options?: Partial<CandlestickSeriesOptions & { id?: string }>): string {
     const store = new TimeSeriesStore<OHLCData>();
@@ -879,9 +558,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       up: { ...this.#theme.candlestick.up },
       down: { ...this.#theme.candlestick.down },
       bodyWidthRatio: 0.6,
-      ...this.#seriesAnimationDefaults('candle'),
+      ...this.#animationsConfig.defaults('candle'),
       ...options,
-      ...this.#seriesAnimationForceOff('candle'),
+      ...this.#animationsConfig.overrides('candle'),
     });
 
     return this.#registerSeries(renderer, renderer.store, options ?? {});
@@ -896,9 +575,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       colors: layerCount === 1 ? [this.#theme.line.color] : this.#theme.seriesColors.slice(0, layerCount),
       strokeWidth: this.#theme.line.width,
       area: { visible: true },
-      ...this.#seriesAnimationDefaults('line'),
+      ...this.#animationsConfig.defaults('line'),
       ...rest,
-      ...this.#seriesAnimationForceOff('line'),
+      ...this.#animationsConfig.overrides('line'),
     });
 
     const id = this.#registerSeries(renderer, renderer.store, rest);
@@ -914,9 +593,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     const renderer = new BarRenderer(layerCount, {
       colors: this.#theme.seriesColors.slice(0, layerCount),
       barWidthRatio: 0.6,
-      ...this.#seriesAnimationDefaults('bar'),
+      ...this.#animationsConfig.defaults('bar'),
       ...rest,
-      ...this.#seriesAnimationForceOff('bar'),
+      ...this.#animationsConfig.overrides('bar'),
     });
 
     return this.#registerSeries(renderer, renderer.store, rest);
@@ -1063,7 +742,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // here — otherwise a simple parent re-render silently re-enables
     // animations the chart asked to hold off.
     const kind = this.#rendererKind(entry.renderer);
-    const forceOff = kind === null ? {} : this.#seriesAnimationForceOff(kind);
+    const forceOff = kind === null ? {} : this.#animationsConfig.overrides(kind);
     entry.renderer.updateOptions({ ...options, ...forceOff });
     // Keep stored label in sync with options (affects tooltip/legend)
     if ('label' in options && typeof options.label === 'string') {
@@ -2250,7 +1929,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   /**
    * Lightweight scale sync: updates timeScale/yScale from current viewport state
    * without advancing the Y smoothing animation. Called from the viewport 'change'
-   * handler so DOM axis components always read fresh coordinates on re-render.
+   * handler, so DOM axis components always read fresh coordinates on re-render.
    */
   private syncScales(): void {
     const size = this.#canvasManager.size;

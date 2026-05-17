@@ -1,4 +1,4 @@
-import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_PULSE, DEFAULT_LINE_SMOOTH } from '../animation-constants';
+import { DEFAULT_LINE_ENTRY, DEFAULT_LINE_PULSE, DEFAULT_LINE_SMOOTH } from '../animation/config';
 import { decimateLineData } from '../data/decimation';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';

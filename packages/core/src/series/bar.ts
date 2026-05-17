@@ -1,4 +1,4 @@
-import { DEFAULT_BAR_ENTRY, DEFAULT_BAR_SMOOTH } from '../animation-constants';
+import { DEFAULT_BAR_ENTRY, DEFAULT_BAR_SMOOTH } from '../animation/config';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
 import type { BarSeriesOptions, LineData } from '../types';
