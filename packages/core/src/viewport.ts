@@ -1,6 +1,4 @@
-import { computeFitToData } from './chart/fit-to-data';
-import { DEFAULT_MAX_VISIBLE_BARS, MIN_VISIBLE_BARS, computePan, computeZoom } from './chart/pan-zoom-math';
-import { computeStreamingTarget } from './chart/streaming-target';
+import { computePan, computeZoom } from './chart/pan-zoom-math';
 import { EventEmitter } from './events';
 import type { VisibleRange, YRange } from './types';
 
@@ -13,9 +11,8 @@ interface ViewportEvents {
   change: () => void;
   /**
    * Fired on user-initiated pan / zoom. Chart subscribes to emit a `gesture`
-   * X/Y event into the {@link AnimationEngine} so the engine takes the new
-   * logical target as its slot claim and eases the visual over `x.gestureMs`
-   * / `y.gestureMs`.
+   * X/Y event into the engine so it takes the new logical target as its
+   * slot claim and eases the visual over `x.gestureMs` / `y.gestureMs`.
    */
   interact: () => void;
   /**
@@ -48,11 +45,11 @@ export interface ViewportOptions {
     left?: HorizontalPadding;
   };
   /**
-   * Maximum number of data bars (candles/points) the viewport will fit before
-   * it stops growing and switches to tail-scroll. Default: 200. Values below
-   * 2 are clamped to 2.
+   * Callback used by pan/zoom soft-bound math + `setRange` autoscroll check.
+   * Chart owns the data anchors (`#dataStart` / `#dataEnd`) and exposes
+   * them through this lambda — viewport reads on demand.
    */
-  maxVisibleBars?: number;
+  getDataAnchors?: () => { dataStart: number | null; dataEnd: number | null };
 }
 
 interface ResolvedPadding {
@@ -69,19 +66,24 @@ const DEFAULT_PADDING: ResolvedPadding = {
   left: { intervals: 0 },
 };
 
+const NULL_DATA_ANCHORS = { dataStart: null, dataEnd: null } as const;
+
 /**
  * Manages the visible time range and Y range of the chart.
  *
- * Post Phase-2 step 2: the X animator has moved into {@link AnimationEngine}.
- * The viewport owns:
- *  - {@link logicalRange}: the chart's intent ("where X should be"). Pan,
- *    zoom, `setRange`, `fitToData` commit here. The engine treats this as
- *    its X slot's target on every `data_tick` / `gesture` / `instant` emit.
- *  - {@link visualRange}: a cache of the engine's eased X (`state.xRange`),
- *    written by the chart each `renderMain`. Read by render code, scale
- *    projections, and `chart.getVisibleRange()` so external consumers
- *    observe the animated current — same contract as before the engine
- *    migration.
+ * Owns:
+ *  - {@link logicalRange}: the chart's intent ("where X should be"). Pan /
+ *    zoom / `setRange` commit here. The engine treats this as its X target.
+ *  - {@link visualRange}: a cache of the engine's eased X, written by the
+ *    chart each `renderMain` via {@link setVisualRange}. Read by render
+ *    code, scales, and `chart.getVisibleRange()` so external consumers see
+ *    the animated current.
+ *  - `_autoScroll`, `_yRange`, `padding`, `dataInterval`.
+ *
+ * Does **not** own: data anchors (`dataStart` / `dataEnd` / `prevDataEnd`),
+ * the warm-up `holdUntilFilled` flag, or the `maxVisibleBars` cap — those
+ * live on the chart and are injected here via `getDataAnchors` when pan /
+ * zoom math needs them.
  *
  * Pan / zoom math reads {@link logicalRange} so a mid-tween visual never
  * skews gesture computations. `edgeReached` fires when the committed
@@ -95,28 +97,11 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   private _autoScroll = true;
   private padding: ResolvedPadding;
   private dataInterval = 60_000;
-  #dataStart: number | null = null;
-  #dataEnd: number | null = null;
-  /**
-   * The previous value of `#dataEnd`. {@link computeStreamingTargetX} uses
-   * it to preserve any pan offset across streaming ticks (so a user who
-   * panned a few bars left of the tail keeps that offset as new bars
-   * arrive, instead of being snapped back to the natural-pin position
-   * every frame).
-   */
-  private _prevDataEnd: number | null = null;
   /** Cached chart width — kept across calls that don't pass one (e.g. on `interact`). */
   private _lastChartWidth = 0;
-  /** Maximum bars before fitToData caps and tail-scroll takes over. */
-  #maxVisibleBars = DEFAULT_MAX_VISIBLE_BARS;
-  /**
-   * Set by {@link setRangeHold} to suppress streaming pan while the right-
-   * side gap fills up. Cleared by any user interaction or once
-   * {@link computeStreamingTargetX} sees data catch the right edge.
-   */
-  #holdUntilFilled = false;
+  readonly #getDataAnchors: () => { dataStart: number | null; dataEnd: number | null };
 
-  constructor({ padding, maxVisibleBars }: ViewportOptions = {}) {
+  constructor({ padding, getDataAnchors }: ViewportOptions = {}) {
     super();
     this.padding = {
       top: padding?.top ?? DEFAULT_PADDING.top,
@@ -124,11 +109,7 @@ export class Viewport extends EventEmitter<ViewportEvents> {
       right: padding?.right ?? DEFAULT_PADDING.right,
       left: padding?.left ?? DEFAULT_PADDING.left,
     };
-    if (maxVisibleBars !== undefined) {
-      this.#maxVisibleBars = Number.isFinite(maxVisibleBars)
-        ? Math.max(MIN_VISIBLE_BARS, Math.floor(maxVisibleBars))
-        : DEFAULT_MAX_VISIBLE_BARS;
-    }
+    this.#getDataAnchors = getDataAnchors ?? (() => NULL_DATA_ANCHORS);
   }
 
   /** Engine-eased X currently rendered. Equals {@link logicalRange} once the
@@ -140,9 +121,8 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   }
 
   /** Latest committed target position. Pan rubber-band, zoom resistance,
-   *  soft-bound clamping, autoscroll re-engagement, and `edgeReached`
-   *  classification all read this. Mid-tween visual would break those
-   *  decisions. */
+   *  soft-bound clamping, autoscroll re-engagement all read this. Mid-tween
+   *  visual would break those decisions. */
   get logicalRange(): VisibleRange {
     return this.#logical;
   }
@@ -158,16 +138,6 @@ export class Viewport extends EventEmitter<ViewportEvents> {
 
   get autoScroll(): boolean {
     return this._autoScroll;
-  }
-
-  /** First data timestamp registered via {@link setDataStart}, or `null` before any data has arrived. */
-  get dataStart(): number | null {
-    return this.#dataStart;
-  }
-
-  /** Last data timestamp registered via {@link setDataEnd}, or `null` before any data has arrived. */
-  get dataEnd(): number | null {
-    return this.#dataEnd;
   }
 
   setDataInterval(interval: number): void {
@@ -190,15 +160,6 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     return this.padding;
   }
 
-  setDataStart(time: number): void {
-    this.#dataStart = time;
-  }
-
-  setDataEnd(time: number): void {
-    this._prevDataEnd = this.#dataEnd;
-    this.#dataEnd = time;
-  }
-
   /**
    * Chart-side writer: push the engine's eased X into the visual cache so
    * external consumers (`chart.getVisibleRange()`, axis label positioning,
@@ -214,17 +175,30 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   }
 
   /**
-   * Validate-and-snap the logical range. Used by every committing call site
-   * (pan, zoom, setRange, fitToData). Snaps `#visual` to match so
-   * standalone consumers — viewport unit tests, hosts that don't wire the
-   * {@link AnimationEngine} — observe the committed range immediately.
+   * Commit a new logical range without emitting `change`. Used by the
+   * chart's streaming-target flow where the engine drives the visual
+   * animation and we don't want the `change` event to wake the render
+   * loop a second time (engine.onWake already did).
+   */
+  commitLogicalSilent(range: VisibleRange): void {
+    this.#logical = { from: range.from, to: range.to };
+    this.#visual = { from: range.from, to: range.to };
+  }
+
+  /** Force `autoScroll` on. Used by the chart's streaming flow when the
+   *  data tail re-enters the window. */
+  forceAutoScrollOn(): void {
+    this._autoScroll = true;
+  }
+
+  /**
+   * Validate-and-snap the logical range. Used by pan, zoom, setRange.
+   * Snaps `#visual` to match so standalone consumers — viewport unit tests,
+   * hosts that don't wire the engine — observe the committed range
+   * immediately.
    *
    * Chart-driven flows then override `#visual` each frame via
-   * {@link setVisualRange} from `engine.state.xRange`: for `instant`
-   * emits the engine snaps to the same target so the value is identical;
-   * for eased `data_tick` / `gesture` emits the engine pushes mid-tween
-   * values, intentionally walking the visual from the prior position
-   * back toward the snapped target.
+   * {@link setVisualRange} from `engine.state.xRange`.
    *
    * Silently no-ops on invalid input (`to <= from`, fewer than 2 bars) so
    * callers can lob in a range before the data interval stabilises.
@@ -256,25 +230,10 @@ export class Viewport extends EventEmitter<ViewportEvents> {
     const current = this.#logical;
     if (current.from === from && current.to === to) return;
 
-    const lastVisible = this.#dataEnd !== null && this.#dataEnd >= from && this.#dataEnd <= to;
+    const { dataEnd } = this.#getDataAnchors();
+    const lastVisible = dataEnd !== null && dataEnd >= from && dataEnd <= to;
     this._autoScroll = lastVisible;
-    // setRange is what multi-chart sync and the navigator commit — never
-    // inherits a leftover warm-up hold from an earlier setRangeHold call.
-    this.#holdUntilFilled = false;
     this.applyLogical(from, to);
-  }
-
-  /**
-   * Like {@link setRange}, but arms a "hold until filled" flag so streaming
-   * `appendData` ticks no-op while there's still empty space between the
-   * latest data and the right edge. Once the gap closes (or any user
-   * gesture fires), the hold is released and normal pan-tracking resumes.
-   * Used by `setVisibleRange({ from, bars })` for streaming warm-up windows.
-   */
-  setRangeHold(range: VisibleRange): void {
-    this.setRange(range);
-    // setRange cleared the flag; arm it now.
-    this.#holdUntilFilled = true;
   }
 
   /** Set the Y-axis range. Adds pixel-based padding unless a side has an explicit (fixed) bound. */
@@ -297,18 +256,16 @@ export class Viewport extends EventEmitter<ViewportEvents> {
    *   more zoom-out — panning already covers off-screen bars. The new window
    *   is clamped so it never reveals an empty gap past the data edges.
    * - Zoom does NOT toggle `_autoScroll`. That flag is reserved for pan /
-   *   programmatic re-engagement (chart's `AutoscrollController.tick`).
-   *   A wheel zoom while auto-scroll is active must keep it active.
+   *   programmatic re-engagement. A wheel zoom while auto-scroll is active
+   *   must keep it active.
    *
-   * Always snaps logical. The chart's `interact` handler emits a
-   * `gesture` X event into the engine for the visual ease.
+   * Always snaps logical. The chart's `interact` handler emits a `gesture`
+   * X event into the engine for the visual ease.
    */
   zoomAt(centerTime: number, factor: number, chartWidth = this._lastChartWidth): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    // User input cancels a programmatic warm-up hold.
-    this.#holdUntilFilled = false;
-
+    const { dataStart, dataEnd } = this.#getDataAnchors();
     const result = computeZoom({
       currentLogical: this.#logical,
       centerTime,
@@ -316,8 +273,8 @@ export class Viewport extends EventEmitter<ViewportEvents> {
       chartWidth,
       dataInterval: this.dataInterval,
       padding: { left: this.padding.left, right: this.padding.right },
-      dataStart: this.#dataStart,
-      dataEnd: this.#dataEnd,
+      dataStart,
+      dataEnd,
     });
     if (result.newLogical === null) return;
 
@@ -332,16 +289,15 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   pan(timeDelta: number, chartWidth = 0): void {
     if (chartWidth > 0) this._lastChartWidth = chartWidth;
 
-    this.#holdUntilFilled = false;
-
+    const { dataStart, dataEnd } = this.#getDataAnchors();
     const result = computePan({
       currentLogical: this.#logical,
       timeDelta,
       chartWidth,
       dataInterval: this.dataInterval,
       padding: { left: this.padding.left, right: this.padding.right },
-      dataStart: this.#dataStart,
-      dataEnd: this.#dataEnd,
+      dataStart,
+      dataEnd,
     });
     if (result.newLogical === null) return;
 
@@ -355,102 +311,17 @@ export class Viewport extends EventEmitter<ViewportEvents> {
   }
 
   /**
-   * Fit the viewport to show data from first to last timestamp.
-   * The visible range equals the data span with paddings, capped at
-   * `maxVisibleBars * dataInterval` — when the data overflows the cap, the
-   * range anchors right (latest data pinned to the right edge).
-   *
-   * Always snaps logical. The animated/non-animated split is now chart-
-   * level: the chart emits `instant` or `data_tick` X via the bridge based
-   * on the call context.
-   */
-  fitToData(firstTime: number, lastTime: number, opts: { chartWidth?: number } = {}): void {
-    const { chartWidth = 0 } = opts;
-
-    this._autoScroll = true;
-    this.#holdUntilFilled = false;
-    if (chartWidth > 0) this._lastChartWidth = chartWidth;
-
-    const { from, to } = computeFitToData({
-      firstTime,
-      lastTime,
-      dataInterval: this.dataInterval,
-      maxVisibleBars: this.#maxVisibleBars,
-      chartWidth,
-      padding: { left: this.padding.left, right: this.padding.right },
-    });
-
-    this.applyLogical(from, to);
-  }
-
-  /**
-   * Compute the next streaming X target after a `setDataEnd(last)` advance
-   * and commit it as the new logical range. Returns the target as a
-   * `VisibleRange` for the chart to feed to
-   * `bridge.emitDataTick({ xTarget })`. Returns `null` when:
-   *
-   *  - `#holdUntilFilled` is active and the new data still fits inside the
-   *    current logical window (warm-up hold), or
-   *  - the X shift is below the sub-threshold filter (high-frequency
-   *    `updateLast` bursts shouldn't restart the easing curve on every
-   *    frame).
-   *
-   * Preserves any pan offset across ticks: the gap between the current
-   * logical right edge and `_prevDataEnd` carries forward, so the
-   * viewport slides by the data's advance distance instead of snapping
-   * back to the natural-pin position every tick.
-   *
-   * Side effects when a non-null target is returned:
-   *   1. Commits the target as the new `#logical` (gesture math, autoscroll
-   *      checks and the next call's offset all read this).
-   *   2. Advances `_prevDataEnd` so the *next* call's offset math measures
-   *      against the just-committed dataEnd.
-   *
-   * The visual remains where the engine has it — chart-side
-   * `bridge.emitDataTick({ xTarget })` + the engine's eased X slot drive
-   * the slide of `visibleRange` toward the new logical over the cadence-
-   * smoothed duration.
-   */
-  computeStreamingTargetX(lastTime: number, chartWidth = 0): VisibleRange | null {
-    if (chartWidth > 0) this._lastChartWidth = chartWidth;
-
-    const result = computeStreamingTarget({
-      currentLogical: this.#logical,
-      lastTime,
-      prevDataEnd: this._prevDataEnd,
-      dataInterval: this.dataInterval,
-      paddingRight: this.padding.right,
-      chartWidth,
-      holdUntilFilled: this.#holdUntilFilled,
-    });
-
-    if (result.releaseHold) this.#holdUntilFilled = false;
-    if (result.reengageAutoScroll) this._autoScroll = true;
-    if (result.newLogical === null) return null;
-
-    this.#logical = result.newLogical;
-    this._prevDataEnd = this.#dataEnd;
-
-    return { from: result.newLogical.from, to: result.newLogical.to };
-  }
-
-  /**
    * Decide whether tail-following should re-engage after a pan. Called from
-   * the chart's RAF loop via {@link AutoscrollController}. Reads the logical
-   * target (the chart passes `bridge.lastXTarget`) rather than the eased
-   * visual so the flip happens when the *destination* crosses `dataEnd`,
-   * not one or two frames earlier when the visual dipped past.
+   * the chart's RAF loop with the logical X target (the engine's
+   * `lastXTarget`) rather than the eased visual so the flip happens when
+   * the *destination* crosses `dataEnd`, not one or two frames earlier
+   * when the visual dipped past.
    */
   checkAutoScrollReengagement(dataEnd: number, logicalTarget: VisibleRange): void {
     if (this._autoScroll) return;
     if (logicalTarget.from <= dataEnd && dataEnd <= logicalTarget.to) {
       this._autoScroll = true;
     }
-  }
-
-  /** Return the number of data bars currently visible. */
-  getVisibleBarsCount(): number {
-    return (this.#visual.to - this.#visual.from) / this.dataInterval;
   }
 
   destroy(): void {

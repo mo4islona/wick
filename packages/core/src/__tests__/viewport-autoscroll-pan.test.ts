@@ -5,25 +5,22 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { Viewport } from '../viewport';
+import { makeTestViewport } from './helpers/test-viewport';
 
 const INTERVAL = 60_000;
 
-function primed(): Viewport {
+function primed() {
   // Default right padding (3 intervals) leaves headroom past the last point —
   // small leftward pans keep the last point on screen, large ones push it off.
-  const v = new Viewport();
-  v.setDataInterval(INTERVAL);
-  v.setDataStart(0);
-  v.setDataEnd(100 * INTERVAL);
-  v.fitToData(0, 100 * INTERVAL, { chartWidth: 800 });
+  const handle = makeTestViewport({ dataStart: 0, dataEnd: 100 * INTERVAL });
+  handle.fit(0, 100 * INTERVAL, { chartWidth: 800 });
 
-  return v;
+  return handle;
 }
 
 describe('Viewport pan auto-scroll policy', () => {
   it('keeps autoScroll true when the pan leaves the last point on screen', () => {
-    const v = primed();
+    const { viewport: v } = primed();
     expect(v.autoScroll).toBe(true);
 
     // Small leftward pan: dataEnd sits 3 intervals inside the right edge
@@ -38,7 +35,7 @@ describe('Viewport pan auto-scroll policy', () => {
   });
 
   it('sets autoScroll false when the pan pushes the last point off screen', () => {
-    const v = primed();
+    const { viewport: v } = primed();
     // Large leftward pan — dataEnd falls below `to`, past the right edge.
     v.pan(-150 * INTERVAL, 800);
 
@@ -49,7 +46,7 @@ describe('Viewport pan auto-scroll policy', () => {
   });
 
   it('re-enables autoScroll when a subsequent pan brings the last point back into view', () => {
-    const v = primed();
+    const { viewport: v } = primed();
     v.pan(-150 * INTERVAL, 800); // send it off screen
     expect(v.autoScroll).toBe(false);
 
