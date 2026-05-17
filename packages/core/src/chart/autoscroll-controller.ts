@@ -1,5 +1,4 @@
 import type { VisibleRange } from '../types';
-import type { AnimationBridge } from './animation-bridge';
 
 /**
  * Minimal contract the autoscroll controller needs from a viewport-like
@@ -17,30 +16,39 @@ export interface AutoscrollViewport {
 }
 
 /**
+ * Source of the most recently committed *logical* X target. The chart
+ * passes its `ViewportEngine`; tests can pass a stub exposing the same
+ * shape without spinning up a full engine.
+ */
+export interface XTargetSource {
+  readonly lastXTarget: VisibleRange | null;
+}
+
+/**
  * Wires the viewport's tail-follow reengagement check into the chart's RAF
- * loop, supplying the *logical* X target (the engine's slot.target) instead
- * of the visual `state.xRange`.
+ * loop, supplying the *logical* X target (the engine's last committed
+ * X target) instead of the visual `state.xRange`.
  *
  * The visual range can dip back into the data zone one or two frames ahead
  * of the logical target during streaming — if the viewport used the visual
  * value to decide reengagement it would preempt an in-flight animation and
- * the chart would visibly jump. Reading the bridge's `lastXTarget` keeps
- * the decision tied to the source of truth.
+ * the chart would visibly jump. Reading `engine.lastXTarget` keeps the
+ * decision tied to the source of truth.
  */
 export class AutoscrollController {
   readonly #viewport: AutoscrollViewport;
-  readonly #bridge: AnimationBridge;
+  readonly #engine: XTargetSource;
 
-  constructor(opts: { viewport: AutoscrollViewport; bridge: AnimationBridge }) {
+  constructor(opts: { viewport: AutoscrollViewport; engine: XTargetSource }) {
     this.#viewport = opts.viewport;
-    this.#bridge = opts.bridge;
+    this.#engine = opts.engine;
   }
 
   /** Run once per chart RAF tick. `dataEnd` is the latest data timestamp. */
   tick(dataEnd: number | null): void {
     if (dataEnd === null) return;
 
-    const logical = this.#bridge.lastXTarget ?? this.#viewport.logicalRange;
+    const logical = this.#engine.lastXTarget ?? this.#viewport.logicalRange;
     this.#viewport.checkAutoScrollReengagement(dataEnd, logical);
   }
 }
