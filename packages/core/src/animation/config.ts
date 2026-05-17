@@ -309,27 +309,27 @@ export class AnimationConfig {
 
   /**
    * Per-renderer-type chart-level option payload — merged BEFORE user
-   * series options so explicit per-series options always win. Translates
-   * resolved field names (`entryMs` / `smoothMs` / `pulseMs`) into the
-   * renderer's option shape (`enterMs` / `smoothMs` / `pulseMs`).
-   * `pulseMs` is line-only; bars / candles ignore it.
+   * series options so explicit per-series options always win. Forwards
+   * the resolved `entryMs` / `smoothMs` / `pulseMs` straight into the
+   * renderer's option shape. `pulseMs` is line-only; bars / candles
+   * ignore it.
    */
   defaults(kind: SeriesAnimationKind): Record<string, unknown> {
     if (kind === 'line') {
       const { entryMs, smoothMs, pulseMs } = this.series.line;
 
-      return { enterMs: entryMs, smoothMs, pulseMs };
+      return { entryMs, smoothMs, pulseMs };
     }
 
     if (kind === 'candle') {
       const { entryMs, smoothMs } = this.series.candlestick;
 
-      return { enterMs: entryMs, smoothMs };
+      return { entryMs, smoothMs };
     }
 
     const { entryMs, smoothMs } = this.series.bar;
 
-    return { enterMs: entryMs, smoothMs };
+    return { entryMs, smoothMs };
   }
 
   /**
@@ -343,7 +343,7 @@ export class AnimationConfig {
 
     if (kind === 'line') {
       const { entryMs, smoothMs, pulseMs } = this.series.line;
-      if (entryMs === 0) out.enterMs = 0;
+      if (entryMs === 0) out.entryMs = 0;
       if (smoothMs === 0) out.smoothMs = 0;
       if (pulseMs === 0) out.pulseMs = 0;
 
@@ -351,7 +351,7 @@ export class AnimationConfig {
     }
 
     const { entryMs, smoothMs } = kind === 'candle' ? this.series.candlestick : this.series.bar;
-    if (entryMs === 0) out.enterMs = 0;
+    if (entryMs === 0) out.entryMs = 0;
     if (smoothMs === 0) out.smoothMs = 0;
 
     return out;

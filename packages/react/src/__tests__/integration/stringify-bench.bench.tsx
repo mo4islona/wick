@@ -7,8 +7,10 @@
  * `buildAnimationsProp` создаёт новый объект каждый render). Цель — увидеть
  * реальные числа в среде happy-dom + React, а не в чистом Node.
  */
-import { act, render } from '@testing-library/react';
+
 import { useEffect, useMemo, useState } from 'react';
+
+import { act, render } from '@testing-library/react';
 import { bench, describe } from 'vitest';
 
 interface AnimationsShape {

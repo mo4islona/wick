@@ -99,9 +99,7 @@ export function BarSeries({ data, options, id: idProp }: BarSeriesProps) {
     options?.barWidthRatio,
     options?.stacking,
     options?.entryAnimation,
-    options?.enterAnimation,
     options?.entryMs,
-    options?.enterMs,
     options?.smoothMs,
   ]);
 

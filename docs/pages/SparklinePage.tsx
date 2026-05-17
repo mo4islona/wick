@@ -2,10 +2,10 @@ import { useMemo } from 'react';
 
 import {
   type ChartTheme,
-  type LineData,
   Sparkline,
   type SparklineValuePosition,
   type SparklineVariant,
+  type TimePoint,
 } from '@wick-charts/react';
 
 import { ICONS } from '../components/playground/icons';
@@ -59,7 +59,7 @@ interface RowMeta {
 }
 
 interface RowSeed extends RowMeta {
-  data: LineData[];
+  data: TimePoint[];
   strategy: LineStrategy;
 }
 
@@ -112,7 +112,7 @@ function makeMonotonicRow(seed: number, label: string): RowSeed {
 // ── Metric card rows ────────────────────────────────────────
 
 interface MetricRow extends RowMeta {
-  data: LineData[];
+  data: TimePoint[];
 }
 
 const CRYPTO_LABELS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AVAX/USD', 'DOT/USD', 'LINK/USD'];

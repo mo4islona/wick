@@ -241,14 +241,14 @@ describe('ChartInstance.animations propagation', () => {
 
   it('chart-level entry acts as default when series omits it', () => {
     const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }));
-    const opts = (r as unknown as { options: { enterMs?: number } }).options;
-    expect(opts.enterMs).toBe(800);
+    const opts = (r as unknown as { options: { entryMs?: number } }).options;
+    expect(opts.entryMs).toBe(800);
   });
 
-  it('per-series enterMs wins over chart-level default', () => {
-    const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }), { enterMs: 200 });
-    const opts = (r as unknown as { options: { enterMs?: number } }).options;
-    expect(opts.enterMs).toBe(200);
+  it('per-series entryMs wins over chart-level default', () => {
+    const r = candleRenderer(makeChart({ series: { candlestick: { entry: 800 } } }), { entryMs: 200 });
+    const opts = (r as unknown as { options: { entryMs?: number } }).options;
+    expect(opts.entryMs).toBe(200);
   });
 
   it('chart-level smooth: false forces snap even if per-series sets a number', () => {

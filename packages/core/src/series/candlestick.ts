@@ -52,24 +52,6 @@ const DEFAULT_OPTIONS: CandlestickSeriesOptions = {
   bodyWidthRatio: 0.6,
 };
 
-/**
- * Normalize caller-supplied candlestick options. Folds the deprecated
- * `enterAnimation` and `enterMs` aliases into `entryAnimation` and `entryMs`.
- */
-function normalizeCandlestickOptions(input?: Partial<CandlestickSeriesOptions>): Partial<CandlestickSeriesOptions> {
-  if (!input) return {};
-
-  const out: Partial<CandlestickSeriesOptions> = { ...input };
-  if (input.enterAnimation !== undefined && input.entryAnimation === undefined) {
-    out.entryAnimation = input.enterAnimation;
-  }
-  if (input.enterMs !== undefined && input.entryMs === undefined) {
-    out.entryMs = input.enterMs;
-  }
-
-  return out;
-}
-
 export class CandlestickRenderer implements SeriesRenderer {
   readonly store: TimeSeriesStore<OHLCData>;
   private options: CandlestickSeriesOptions;
@@ -90,7 +72,7 @@ export class CandlestickRenderer implements SeriesRenderer {
 
   constructor(store: TimeSeriesStore<OHLCData>, options?: Partial<CandlestickSeriesOptions>) {
     this.store = store;
-    this.options = { ...DEFAULT_OPTIONS, ...normalizeCandlestickOptions(options) };
+    this.options = { ...DEFAULT_OPTIONS, ...options };
     // Seed `displayedLast` from the (possibly pre-populated) store — `setData`
     // doesn't run when the caller pre-loaded the store before construction,
     // so without this seed the first `updateLastPoint` would lazily anchor
@@ -111,7 +93,7 @@ export class CandlestickRenderer implements SeriesRenderer {
   }
 
   updateOptions(options: Partial<CandlestickSeriesOptions>): void {
-    this.options = { ...this.options, ...normalizeCandlestickOptions(options) };
+    this.options = { ...this.options, ...options };
   }
 
   getColor(): string {
@@ -624,7 +606,7 @@ interface CandleTransformOutput {
  */
 function applyCandleTransform(
   progress: number,
-  style: NonNullable<CandlestickSeriesOptions['enterAnimation']>,
+  style: NonNullable<CandlestickSeriesOptions['entryAnimation']>,
   g: CandleTransformInput,
 ): CandleTransformOutput {
   switch (style) {

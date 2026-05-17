@@ -15,7 +15,6 @@ export type {
   AxisConfig,
   BarSeriesOptions,
   /** @deprecated Use {@link StackingMode} instead. */
-  BarStacking,
   BuildHoverSnapshotsArgs,
   BuildLastSnapshotsArgs,
   CandlestickSeriesOptions,
@@ -30,7 +29,6 @@ export type {
   HoverInfo,
   LegendItem,
   /** @deprecated Use {@link TimePoint} instead. */
-  LineData,
   LineSeriesOptions,
   NavigatorCandlePoint,
   NavigatorControllerParams,
@@ -78,7 +76,6 @@ export {
   catppuccin,
   computeTooltipPosition,
   createTheme,
-  darkTheme,
   detectInterval,
   dracula,
   formatCompact,
@@ -93,7 +90,6 @@ export {
   isDarkBg,
   lavenderMist,
   lightPink,
-  lightTheme,
   materialPalenight,
   minimalLight,
   mintBreeze,

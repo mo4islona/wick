@@ -50,8 +50,6 @@ export type {
 } from './snapshots';
 export { buildHoverSnapshots, buildLastSnapshots } from './snapshots';
 // Data
-export { darkTheme } from './theme/dark';
-export { lightTheme } from './theme/light';
 export type { ThemeConfig, ThemePreset } from './theme/palettes';
 export { autoGradient, createTheme, isDarkBg } from './theme/palettes';
 export { resolveAxisFontSize, resolveAxisTextColor, resolveCandlestickBodyColor } from './theme/resolve';
@@ -88,14 +86,10 @@ export type {
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
-  /** @deprecated Use {@link StackingMode} instead. */
-  BarStacking,
   CandlestickSeriesOptions,
   ChartLayout,
   CrosshairPosition,
   HorizontalPadding,
-  /** @deprecated Use {@link TimePoint} instead. */
-  LineData,
   LineSeriesOptions,
   OHLCData,
   OHLCInput,

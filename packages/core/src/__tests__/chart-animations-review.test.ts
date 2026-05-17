@@ -84,25 +84,25 @@ describe('updateSeriesOptions honors chart-level animation gates', () => {
   it('candlestick: chart-level animations: false cannot be re-enabled by updateSeriesOptions', () => {
     const chart = makeChart(false);
     const { id, renderer } = candleRenderer(chart);
-    const opts = () => (renderer as unknown as { options: { enterMs?: number; smoothMs?: number } }).options;
+    const opts = () => (renderer as unknown as { options: { entryMs?: number; smoothMs?: number } }).options;
 
-    expect(opts().enterMs).toBe(0);
+    expect(opts().entryMs).toBe(0);
     expect(opts().smoothMs).toBe(0);
 
-    chart.updateSeriesOptions(id, { enterMs: 400, smoothMs: 500 });
+    chart.updateSeriesOptions(id, { entryMs: 400, smoothMs: 500 });
 
-    expect(opts().enterMs).toBe(0);
+    expect(opts().entryMs).toBe(0);
     expect(opts().smoothMs).toBe(0);
   });
 
   it('line: chart-level series.line.entry: false holds across updateSeriesOptions', () => {
     const chart = makeChart({ series: { line: { entry: false } } });
     const { id, renderer } = lineRenderer(chart);
-    const opts = () => (renderer as unknown as { options: { enterMs?: number } }).options;
+    const opts = () => (renderer as unknown as { options: { entryMs?: number } }).options;
 
-    expect(opts().enterMs).toBe(0);
-    chart.updateSeriesOptions(id, { enterMs: 600 });
-    expect(opts().enterMs).toBe(0);
+    expect(opts().entryMs).toBe(0);
+    chart.updateSeriesOptions(id, { entryMs: 600 });
+    expect(opts().entryMs).toBe(0);
   });
 
   it('bar: chart-level series.bar.smooth: false holds across updateSeriesOptions', () => {

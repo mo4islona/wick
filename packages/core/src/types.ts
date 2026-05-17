@@ -29,9 +29,6 @@ export interface TimePoint {
 /** {@link TimePoint} that also accepts `Date` for the time field. */
 export type TimePointInput = Omit<TimePoint, 'time'> & { time: TimeValue };
 
-/** @deprecated Use {@link TimePoint} instead. */
-export type LineData = TimePoint;
-
 /** Time range (timestamps in milliseconds) of the currently visible portion of the chart. */
 export interface VisibleRange {
   from: number;
@@ -123,9 +120,6 @@ export type SeriesType = 'candlestick' | 'line' | 'bar' | 'pie';
  */
 export type CandlestickEntryAnimation = 'none' | 'fade' | 'unfold' | 'slide' | 'fade-unfold';
 
-/** @deprecated Use {@link CandlestickEntryAnimation} instead. */
-export type CandlestickEnterAnimation = CandlestickEntryAnimation;
-
 /**
  * `body` shape encodes the fill mode: a single color renders flat; a
  * `[top, bottom]` tuple renders a 2-stop vertical gradient. Use
@@ -156,8 +150,6 @@ export interface CandlestickSeriesOptions {
    * @see entryMs — cross-linked duration for this animation.
    */
   entryAnimation?: CandlestickEntryAnimation;
-  /** @deprecated Use {@link entryAnimation} instead. */
-  enterAnimation?: CandlestickEntryAnimation;
   /**
    * Per-candle entrance duration in milliseconds. Default: `250`.
    *
@@ -171,9 +163,6 @@ export interface CandlestickSeriesOptions {
    * </ChartContainer>
    * ```
    *
-   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
-   * animation, two names for historical reasons.
-   *
    * `false` or `0` disables the entrance (equivalent to
    * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
    * hard disable that wins over this field.
@@ -181,8 +170,6 @@ export interface CandlestickSeriesOptions {
    * @see CandlestickSeriesOptions.entryAnimation
    */
   entryMs?: number | false;
-  /** @deprecated Use {@link entryMs} instead. */
-  enterMs?: number | false;
   /**
    * How long the displayed OHLC takes to catch up to the actual last value
    * on every `updateLastPoint`. Default: `250` ms.
@@ -211,9 +198,6 @@ export interface CandlestickSeriesOptions {
  * - `'fade'` — geometry fixed; trailing segment strokes in with alpha 0→1.
  */
 export type LineEntryAnimation = 'none' | 'grow' | 'fade';
-
-/** @deprecated Use {@link LineEntryAnimation} instead. */
-export type LineEnterAnimation = LineEntryAnimation;
 
 /** Visual options for a line series. */
 export interface LineSeriesOptions {
@@ -262,8 +246,6 @@ export interface LineSeriesOptions {
    * @see entryMs — cross-linked duration for this animation.
    */
   entryAnimation?: LineEntryAnimation;
-  /** @deprecated Use {@link entryAnimation} instead. */
-  enterAnimation?: LineEntryAnimation;
   /**
    * Per-point entrance duration in milliseconds. Default: `250`.
    *
@@ -277,9 +259,6 @@ export interface LineSeriesOptions {
    * </ChartContainer>
    * ```
    *
-   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
-   * animation, two names for historical reasons.
-   *
    * `false` or `0` disables the entrance (equivalent to
    * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
    * hard disable that wins over this field.
@@ -287,8 +266,6 @@ export interface LineSeriesOptions {
    * @see LineSeriesOptions.entryAnimation
    */
   entryMs?: number | false;
-  /** @deprecated Use {@link entryMs} instead. */
-  enterMs?: number | false;
   /**
    * How long the displayed last value takes to catch up to the actual one
    * on every `updateLastPoint`. Default: `250` ms.
@@ -313,9 +290,6 @@ export interface LineSeriesOptions {
 /** Stacking mode for bar/line series: off (overlap), normal (stacked), percent (100% stacked). */
 export type StackingMode = 'off' | 'normal' | 'percent';
 
-/** @deprecated Use {@link StackingMode} instead. */
-export type BarStacking = StackingMode;
-
 /**
  * Entrance animation styles for bars.
  * - `'none'` — no animation.
@@ -325,9 +299,6 @@ export type BarStacking = StackingMode;
  * - `'fade-grow'` *(default)* — fade + grow combined.
  */
 export type BarEntryAnimation = 'none' | 'fade' | 'grow' | 'slide' | 'fade-grow';
-
-/** @deprecated Use {@link BarEntryAnimation} instead. */
-export type BarEnterAnimation = BarEntryAnimation;
 
 /** Visual options for a bar series. */
 export interface BarSeriesOptions {
@@ -347,8 +318,6 @@ export interface BarSeriesOptions {
    * @see entryMs — cross-linked duration for this animation.
    */
   entryAnimation?: BarEntryAnimation;
-  /** @deprecated Use {@link entryAnimation} instead. */
-  enterAnimation?: BarEntryAnimation;
   /**
    * Per-bar entrance duration in milliseconds. Default: `250`.
    *
@@ -362,9 +331,6 @@ export interface BarSeriesOptions {
    * </ChartContainer>
    * ```
    *
-   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
-   * animation, two names for historical reasons.
-   *
    * `false` or `0` disables the entrance (equivalent to
    * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
    * hard disable that wins over this field.
@@ -372,8 +338,6 @@ export interface BarSeriesOptions {
    * @see BarSeriesOptions.entryAnimation
    */
   entryMs?: number | false;
-  /** @deprecated Use {@link entryMs} instead. */
-  enterMs?: number | false;
   /**
    * How long the displayed bar value takes to catch up to the actual one
    * on every `updateLastPoint`. Default: `250` ms.
@@ -459,13 +423,6 @@ export interface PieLabelsOptions {
    * expressed as a multiplier of {@link fontSize}. Default: 1.8.
    */
   labelGap?: number;
-  /**
-   * @deprecated No effect in the radial per-slice layout. A label's X is
-   * pinned to its slice midangle, so forcing the "other" side would flip
-   * text direction without moving the label and push text across the pie.
-   * Kept in the option surface for backwards compatibility.
-   */
-  balanceSides?: boolean;
 }
 
 /** Visual options for a pie/donut series. `innerRadiusRatio > 0` makes it a donut. */

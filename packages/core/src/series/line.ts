@@ -18,26 +18,17 @@ const DEFAULT_OPTIONS: LineSeriesOptions = {
 };
 
 /**
- * Normalize caller-supplied line options onto the new shape. Deprecated
- * aliases (`areaFill`, `enterAnimation`, `enterMs`) are folded into their
- * renamed counterparts so the rest of the renderer only reads the canonical
- * fields.
+ * Normalize caller-supplied line options. Folds the legacy flat `areaFill`
+ * boolean (still used by `<Sparkline>` and React's `<LineSeries>` for
+ * back-compat) into the structured `area` shape so the rest of the renderer
+ * only reads the canonical field.
  */
 function normalizeLineOptions(input?: Partial<LineSeriesOptions>): Partial<LineSeriesOptions> {
   if (!input) return {};
+  const legacyAreaFill = (input as { areaFill?: boolean }).areaFill;
+  if (legacyAreaFill === undefined || input.area !== undefined) return input;
 
-  const out: Partial<LineSeriesOptions> = { ...input };
-  if ((input as { areaFill?: boolean }).areaFill !== undefined && input.area === undefined) {
-    out.area = { visible: !!(input as { areaFill?: boolean }).areaFill };
-  }
-  if (input.enterAnimation !== undefined && input.entryAnimation === undefined) {
-    out.entryAnimation = input.enterAnimation;
-  }
-  if (input.enterMs !== undefined && input.entryMs === undefined) {
-    out.entryMs = input.enterMs;
-  }
-
-  return out;
+  return { ...input, area: { visible: !!legacyAreaFill } };
 }
 
 export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {

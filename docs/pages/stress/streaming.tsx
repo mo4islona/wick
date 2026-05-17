@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { LineData } from '@wick-charts/react';
+import type { TimePoint } from '@wick-charts/react';
 import { ChartContainer, LineSeries, TimeAxis, Title, YAxis } from '@wick-charts/react';
 
 import type { PanelCtx, StressPanel } from './panel';
@@ -15,7 +15,7 @@ import type { PanelCtx, StressPanel } from './panel';
 
 const INTERVAL = 60_000;
 
-function makeSeed(start: number, count: number, baseValue = 100): LineData[] {
+function makeSeed(start: number, count: number, baseValue = 100): TimePoint[] {
   return Array.from({ length: count }, (_, i) => ({
     time: start + i * INTERVAL,
     value: baseValue + Math.sin(i / 4) * 5,
@@ -52,7 +52,7 @@ function ResetButton({ theme, onClick, label }: { theme: PanelCtx['theme']; onCl
  */
 function WarmUpComparison({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 5 * INTERVAL, 5), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const [running, setRunning] = useState(true);
   const seedRef = useRef(seed);
   const runningRef = useRef(running);
@@ -70,7 +70,7 @@ function WarmUpComparison({ theme, perfHud, yEngine }: PanelCtx) {
         if (prev.length >= 250) return prev;
 
         const last = prev[prev.length - 1];
-        const next: LineData = {
+        const next: TimePoint = {
           time: last.time + INTERVAL,
           value: 100 + Math.sin(prev.length / 4) * 8 + (Math.random() - 0.5) * 1.5,
         };
@@ -143,7 +143,7 @@ function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
   const MAX_AMPLITUDE = 3_000;
 
   const seed = useMemo(() => makeSeed(Date.now() - 30 * INTERVAL, 30), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const tickRef = useRef(0);
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 
@@ -197,7 +197,7 @@ function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
  */
 function VariableJitter({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 
   useEffect(() => {
@@ -242,7 +242,7 @@ function VariableJitter({ theme, perfHud, yEngine }: PanelCtx) {
  */
 function BurstThenPause({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 30 * INTERVAL, 30), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const [phase, setPhase] = useState<'burst' | 'idle'>('burst');
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 
@@ -304,7 +304,7 @@ function MonotonicRamp({ theme, perfHud, yEngine }: PanelCtx) {
   const STEP = 1.5;
 
   const seed = useMemo(() => {
-    const out: LineData[] = [];
+    const out: TimePoint[] = [];
     const start = Date.now() - 10 * INTERVAL;
     let value = 100;
     for (let i = 0; i < 10; i++) {
@@ -314,7 +314,7 @@ function MonotonicRamp({ theme, perfHud, yEngine }: PanelCtx) {
     return out;
   }, []);
 
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 
   useEffect(() => {
@@ -366,7 +366,7 @@ function OutlierRebound({ theme, perfHud, yEngine }: PanelCtx) {
   const SPIKE = 200;
 
   const seed = useMemo(() => makeSeed(Date.now() - 15 * INTERVAL, 15, BASE), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const tickRef = useRef(0);
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 
@@ -462,14 +462,14 @@ function CadenceChart({
   label: string;
 }) {
   const seed = useMemo(() => makeSeed(startTime, 30), [startTime]);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
       setData((prev) => {
         const last = prev[prev.length - 1];
-        const next: LineData = {
+        const next: TimePoint = {
           time: last.time + INTERVAL,
           value: 100 + Math.sin(prev.length / 6) * 10 + (Math.random() - 0.5) * 1.5,
         };
@@ -515,14 +515,14 @@ function CadenceChart({
  */
 function ConcurrentEvents({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const animations = useMemo(() => ({ y: { transition: yEngine }, x: { gesture: 200 } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
       setData((prev) => {
         const last = prev[prev.length - 1];
-        const next: LineData = {
+        const next: TimePoint = {
           time: last.time + INTERVAL,
           value: 100 + Math.sin(prev.length / 5) * 12 + (Math.random() - 0.5) * 2,
         };
@@ -563,7 +563,7 @@ function ConcurrentEvents({ theme, perfHud, yEngine }: PanelCtx) {
  */
 function BackgroundTabRecovery({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 50 * INTERVAL, 50), []);
-  const [data, setData] = useState<LineData[]>(seed);
+  const [data, setData] = useState<TimePoint[]>(seed);
   const lastTimeRef = useRef(seed[seed.length - 1].time);
   const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
 

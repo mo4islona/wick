@@ -214,7 +214,7 @@ interface SeriesEntry {
   label?: string;
   renderer: SeriesRenderer;
   /** Null for non-time-series types like Pie. */
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous storage — the concrete item type (TimePoint / OHLCData / LineData) depends on the series and is narrowed at the use site.
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous storage — the concrete item type (TimePoint / OHLCData / TimePoint) depends on the series and is narrowed at the use site.
   store: TimeSeriesStore<any> | null;
   visible: boolean;
 }
@@ -414,6 +414,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     this.#canvasManager = new CanvasManager(container, this.#perfMonitor ?? undefined);
     this.timeScale = new TimeScale();
     this.yScale = new YScale();
+
     const tickFadeMs = this.#animationsConfig.axis.tickFadeMs;
     this.timeScale.tickTracker.setFadeMs(tickFadeMs);
     this.yScale.tickTracker.setFadeMs(tickFadeMs);

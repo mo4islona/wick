@@ -4,7 +4,7 @@
  * they produce intentionally-broken data (nulls, NaN, unsorted, duplicates).
  */
 
-import type { LineData, OHLCData } from '@wick-charts/react';
+import type { OHLCData, TimePoint } from '@wick-charts/react';
 
 import { DEMO_INTERVAL, generateOHLCData } from '../data';
 
@@ -25,9 +25,9 @@ export function generateOHLCWithNulls(count: number, startPrice = 100, nullRate 
 }
 
 /** Line series with scattered null / NaN / Infinity values. */
-export function generateLineWithNulls(count: number, poisonRate = 0.2): LineData[] {
+export function generateLineWithNulls(count: number, poisonRate = 0.2): TimePoint[] {
   const poisons = [null, Number.NaN, Number.POSITIVE_INFINITY, undefined];
-  const out: LineData[] = [];
+  const out: TimePoint[] = [];
   for (let i = 0; i < count; i++) {
     const clean = { time: i * DEMO_INTERVAL, value: 50 + Math.sin(i * 0.1) * 30 + Math.random() * 10 };
     if (Math.random() < poisonRate) {
@@ -40,11 +40,11 @@ export function generateLineWithNulls(count: number, poisonRate = 0.2): LineData
 }
 
 /** Bar data — effectively line data consumed by BarSeries — with nulls/NaN sprinkled in. */
-export function generateBarWithNulls(count: number, poisonRate = 0.2): LineData[] {
+export function generateBarWithNulls(count: number, poisonRate = 0.2): TimePoint[] {
   const poisons = [null, Number.NaN, Number.NEGATIVE_INFINITY, undefined];
-  const out: LineData[] = [];
+  const out: TimePoint[] = [];
   for (let i = 0; i < count; i++) {
-    const clean: LineData = { time: i * DEMO_INTERVAL, value: Math.sin(i * 0.2) * 80 + (Math.random() - 0.5) * 20 };
+    const clean: TimePoint = { time: i * DEMO_INTERVAL, value: Math.sin(i * 0.2) * 80 + (Math.random() - 0.5) * 20 };
     if (Math.random() < poisonRate) {
       (clean as unknown as Record<string, unknown>).value = poisons[i % poisons.length];
     }
@@ -78,8 +78,8 @@ export function generateConstantOHLC(count: number, value = 100): OHLCData[] {
 }
 
 /** Near-zero magnitudes — values in `[min, min * 2]` for some tiny `min`. */
-export function generateNearZeroLine(count: number, min = 1e-8): LineData[] {
-  const out: LineData[] = [];
+export function generateNearZeroLine(count: number, min = 1e-8): TimePoint[] {
+  const out: TimePoint[] = [];
   for (let i = 0; i < count; i++) {
     out.push({ time: i * DEMO_INTERVAL, value: min * (1 + Math.sin(i * 0.3) * 0.4 + Math.random() * 0.1) });
   }
@@ -88,8 +88,8 @@ export function generateNearZeroLine(count: number, min = 1e-8): LineData[] {
 }
 
 /** Values spanning many orders of magnitude. */
-export function generateHugeRangeLine(count: number): LineData[] {
-  const out: LineData[] = [];
+export function generateHugeRangeLine(count: number): TimePoint[] {
+  const out: TimePoint[] = [];
   for (let i = 0; i < count; i++) {
     // Exponential ramp from 1 → 1e9 with sinusoidal wobble to avoid pure-monotonic.
     const exp = (i / Math.max(1, count - 1)) * 9;
@@ -101,8 +101,8 @@ export function generateHugeRangeLine(count: number): LineData[] {
 }
 
 /** Line series that crosses zero, positive → negative → positive. */
-export function generateNegativeCrossingLine(count: number, amplitude = 500): LineData[] {
-  const out: LineData[] = [];
+export function generateNegativeCrossingLine(count: number, amplitude = 500): TimePoint[] {
+  const out: TimePoint[] = [];
   for (let i = 0; i < count; i++) {
     out.push({ time: i * DEMO_INTERVAL, value: amplitude * Math.sin(i * 0.08) });
   }
@@ -178,8 +178,8 @@ export function poisonedPieSlices(): { label: string; value: number }[] {
  * the input OHLC (first `window - 1` points omitted). Used for the
  * multi-renderer "candle + SMA + EMA" panel.
  */
-export function sma(ohlc: OHLCData[], window: number): LineData[] {
-  const out: LineData[] = [];
+export function sma(ohlc: OHLCData[], window: number): TimePoint[] {
+  const out: TimePoint[] = [];
   let sum = 0;
   for (let i = 0; i < ohlc.length; i++) {
     sum += ohlc[i].close;
@@ -191,9 +191,9 @@ export function sma(ohlc: OHLCData[], window: number): LineData[] {
 }
 
 /** Exponential moving average. */
-export function ema(ohlc: OHLCData[], period: number): LineData[] {
+export function ema(ohlc: OHLCData[], period: number): TimePoint[] {
   const k = 2 / (period + 1);
-  const out: LineData[] = [];
+  const out: TimePoint[] = [];
   let prev = ohlc[0]?.close ?? 0;
   for (let i = 0; i < ohlc.length; i++) {
     const v = i === 0 ? ohlc[0].close : ohlc[i].close * k + prev * (1 - k);

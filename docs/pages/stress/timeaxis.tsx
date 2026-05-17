@@ -1,5 +1,6 @@
-import { CandlestickSeries, ChartContainer, LineSeries, TimeAxis, Title, YAxis } from '@wick-charts/react';
 import { useMemo } from 'react';
+
+import { CandlestickSeries, ChartContainer, LineSeries, TimeAxis, Title, YAxis } from '@wick-charts/react';
 
 import { generateLineData, generateOHLCData } from '../../data';
 import type { PanelCtx, StressPanel } from './panel';

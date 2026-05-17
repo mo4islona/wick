@@ -13,7 +13,7 @@ import { TimeSeriesStore } from '../../data/store';
 import { BarRenderer } from '../../series/bar';
 import { CandlestickRenderer } from '../../series/candlestick';
 import { LineRenderer } from '../../series/line';
-import type { LineData, OHLCData } from '../../types';
+import type { OHLCData, TimePoint } from '../../types';
 import { buildRenderContext } from '../helpers/render-context';
 
 function mkOhlcStore(data: OHLCData[]): TimeSeriesStore<OHLCData> {
@@ -40,8 +40,8 @@ describe('entrance animation — frame-by-frame progression', () => {
   it('candlestick fade: globalAlpha on the new candle strictly increases across frames', () => {
     const store = mkOhlcStore([{ time: 10, open: 10, high: 12, low: 9, close: 11 }]);
     const r = new CandlestickRenderer(store, {
-      enterAnimation: 'fade',
-      enterMs: 250,
+      entryAnimation: 'fade',
+      entryMs: 250,
     });
     const { ctx: priming } = buildRenderContext({ timeRange: { from: 0, to: 100 }, yRange: { min: 0, max: 20 } });
     r.render(priming);
@@ -68,7 +68,7 @@ describe('entrance animation — frame-by-frame progression', () => {
   });
 
   it('bar fade-grow: bar height on the new bar strictly increases while alpha rises', () => {
-    const r = new BarRenderer(1, { enterAnimation: 'fade-grow', enterMs: 250 });
+    const r = new BarRenderer(1, { entryAnimation: 'fade-grow', entryMs: 250 });
     r.setData([{ time: 10, value: 5 }]);
     const { ctx: priming } = buildRenderContext({ timeRange: { from: 0, to: 100 }, yRange: { min: 0, max: 20 } });
     r.render(priming);
@@ -100,8 +100,8 @@ describe('entrance animation — frame-by-frame progression', () => {
     // Disable areaFill so the only `lineTo` calls are for the polyline itself —
     // with areaFill enabled, two extra `lineTo` calls at the chart's bottom
     // corners close the fill path and would clobber our "last lineTo" heuristic.
-    const r = new LineRenderer(1, { enterAnimation: 'grow', enterMs: 250, area: { visible: false } });
-    const base: LineData[] = [
+    const r = new LineRenderer(1, { entryAnimation: 'grow', entryMs: 250, area: { visible: false } });
+    const base: TimePoint[] = [
       { time: 10, value: 5 },
       { time: 20, value: 6 },
     ];
@@ -141,9 +141,9 @@ describe('entrance animation — frame-by-frame progression', () => {
     }
   });
 
-  it('candlestick entrance completes exactly at enterMs', () => {
+  it('candlestick entrance completes exactly at entryMs', () => {
     const store = mkOhlcStore([{ time: 10, open: 10, high: 12, low: 9, close: 11 }]);
-    const r = new CandlestickRenderer(store, { enterAnimation: 'fade', enterMs: 250 });
+    const r = new CandlestickRenderer(store, { entryAnimation: 'fade', entryMs: 250 });
     const { ctx: priming } = buildRenderContext({ timeRange: { from: 0, to: 100 }, yRange: { min: 0, max: 20 } });
     r.render(priming);
 

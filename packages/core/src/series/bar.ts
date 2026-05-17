@@ -1,7 +1,7 @@
 import { DEFAULT_BAR_ENTRY, DEFAULT_BAR_SMOOTH } from '../animation/config';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
-import type { BarSeriesOptions, LineData } from '../types';
+import type { BarSeriesOptions, TimePoint } from '../types';
 import { BaseMultiLayerSeries, type CommonSeriesOptions } from './base-multi-layer';
 import { resolveMs } from './shared-animation';
 import type { SeriesRenderContext } from './types';
@@ -12,40 +12,21 @@ const DEFAULT_OPTIONS: BarSeriesOptions = {
   stacking: 'off',
 };
 
-/**
- * Normalize caller-supplied bar options. Folds the deprecated `enterAnimation`
- * / `enterMs` aliases into `entryAnimation` / `entryMs` so the renderer reads
- * only the canonical fields.
- */
-function normalizeBarOptions(input?: Partial<BarSeriesOptions>): Partial<BarSeriesOptions> {
-  if (!input) return {};
-
-  const out: Partial<BarSeriesOptions> = { ...input };
-  if (input.enterAnimation !== undefined && input.entryAnimation === undefined) {
-    out.entryAnimation = input.enterAnimation;
-  }
-  if (input.enterMs !== undefined && input.entryMs === undefined) {
-    out.entryMs = input.enterMs;
-  }
-
-  return out;
-}
-
-export class BarRenderer extends BaseMultiLayerSeries<LineData> {
+export class BarRenderer extends BaseMultiLayerSeries<TimePoint> {
   private options: BarSeriesOptions;
 
   constructor(layerCount: number, options?: Partial<BarSeriesOptions>) {
     super(layerCount);
-    this.options = { ...DEFAULT_OPTIONS, ...normalizeBarOptions(options) };
+    this.options = { ...DEFAULT_OPTIONS, ...options };
   }
 
   /** For chart compatibility — returns first store */
-  get store(): TimeSeriesStore<LineData> {
+  get store(): TimeSeriesStore<TimePoint> {
     return this.stores[0];
   }
 
   updateOptions(options: Partial<BarSeriesOptions>): void {
-    this.options = { ...this.options, ...normalizeBarOptions(options) };
+    this.options = { ...this.options, ...options };
   }
 
   protected getCommonOptions(): CommonSeriesOptions {

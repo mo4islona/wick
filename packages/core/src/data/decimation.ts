@@ -1,6 +1,6 @@
-import type { LineData, OHLCData } from '../types';
+import type { OHLCData, TimePoint } from '../types';
 
-export function decimateLineData(data: LineData[], targetCount: number): LineData[] {
+export function decimateLineData(data: TimePoint[], targetCount: number): TimePoint[] {
   if (data.length <= targetCount) return data;
   return lttb(
     data,
