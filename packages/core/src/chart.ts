@@ -316,14 +316,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   /** Stable composite-key strings for live-value / entry-progress map lookups. */
   readonly #keys: KeyCache;
   /**
-   * Scratch context for the engine's `computeXTarget` closure. Set on
-   * each `onDataChanged` call (with the data event's `first` / `last`
-   * timestamps and `isBatchLoad` flag), read by the closure when engine
-   * pulls the next X target, then cleared. Carries event context, not a
-   * pre-computed answer — closure does the path math (uninit fit / batch
-   * fit / streaming target / autoscroll-off).
+   * Set by `onDataChanged` before the engine signal so the
+   * `computeXTarget` closure can decide between fit-to-data (batch /
+   * uninit) and streaming-target paths. The closure also reads
+   * `#dataStart` / `#dataEnd` directly for the timestamps.
    */
-  #dataIngestContext: { first?: number; last?: number; isBatchLoad: boolean } | null = null;
+  #isBatchLoad = false;
 
   /** Earliest data timestamp registered across all series, `null` before any data has arrived. */
   #dataStart: number | null = null;
@@ -1526,19 +1524,19 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // Engine pulls the X target by calling `#computeXTarget`
     // through the `computeXTarget` closure — the closure runs viewport
     // fit / cadence.observe / streaming-target math on demand and reads
-    // this scratch context for `first` / `last` / `isBatchLoad`. Y is
-    // pulled separately via the `computeYTarget` closure against the
-    // new X window. `#yInited` flips optimistically — `#computeYTarget`
-    // self-clears it when no series has data in the window, so the next
-    // paint with values lands as a first-paint snap.
-    this.#dataIngestContext = { first, last, isBatchLoad };
+    // `#dataStart` / `#dataEnd` (for the timestamps) plus `#isBatchLoad`
+    // (set just below) to pick the right path. Y is pulled separately
+    // via the `computeYTarget` closure against the new X window.
+    // `#yInited` flips optimistically — `#computeYTarget` self-clears
+    // it when no series has data in the window, so the next paint with
+    // values lands as a first-paint snap.
+    this.#isBatchLoad = isBatchLoad;
     const now = performance.now();
     if (replaceSnap || isFirstDataPaint) {
       this.#engine.onDataReplaced(now);
     } else {
       this.#engine.onPointAppended(now);
     }
-    this.#dataIngestContext = null;
 
     if (this.#engine.lastXTarget !== null) this.#xInited = true;
     if (first !== undefined) this.#yInited = true;
@@ -1635,8 +1633,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   /**
    * Engine pull-on-demand X target. Called by the engine's `computeXTarget`
    * closure during `engine.onPointAppended` / `engine.onDataReplaced`.
-   * Reads `#dataIngestContext` (set just before the engine signal) and
-   * dispatches by path:
+   * Reads `#dataStart` / `#dataEnd` (refreshed by `onDataChanged` just
+   * before the engine signal) plus `#isBatchLoad` flag, then dispatches:
    *
    * - **uninit (viewport never committed)** → fit to data, apply any
    *   one-shot `initialVisibleRange`, return the new logical range.
@@ -1649,21 +1647,16 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    *   via `#prevDataEnd`).
    * - **autoscroll off** → `null` (no X retarget; user has panned away
    *   from the tail).
-   *
-   * Returns `null` outside the data-ingest window (i.e. context wasn't
-   * set) — defensive, shouldn't happen on legitimate engine pulls.
    */
   #computeXTarget(): VisibleRange | null {
-    const ctx = this.#dataIngestContext;
-    if (ctx === null || ctx.last === undefined || ctx.first === undefined) return null;
+    if (this.#dataStart === null || this.#dataEnd === null) return null;
 
     const { from, to } = this.#logical;
     const uninitialized = from === 0 && to === 0;
     const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
-    const padding = this.#padding;
 
     if (uninitialized) {
-      this.#fitVisibleToData(ctx.first, ctx.last, chartWidth);
+      this.#fitVisibleToData(this.#dataStart, this.#dataEnd, chartWidth);
       // One-shot `initialVisibleRange` (e.g. "last 35 bars") — applied
       // inside the closure so the Y target the engine pulls next reflects
       // the *initial-window* data rather than the full dataset. Folds
@@ -1676,36 +1669,34 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       return this.#logical;
     }
 
-    if (ctx.isBatchLoad && this.#autoScroll) {
-      this.#fitVisibleToData(ctx.first, ctx.last, chartWidth);
+    if (!this.#autoScroll) return null;
+
+    if (this.#isBatchLoad) {
+      this.#fitVisibleToData(this.#dataStart, this.#dataEnd, chartWidth);
 
       return this.#logical;
     }
 
-    if (!ctx.isBatchLoad && this.#autoScroll) {
-      this.#cadence.observe(performance.now());
+    this.#cadence.observe(performance.now());
 
-      const result = computeStreamingTarget({
-        currentLogical: this.#logical,
-        lastTime: ctx.last,
-        prevDataEnd: this.#prevDataEnd,
-        dataInterval: this.#dataInterval,
-        paddingRight: padding.right,
-        chartWidth,
-        holdUntilFilled: this.#holdUntilFilled,
-      });
+    const result = computeStreamingTarget({
+      currentLogical: this.#logical,
+      lastTime: this.#dataEnd,
+      prevDataEnd: this.#prevDataEnd,
+      dataInterval: this.#dataInterval,
+      paddingRight: this.#padding.right,
+      chartWidth,
+      holdUntilFilled: this.#holdUntilFilled,
+    });
 
-      if (result.releaseHold) this.#holdUntilFilled = false;
-      if (result.reengageAutoScroll) this.#autoScroll = true;
-      if (result.newLogical === null) return null;
+    if (result.releaseHold) this.#holdUntilFilled = false;
+    if (result.reengageAutoScroll) this.#autoScroll = true;
+    if (result.newLogical === null) return null;
 
-      this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
-      this.#prevDataEnd = ctx.last;
+    this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
+    this.#prevDataEnd = this.#dataEnd;
 
-      return result.newLogical;
-    }
-
-    return null;
+    return result.newLogical;
   }
 
   /**
