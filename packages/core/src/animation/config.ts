@@ -83,7 +83,7 @@ export const DEFAULT_Y_SETTLE_MS = 250;
  * current centre after a recent extreme leaves the window. Long so the chart
  * holds the wider bound when an outlier scrolls off (the "sticky-Y" feel).
  */
-export const DEFAULT_Y_STICKY_MS = 2_500;
+export const DEFAULT_Y_STICKY_MS = 2500;
 
 /**
  * Short-ease applied to the Y animator while a user gesture is active.
@@ -326,7 +326,7 @@ export class AnimationConfig {
             gestureMs: 0,
           }
         : {
-            curve: rawY?.curve ?? hermite(),
+            curve: rawY?.curve ?? spring<YRange>(),
             settleMs: resolveAnimationTime(rawY?.settle, DEFAULT_Y_SETTLE_MS),
             stickyMs: resolveAnimationTime(rawY?.sticky, DEFAULT_Y_STICKY_MS),
             gestureMs: resolveAnimationTime(rawY?.gesture, DEFAULT_Y_GESTURE_MS),

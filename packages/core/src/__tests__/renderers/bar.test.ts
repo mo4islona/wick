@@ -100,7 +100,11 @@ describe('BarRenderer.render', () => {
     const r = new BarRenderer(2, { colors: ['#111', '#222'], stacking: 'off' });
     r.setData([{ time: 50, value: 5 }], 0);
     r.setData([{ time: 50, value: 8 }], 1);
+    // Renderer's `setLayerVisible` flips the store flag (drives Y-range
+    // exclusion); geometry only stops drawing once the layer's alpha hits 0.
+    // Chart calls both with `toggleMs`; here we snap alpha to 0 directly.
     r.setLayerVisible(1, false);
+    r.setLayerAlpha(1, 0, 0);
     const { ctx, spy } = buildRenderContext({ yRange: { min: 0, max: 10 } });
     r.render(ctx);
 

@@ -110,7 +110,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     // pulse is canvas-clipped (chart.ts restricts the overlay layer to the
     // chart rect), so drawing at an off-canvas X is harmless.
     for (let li = 0; li < this.stores.length; li++) {
-      if (!this.stores[li].isVisible()) continue;
+      if (this.getLayerAlpha(li) <= 0) continue;
 
       const last = this.stores[li].last();
       if (last && last.time >= from) return true;
@@ -190,7 +190,8 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     const style = this.options.entryAnimation ?? 'grow';
 
     for (let li = 0; li < this.stores.length; li++) {
-      if (!this.stores[li].isVisible()) continue;
+      const layerAlpha = this.getLayerAlpha(li);
+      if (layerAlpha <= 0) continue;
 
       let data = this.stores[li].getVisibleData(range.from, range.to);
       const pixelWidth = scope.mediaSize.width;
@@ -216,15 +217,21 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
       const trailingX = endpoint.x;
       const trailingY = endpoint.y;
 
+      // Single save/restore composes per-layer alpha (setLayerVisible fade)
+      // with the per-point entrance alpha (trailing fade). Chart already set
+      // globalAlpha = seriesAlpha around this render call; we multiply on top.
+      const layerFaded = layerAlpha < 1;
+      if (layerFaded || trailingFade) {
+        context.save();
+        if (layerFaded) context.globalAlpha *= layerAlpha;
+        if (trailingFade) context.globalAlpha *= progress;
+      }
+
       // Line — break the path at any non-finite value (null / NaN / Infinity /
       // undefined). A naive single-path draw would either stroke through NaN
       // coordinates or leak the area-fill polygon across gaps, so we collect
       // finite *runs* and render each independently: stroke = one subpath per
       // run, fill = one closed polygon per run anchored to the chart bottom.
-      if (trailingFade) {
-        context.save();
-        context.globalAlpha = progress;
-      }
 
       const bodyEnd = data.length - 1;
       const runs: { x: number; y: number }[][] = [];
@@ -325,7 +332,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
           context.fill();
         }
       }
-      if (trailingFade) context.restore();
+      if (trailingFade || layerFaded) context.restore();
     }
   }
 
@@ -338,13 +345,18 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     const hasStroke = this.options.strokeWidth > 0;
     const lineWidth = Math.max(1, Math.round(this.options.strokeWidth * verticalPixelRatio));
 
-    // Collect per-layer data
+    // Collect per-layer data, gating on alpha so a layer mid-fade still
+    // contributes shrinking geometry to the stack instead of disappearing the
+    // moment `setLayerVisible(false)` flips the store. Alpha=0 is filtered out.
     const pixelWidth = scope.mediaSize.width;
-    const layers = this.stores.map((s) => {
+    const layers = this.stores.map((s, li) => {
+      if (this.getLayerAlpha(li) <= 0) return [];
+
       let data = s.getVisibleData(range.from, range.to);
       if (data.length > pixelWidth * 2) {
         data = decimateLineData(data, Math.round(pixelWidth * 1.5));
       }
+
       return data;
     });
     // Get all unique times, sorted
@@ -355,36 +367,34 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     const times = Array.from(timeSet).sort((a, b) => a - b);
     if (times.length < 2) return;
 
-    // Build value maps for fast lookup. Use effectiveValue so the last point
-    // of each layer smoothly chases updateLastPoint even in stacked mode —
-    // otherwise the stacked head would jump on every live tick.
+    // Value × alpha per layer. Layers mid-fade shrink their contribution to
+    // the stacked cumulative smoothly over `toggleMs`, in lockstep with the
+    // Y-axis Hermite easing to the post-toggle bounds. effectiveValue keeps
+    // updateLastPoint smoothing for the trailing bar even inside the stack.
     const valueMaps: Map<number, number>[] = layers.map((layer, li) => {
       const m = new Map<number, number>();
-      for (const d of layer) m.set(d.time, this.effectiveValue(ctx, li, d.time, d.value));
+      const alpha = this.getLayerAlpha(li);
+      for (const d of layer) m.set(d.time, this.effectiveValue(ctx, li, d.time, d.value) * alpha);
+
       return m;
     });
 
-    // Compute stacked Y values per time: cumulative[li][ti].
-    // `?? 0` catches missing keys but not `NaN` / `±Infinity` — those are
-    // live values stored in the map via `effectiveValue` when the source
-    // data carried a poisoned point. Substitute 0 for any non-finite entry
-    // so a single bad point doesn't poison the cumulative sum and NaN-out
-    // every layer at that slot.
+    // Stacked Y values per time. valueMaps already account for alpha (=0 for
+    // fully faded layers, =rawValue for fully visible), so the cumulative
+    // collapses to "without this layer" exactly when alpha reaches 0.
     const cumulative: number[][] = Array.from({ length: this.stores.length }, () => new Array(times.length).fill(0));
     for (let ti = 0; ti < times.length; ti++) {
       const t = times[ti];
       let total = 0;
       if (percent) {
         for (let li = 0; li < this.stores.length; li++) {
-          if (!this.stores[li].isVisible()) continue;
           const v = valueMaps[li].get(t);
           if (Number.isFinite(v)) total += v as number;
         }
       }
       let running = 0;
       for (let li = 0; li < this.stores.length; li++) {
-        const visible = this.stores[li].isVisible();
-        const v = visible ? valueMaps[li].get(t) : 0;
+        const v = valueMaps[li].get(t);
         const raw = Number.isFinite(v) ? (v as number) : 0;
         running += percent && total > 0 ? (raw / total) * 100 : raw;
         cumulative[li][ti] = running;
@@ -406,7 +416,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     const lastVisibleIdx = times.length - 1;
     const layerProgress: number[] = new Array(this.stores.length).fill(1);
     for (let li = 0; li < this.stores.length; li++) {
-      if (!this.stores[li].isVisible()) continue;
+      if (this.getLayerAlpha(li) <= 0) continue;
 
       const last = this.stores[li].last();
       if (!last) continue;
@@ -442,31 +452,81 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
       xy[lastIdx] = [lerp(prev[0], last[0], progress), lerp(prev[1], last[1], progress)];
     };
 
-    // Draw from top layer to bottom so lower layers fill correctly
+    // Find the lowest visible layer — that slice anchors its lower edge to
+    // the canvas baseline (through padding) so the stacked fill always
+    // reaches the X-axis. The NEXT visible slice above it (which may be
+    // several layers up when intermediate layers are hidden) also has to
+    // lerp its lower toward the baseline as the current bottom fades —
+    // otherwise the moment we hit alpha=0 and the bottom is dropped, the
+    // new bottom would jump down by `padding.bottom` pixels.
+    const bitmapBottom = scope.bitmapSize.height;
+    let bottomVisibleLi = -1;
+    let secondBottomVisibleLi = -1;
+    for (let li = 0; li < this.stores.length; li++) {
+      if (this.getLayerAlpha(li) <= 0) continue;
+
+      if (bottomVisibleLi < 0) {
+        bottomVisibleLi = li;
+      } else {
+        secondBottomVisibleLi = li;
+        break;
+      }
+    }
+    const bottomAlpha = bottomVisibleLi >= 0 ? this.getLayerAlpha(bottomVisibleLi) : 1;
+
+    // Draw from top layer to bottom so lower layers fill correctly. Use
+    // alpha as the "is this layer contributing geometry" gate — store flag
+    // alone would skip a fading-out layer mid-transition.
     for (let li = this.stores.length - 1; li >= 0; li--) {
-      if (!this.stores[li].isVisible()) continue;
+      const layerAlpha = this.getLayerAlpha(li);
+      if (layerAlpha <= 0) continue;
 
       const color = this.options.colors[li % this.options.colors.length];
       const upperProg = layerProgress[li];
-      // Lower edge mirrors the below layer's progress only when that layer is
-      // visible — hidden layers contribute 0 to cumulative, so their entrance
-      // must not shift this layer's drawn boundary.
-      const lowerProg = li > 0 && this.stores[li - 1].isVisible() ? layerProgress[li - 1] : 1;
+      // Lower edge mirrors the below layer's entrance progress only when that
+      // layer is contributing geometry — alpha=0 layers contribute 0 to
+      // cumulative, so their entrance must not shift this layer's boundary.
+      const lowerProg = li > 0 && this.getLayerAlpha(li - 1) > 0 ? layerProgress[li - 1] : 1;
 
-      // Upper edge = this layer's cumulative
-      const upperXY: [number, number][] = [];
-      for (let ti = 0; ti < times.length; ti++) {
-        upperXY.push([timeScale.timeToBitmapX(times[ti]), yScale.valueToBitmapY(cumulative[li][ti])]);
-      }
-      if (style === 'grow') applyGrowLerp(upperXY, upperProg);
+      const isBottomVisible = li === bottomVisibleLi;
+      // The next visible slice above the bottom-most smoothly hands off
+      // baseline anchoring as that bottom fades: lerp its lower from the
+      // natural cumulative position toward bitmapBottom by `1 - bottomAlpha`.
+      // Uses `secondBottomVisibleLi` instead of `bottomVisibleLi + 1` so
+      // hidden intermediate layers (alpha=0) don't break the handoff —
+      // otherwise toggling between, say, layer 0 and layer 2 (with layer 1
+      // hidden) would leave layer 2 unwrapped and visibly jump at alpha=0.
+      const isHandoffSlice = secondBottomVisibleLi >= 0 && li === secondBottomVisibleLi && bottomAlpha < 1;
 
-      // Lower edge = previous layer's cumulative (or zero line)
+      // Lower edge. Bottom-most visible anchors to bitmapBottom (drops through
+      // padding to the X-axis). Handoff slice lerps. Other slices use the
+      // natural alpha-weighted cumulative for their predecessor.
       const lowerXY: [number, number][] = [];
       for (let ti = 0; ti < times.length; ti++) {
-        const base = li > 0 ? cumulative[li - 1][ti] : 0;
-        lowerXY.push([timeScale.timeToBitmapX(times[ti]), yScale.valueToBitmapY(base)]);
+        const naturalLowerY = li > 0 ? yScale.valueToBitmapY(cumulative[li - 1][ti]) : bitmapBottom;
+        let lowerY = naturalLowerY;
+        if (isBottomVisible) {
+          lowerY = bitmapBottom;
+        } else if (isHandoffSlice) {
+          lowerY = naturalLowerY + (bitmapBottom - naturalLowerY) * (1 - bottomAlpha);
+        }
+        lowerXY.push([timeScale.timeToBitmapX(times[ti]), lowerY]);
       }
       if (style === 'grow') applyGrowLerp(lowerXY, lowerProg);
+
+      // Upper edge = alpha-weighted cumulative. For the bottom-most slice
+      // during a fade we additionally lerp it down to bitmapBottom so the
+      // slice collapses through the padding region — otherwise it leaves a
+      // residual padding-tall strip until alpha hits exactly 0.
+      const upperXY: [number, number][] = [];
+      for (let ti = 0; ti < times.length; ti++) {
+        let upperY = yScale.valueToBitmapY(cumulative[li][ti]);
+        if (isBottomVisible && layerAlpha < 1) {
+          upperY = bitmapBottom + (upperY - bitmapBottom) * layerAlpha;
+        }
+        upperXY.push([timeScale.timeToBitmapX(times[ti]), upperY]);
+      }
+      if (style === 'grow') applyGrowLerp(upperXY, upperProg);
 
       const useFade = style === 'fade' && upperProg < 1;
       if (useFade) {
@@ -474,8 +534,32 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
         context.globalAlpha = upperProg;
       }
 
-      // Fill area between upper and lower
+      // Fill area between upper and lower with a per-slice vertical gradient
+      // — solid at the slice's top edge, fades toward its lower edge. Mirrors
+      // the visual language of renderOff (canvas-wide gradient from line to
+      // baseline) but scoped to each slice so colors stay distinguishable and
+      // every layer reads as its own "filled curve". Bounds are recomputed
+      // per frame; CanvasGradient creation is cheap and slice bounds drift
+      // every streaming tick so a cache wouldn't hit.
       if (this.options.area.visible) {
+        let upperMinY = upperXY[0][1];
+        let lowerMaxY = lowerXY[0][1];
+        for (let i = 1; i < upperXY.length; i++) {
+          if (upperXY[i][1] < upperMinY) upperMinY = upperXY[i][1];
+        }
+        for (let i = 1; i < lowerXY.length; i++) {
+          if (lowerXY[i][1] > lowerMaxY) lowerMaxY = lowerXY[i][1];
+        }
+        // Degenerate slice (single pixel tall after alpha shrink) — skip the
+        // gradient stop math and paint solid; createLinearGradient with
+        // collapsed endpoints renders unpredictably across browsers.
+        let fillStyle: string | CanvasGradient = hexToRgba(color, 0.25);
+        if (lowerMaxY > upperMinY + 0.5) {
+          const grad = context.createLinearGradient(0, upperMinY, 0, lowerMaxY);
+          grad.addColorStop(0, hexToRgba(color, 0.25));
+          grad.addColorStop(1, hexToRgba(color, 0.05));
+          fillStyle = grad;
+        }
         context.beginPath();
         context.moveTo(upperXY[0][0], upperXY[0][1]);
         for (let i = 1; i < upperXY.length; i++) {
@@ -485,11 +569,22 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
           context.lineTo(lowerXY[i][0], lowerXY[i][1]);
         }
         context.closePath();
-        context.fillStyle = hexToRgba(color, 0.25);
+        context.fillStyle = fillStyle;
         context.fill();
       }
 
-      // Stroke the upper edge
+      // Stroke the upper edge. As the layer fades, the slice's height
+      // collapses (alpha-weighted cumulative) and the gradient fill thins,
+      // but a 2 px stroke at full color still reads as a hard line that
+      // pops out the moment we cut the layer at alpha=0. Composing
+      // layerAlpha into globalAlpha just on the stroke fades it in lockstep
+      // with the geometry collapse — fill stays at its gradient intensity
+      // so the slice shape remains visible while shrinking.
+      const strokeFaded = hasStroke && layerAlpha < 1;
+      if (strokeFaded) {
+        context.save();
+        context.globalAlpha *= layerAlpha;
+      }
       if (hasStroke) {
         context.beginPath();
         context.moveTo(upperXY[0][0], upperXY[0][1]);
@@ -502,6 +597,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
         context.lineCap = 'round';
         context.stroke();
       }
+      if (strokeFaded) context.restore();
 
       if (useFade) context.restore();
     }
@@ -546,16 +642,18 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
       if (stacking === 'off') {
         for (const v of layerValues) displayValues.push(v);
       } else {
-        // Hidden layers must contribute 0 so overlay dots align with the rendered stack.
+        // Alpha-weighted contribution so crosshair dots align with the same
+        // alpha-weighted cumulative renderStacked draws (a fading layer
+        // contributes a shrinking share, not a binary in/out).
         let total = 0;
         if (stacking === 'percent') {
           for (let li = 0; li < layerValues.length; li++) {
-            if (this.stores[li].isVisible()) total += layerValues[li];
+            total += layerValues[li] * this.getLayerAlpha(li);
           }
         }
         let running = 0;
         for (let li = 0; li < layerValues.length; li++) {
-          const v = this.stores[li].isVisible() ? layerValues[li] : 0;
+          const v = layerValues[li] * this.getLayerAlpha(li);
           running += stacking === 'percent' && total > 0 ? (v / total) * 100 : v;
           displayValues.push(running);
         }
@@ -564,11 +662,18 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
       for (let li = 0; li < this.stores.length; li++) {
         const t = layerTimes[li];
         if (t === null) continue;
-        if (!this.stores[li].isVisible()) continue;
+        const layerAlpha = this.getLayerAlpha(li);
+        if (layerAlpha <= 0) continue;
 
         const color = colors[li % colors.length];
         const px = timeScale.timeToBitmapX(t);
         const py = yScale.valueToBitmapY(displayValues[li]);
+
+        const dotFaded = layerAlpha < 1;
+        if (dotFaded) {
+          scope.context.save();
+          scope.context.globalAlpha *= layerAlpha;
+        }
 
         scope.context.beginPath();
         scope.context.arc(px, py, r + 3 * size.horizontalPixelRatio, 0, Math.PI * 2);
@@ -584,6 +689,8 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
         scope.context.arc(px, py, r, 0, Math.PI * 2);
         scope.context.fillStyle = color;
         scope.context.fill();
+
+        if (dotFaded) scope.context.restore();
       }
     }
 
@@ -596,7 +703,8 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     if (this.hasPulse && pulseMs > 0) {
       const stacking = this.options.stacking;
       for (let li = 0; li < this.stores.length; li++) {
-        if (!this.stores[li].isVisible()) continue;
+        const layerAlpha = this.getLayerAlpha(li);
+        if (layerAlpha <= 0) continue;
 
         const color = this.options.colors[li % this.options.colors.length];
 
@@ -614,6 +722,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
             color,
             pixelRatio: size.horizontalPixelRatio,
             phase: pulsePhase,
+            alpha: layerAlpha,
           });
           continue;
         }
@@ -627,31 +736,31 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
         const t = last.time;
         const percent = stacking === 'percent';
 
-        // Mirror renderStacked: every layer's value at time `queryT` goes through
-        // effectiveValue so smoothing applied to a peer layer's last point also
-        // reflects in this layer's cumulative offset.
+        // Mirror renderStacked: each layer's contribution at `queryT` is
+        // effectiveValue × getLayerAlpha so the pulse glides with the same
+        // alpha-weighted cumulative the area below it is drawing.
         const cumulativeAt = (queryT: number): number => {
           const valueAt = (lj: number): number => {
+            const alpha = this.getLayerAlpha(lj);
+            if (alpha <= 0) return 0;
+
             const point = lj === li && queryT === t ? last : this.stores[lj].findNearest(queryT, 0);
             if (!point || point.time !== queryT) return 0;
 
-            return this.effectiveValue(ctx, lj, queryT, point.value);
+            return this.effectiveValue(ctx, lj, queryT, point.value) * alpha;
           };
           let total = 0;
           if (percent) {
             for (let lj = 0; lj < this.stores.length; lj++) {
-              if (!this.stores[lj].isVisible()) continue;
-
               total += valueAt(lj);
             }
           }
           let running = 0;
           for (let lj = 0; lj <= li; lj++) {
-            if (!this.stores[lj].isVisible()) continue;
-
             const v = valueAt(lj);
             running += percent && total > 0 ? (v / total) * 100 : v;
           }
+
           return running;
         };
 
@@ -683,6 +792,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
           color,
           pixelRatio: size.horizontalPixelRatio,
           phase: pulsePhase,
+          alpha: layerAlpha,
         });
       }
     }
@@ -695,6 +805,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     color,
     pixelRatio,
     phase,
+    alpha = 1,
   }: {
     ctx: CanvasRenderingContext2D;
     x: number;
@@ -703,10 +814,18 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     pixelRatio: number;
     /** Engine-driven pulse phase ∈ [0, 1). `Math.abs(Math.sin(phase·2π))` ramps the halo at one full visible cycle per period. */
     phase: number;
+    /** Per-layer alpha applied via save/restore. Defaults to 1 (no fade). */
+    alpha?: number;
   }): void {
     const dotRadius = 3 * pixelRatio;
     const pulse = 0.4 + 0.6 * Math.abs(Math.sin(phase * 2 * Math.PI));
     const glowRadius = dotRadius + 4 * pixelRatio * pulse;
+
+    const faded = alpha < 1;
+    if (faded) {
+      ctx.save();
+      ctx.globalAlpha *= alpha;
+    }
 
     ctx.beginPath();
     ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
@@ -717,5 +836,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
+
+    if (faded) ctx.restore();
   }
 }

@@ -198,3 +198,86 @@ describe('ViewportEngine — X gesture lock-out', () => {
     expect(engine.getTarget().x).toEqual(STREAM_X);
   });
 });
+
+/**
+ * Toggle-during-stream Y lockout: a `onSeriesVisibilityChanged` retarget
+ * paces the Y axis over `toggleMs`. If a streaming `onPointAppended` lands
+ * mid-toggle and retargets Y with `contractMs: stickyMs`, the slower sticky
+ * curve overwrites the toggle's ease — visible as a Y "bounce" on the chart.
+ *
+ * Symmetric to the X gesture lockout. X still tracks the stream so scroll
+ * keeps pace; only the Y retarget inside `onPointAppended` is blocked.
+ */
+describe('ViewportEngine — toggleUntil (Y lockout during visibility change)', () => {
+  const STREAM_X: VisibleRange = { from: 100, to: 1100 };
+  const TOGGLED_Y: YRange = { min: 0, max: 50 };
+  const STREAM_Y_AFTER: YRange = { min: 0, max: 80 };
+
+  it('onSeriesVisibilityChanged blocks the next onPointAppended Y retarget', () => {
+    const { engine } = setup({ nextX: STREAM_X, nextY: TOGGLED_Y });
+    engine.onSeriesVisibilityChanged(0);
+    // Engine's Y target is now at the toggle target.
+    expect(engine.getTarget().y).toEqual(TOGGLED_Y);
+
+    // Streaming tick lands mid-toggle (toggleMs=250 per setup).
+    // The Y callback would return a different target if it were honored.
+    const { engine: e2, computeYTarget } = setup({ nextX: STREAM_X, nextY: TOGGLED_Y });
+    e2.onSeriesVisibilityChanged(0);
+    // Swap the Y callback to return a sticky-pulling target.
+    computeYTarget.mockReturnValue(STREAM_Y_AFTER);
+    e2.onPointAppended(100); // 100ms < toggleMs(250) — lockout active
+    expect(e2.getTarget().y).toEqual(TOGGLED_Y);
+  });
+
+  it('X retarget still fires during toggle lockout (only Y is gated)', () => {
+    const NEXT_X: VisibleRange = { from: 200, to: 1200 };
+    const { engine, computeXTarget } = setup({ nextX: NEXT_X, nextY: TOGGLED_Y });
+
+    engine.onSeriesVisibilityChanged(0);
+    computeXTarget.mockClear();
+
+    engine.onPointAppended(100); // mid-toggle
+    expect(computeXTarget).toHaveBeenCalledTimes(1);
+    expect(engine.getTarget().x).toEqual(NEXT_X);
+  });
+
+  it('lockout expires after toggleMs — subsequent streaming retargets Y normally', () => {
+    const { engine, computeYTarget } = setup({ nextX: STREAM_X, nextY: TOGGLED_Y });
+
+    engine.onSeriesVisibilityChanged(0);
+    // Past the toggleMs=250 window.
+    computeYTarget.mockReturnValue(STREAM_Y_AFTER);
+    engine.onPointAppended(500);
+
+    expect(engine.getTarget().y).toEqual(STREAM_Y_AFTER);
+  });
+
+  it('toggleMs=0 snaps Y immediately without arming the lockout', () => {
+    // Build a fresh engine with toggleMs=0 (animations.toggle=false). The
+    // zero-duration path snaps Y straight to the new target so the next
+    // streaming tick is free to retarget.
+    const initialX: VisibleRange = { from: 0, to: 1000 };
+    const initialY: YRange = { min: 0, max: 100 };
+    const toggleY: YRange = { min: 0, max: 50 };
+    const streamY: YRange = { min: 0, max: 80 };
+
+    const yCallback = vi.fn(() => toggleY as YRange | null);
+    const engine = createViewportEngine({
+      initial: { xRange: initialX, yRange: initialY },
+      y: { curve: hermite(), settleMs: 250, stickyMs: 1000, gestureMs: 100, toggleMs: 0 },
+      x: { curve: spring<VisibleRange>(), settleMs: 200, gestureMs: 150 },
+      computeXTarget: () => STREAM_X,
+      computeYTarget: yCallback,
+    });
+
+    engine.onSeriesVisibilityChanged(0);
+    expect(engine.getTarget().y).toEqual(toggleY);
+    // Animator current must equal target — no Spring NaN from omega = 4.6/0.
+    expect(engine.getAnimationState().yRange).toEqual(toggleY);
+
+    yCallback.mockReturnValue(streamY);
+    engine.onPointAppended(1);
+    // Lockout was never armed (toggleUntil=0) — streaming retarget fires.
+    expect(engine.getTarget().y).toEqual(streamY);
+  });
+});

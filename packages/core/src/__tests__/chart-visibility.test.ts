@@ -122,4 +122,57 @@ describe('ChartInstance.setSeriesVisible (whole-series toggle)', () => {
     expect(chart.getYRange().max).toBe(beforeMax);
     expect(chart.isSeriesVisible(id)).toBe(true);
   });
+
+  describe('inside batch (focus mode)', () => {
+    // The Legend's "isolate" mode (`mode='isolate'`) calls `chart.batch(...)`
+    // with several `setSeriesVisible(false)` calls — one per non-isolated
+    // series. The engine signal must fire once after flush with a Y target
+    // that already excludes every series hidden inside the batch. A regression
+    // that pulled the target mid-batch would have it reflect partial state.
+
+    it('multiple setSeriesVisible(false) inside batch produce the isolated-only Y range', () => {
+      const a = chart.addLineSeries();
+      const b = chart.addLineSeries();
+      const c = chart.addLineSeries();
+      chart.setSeriesData(a, [{ time: 1, value: 10 }]);
+      chart.setSeriesData(b, [{ time: 1, value: 100 }]);
+      chart.setSeriesData(c, [{ time: 1, value: 500 }]);
+
+      const allMax = chart.getYRange().max;
+      expect(allMax).toBeGreaterThanOrEqual(500);
+
+      // Isolate `a` — Legend.isolate hides every other series inside one batch.
+      chart.batch(() => {
+        chart.setSeriesVisible(b, false);
+        chart.setSeriesVisible(c, false);
+      });
+
+      // Y range collapses to only `a`'s domain (1..10 with padding) — neither
+      // `b`'s 100 nor `c`'s 500 contributes.
+      expect(chart.isSeriesVisible(b)).toBe(false);
+      expect(chart.isSeriesVisible(c)).toBe(false);
+      expect(chart.getYRange().max).toBeLessThanOrEqual(20);
+    });
+
+    it('re-showing all series inside batch restores the combined Y range', () => {
+      const a = chart.addLineSeries();
+      const b = chart.addLineSeries();
+      chart.setSeriesData(a, [{ time: 1, value: 10 }]);
+      chart.setSeriesData(b, [{ time: 1, value: 500 }]);
+
+      // Hide both outside a batch first so the de-isolate inside a batch has
+      // something to restore.
+      chart.setSeriesVisible(a, false);
+      chart.setSeriesVisible(b, false);
+
+      chart.batch(() => {
+        chart.setSeriesVisible(a, true);
+        chart.setSeriesVisible(b, true);
+      });
+
+      expect(chart.isSeriesVisible(a)).toBe(true);
+      expect(chart.isSeriesVisible(b)).toBe(true);
+      expect(chart.getYRange().max).toBeGreaterThanOrEqual(500);
+    });
+  });
 });

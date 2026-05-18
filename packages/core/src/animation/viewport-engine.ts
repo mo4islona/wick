@@ -151,12 +151,6 @@ export interface ViewportEngine {
   getTarget(): { x: VisibleRange; y: YRange };
   /** Whether any axis is still in flight. */
   readonly animating: boolean;
-  /**
-   * Most recently committed X target, or `null` if no X retarget has fired
-   * yet. Autoscroll consults this when deciding tail re-engagement so the
-   * choice sees the *logical* destination, not the in-flight visual.
-   */
-  readonly lastXTarget: VisibleRange | null;
 
   /**
    * Sub-threshold X filter — emitted X retargets ignore deltas below this
@@ -190,6 +184,14 @@ interface YState {
   stickyMs: Milliseconds;
   gestureMs: Milliseconds;
   toggleMs: Milliseconds;
+  /**
+   * Wall-time deadline after which streaming Y retargets resume. Set when a
+   * toggle starts so noisy `onPointAppended` ticks can't override the
+   * toggleMs-paced ease with sticky-Y mid-flight (the source of the visible
+   * Y "bounce" when toggling during a live stream). X is unaffected — only
+   * the Y retarget inside `onPointAppended` is gated.
+   */
+  toggleUntil: number;
 }
 
 interface XState {
@@ -229,6 +231,7 @@ class ViewportEngineImpl implements ViewportEngine {
       stickyMs: opts.y.stickyMs,
       gestureMs: opts.y.gestureMs,
       toggleMs: opts.y.toggleMs,
+      toggleUntil: 0,
     };
     this.#x = {
       transition: opts.x.curve({ initial: opts.initial.xRange }),
@@ -286,9 +289,13 @@ class ViewportEngineImpl implements ViewportEngine {
     if (newX === null && newY === null) return;
 
     const wasIdle = !this.#lastAnimating;
+    // Y is locked out during a toggle window (`onSeriesVisibilityChanged`
+    // set the deadline) — X still tracks the stream so the scroll keeps
+    // pace, but Y stays on its toggleMs ease until the lockout expires.
+    const yLocked = startWall < this.#y.toggleUntil;
 
     if (newX !== null) this.#retargetX(newX, startWall, this.#x.settleMs);
-    if (newY !== null) {
+    if (newY !== null && !yLocked) {
       this.#y.transition.retarget(newY, {
         now: startWall,
         expandMs: this.#y.settleMs,
@@ -304,11 +311,27 @@ class ViewportEngineImpl implements ViewportEngine {
 
     const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
-    this.#y.transition.retarget(newY, {
-      now: startWall,
-      expandMs: this.#y.toggleMs,
-      contractMs: this.#y.toggleMs,
-    });
+    if (this.#y.toggleMs > 0) {
+      // Discrete event — zero velocity before the new ease so the curve
+      // doesn't carry momentum from an in-flight streaming retarget into
+      // the toggle (visible as a Y "bounce" mid-stream).
+      this.#y.transition.snap(this.#y.transition.current, { now: startWall });
+      this.#y.transition.retarget(newY, {
+        now: startWall,
+        expandMs: this.#y.toggleMs,
+        contractMs: this.#y.toggleMs,
+      });
+      // Lock out streaming Y retargets for the toggle window — without
+      // this, `onPointAppended` ticks fire mid-toggle with `contractMs:
+      // stickyMs` and overwrite the toggleMs-paced ease.
+      this.#y.toggleUntil = startWall + this.#y.toggleMs;
+    } else {
+      // Zero-duration toggle (animations.toggle = 0 / false). Snap the Y
+      // straight to the new target; `retarget` with duration 0 would feed
+      // Infinity into the Spring's ω and NaN out the next sample.
+      this.#y.transition.snap(newY, { now: startWall });
+      this.#y.toggleUntil = 0;
+    }
     this.#wake(wasIdle);
   }
 

@@ -1,5 +1,6 @@
 import { Animator } from '../animation/animator';
 import { TimeSeriesStore } from '../data/store';
+import type { ChartTheme } from '../theme/types';
 import type { TimePoint, TimePointInput } from '../types';
 import { normalizeTime, normalizeTimePointArray } from '../utils/time';
 import { renderedStackPercentTop, renderedStackTop, sumStack } from './stack-math';
@@ -73,17 +74,21 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   /** Per-layer chase animator. `null` when settled or when smoothing is off. */
   readonly #liveAnimators: Array<Animator<number> | null>;
   /**
-   * Series-level alpha for the visibility cross-fade. Starts at 1 — series
-   * are visible by default; chart calls {@link setAlpha} on hide.
+   * Per-layer alpha for the visibility cross-fade. `setAlpha` (whole series)
+   * fans out across the array; `setLayerAlpha` targets a single index. Render
+   * loops multiply the layer's alpha into `globalAlpha` per draw.
    */
-  readonly #alphaAnimator: Animator<number>;
+  readonly #layerAlphaAnimators: Animator<number>[];
 
   constructor(layerCount: number) {
     this.stores = Array.from({ length: layerCount }, () => new TimeSeriesStore<TData>());
     this.entries = Array.from({ length: layerCount }, () => new Map<number, EntryState>());
     this.displayedLastValues = new Array(layerCount).fill(null);
     this.#liveAnimators = new Array(layerCount).fill(null);
-    this.#alphaAnimator = new Animator<number>({ initial: 1, duration: 0, lerp: scalarLerp });
+    this.#layerAlphaAnimators = Array.from(
+      { length: layerCount },
+      () => new Animator<number>({ initial: 1, duration: 0, lerp: scalarLerp }),
+    );
   }
 
   // --- Subclass hooks -------------------------------------------------------
@@ -97,7 +102,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   // --- SeriesRenderer interface (abstract — subclass provides) --------------
 
   abstract render(ctx: SeriesRenderContext): void;
-  abstract applyTheme(theme: import('../theme/types').ChartTheme, prev: import('../theme/types').ChartTheme): void;
+  abstract applyTheme(theme: ChartTheme, prev: ChartTheme): void;
   // biome-ignore lint/suspicious/noExplicitAny: each renderer narrows this in its concrete signature
   abstract updateOptions(options: any): void;
 
@@ -141,8 +146,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     // distinct points would interpolate the trailing-segment Y between the
     // previous last and the new one — distinct from the per-point entrance,
     // which already owns the visual unfurl.
-    const value = p.value as number;
-    this.displayedLastValues[layerIndex] = value;
+    this.displayedLastValues[layerIndex] = p.value;
     this.#liveAnimators[layerIndex] = null;
 
     const entryMs = this.options.entryMs;
@@ -264,7 +268,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
    * `performance.now`) can drive progression deterministically.
    */
   protected tickAnimations(now: number): void {
-    this.#alphaAnimator.tick(now);
+    for (const a of this.#layerAlphaAnimators) a.tick(now);
 
     for (let li = 0; li < this.stores.length; li++) {
       const anim = this.#liveAnimators[li];
@@ -289,7 +293,9 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
 
   /** True while any layer has an active chase, unsettled entry, or alpha fade. */
   get needsAnimation(): boolean {
-    if (this.#alphaAnimator.animating) return true;
+    for (const a of this.#layerAlphaAnimators) {
+      if (a.animating) return true;
+    }
     for (const anim of this.#liveAnimators) {
       if (anim !== null) return true;
     }
@@ -310,16 +316,49 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   }
 
   /**
-   * Start a fade toward `target` over `durationMs`. `durationMs <= 0` snaps
-   * the alpha to the new value. Idempotent on equal targets.
+   * Start a series-wide fade toward `target` over `durationMs`. Fans out
+   * across every per-layer animator so a `setSeriesVisible` toggle is just
+   * "set every layer to the same target". `durationMs <= 0` snaps.
    */
   setAlpha(target: number, durationMs: number): void {
-    this.#alphaAnimator.setTarget(target, { duration: durationMs });
+    for (const a of this.#layerAlphaAnimators) {
+      a.setTarget(target, { duration: durationMs });
+    }
   }
 
-  /** Latest rendered alpha. Chart applies as `globalAlpha *= getAlpha()`. */
+  /**
+   * `1` while any layer has alpha > 0 OR is animating, `0` when every layer
+   * has fully faded and is at rest. Per-layer alpha is composed into
+   * `globalAlpha` by the renderer's own draw loops, so this stays a binary
+   * skip-gate at the chart level.
+   *
+   * The `animating` check matters when every layer is at `current = 0` and
+   * the user toggles one back in: `setLayerAlpha(idx, 1, ms)` flips the
+   * animator to `animating = true` but `current` is still `0` until the next
+   * `tick`. If chart skipped the render based on `current` alone, the
+   * animator would never tick (render is what advances it), and the fade-in
+   * would deadlock at `0`.
+   */
   getAlpha(): number {
-    return this.#alphaAnimator.current;
+    for (const a of this.#layerAlphaAnimators) {
+      if (a.current > 0 || a.animating) return 1;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Start a fade for a single layer toward `target` over `durationMs`.
+   * Subclass draw loops multiply this into `globalAlpha` per layer so the
+   * fade lives next to the geometry it affects.
+   */
+  setLayerAlpha(index: number, target: number, durationMs: number): void {
+    this.#layerAlphaAnimators[index]?.setTarget(target, { duration: durationMs });
+  }
+
+  /** Latest rendered per-layer alpha. Defaults to 1 for out-of-range indices. */
+  getLayerAlpha(index: number): number {
+    return this.#layerAlphaAnimators[index]?.current ?? 1;
   }
 
   // --- Data queries ---------------------------------------------------------

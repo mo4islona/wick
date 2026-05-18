@@ -67,7 +67,12 @@ describe('LineRenderer.render', () => {
     const r = new LineRenderer(2, { area: { visible: false }, stacking: 'off', colors: ['#111', '#222'] });
     r.setData(seed(3), 0);
     r.setData(seed(3, 10), 1);
+    // Renderer's `setLayerVisible` flips the store flag (drives Y-range
+    // exclusion); the layer's geometry only stops drawing once `setLayerAlpha`
+    // brings alpha to 0. Chart's `setLayerVisible` calls both with `toggleMs`;
+    // here we snap alpha to 0 so the assertion sees the settled state.
     r.setLayerVisible(1, false);
+    r.setLayerAlpha(1, 0, 0);
     const { ctx, spy } = buildRenderContext({ yRange: { min: 0, max: 20 } });
     r.render(ctx);
 

@@ -705,7 +705,16 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     return this.#series.find((s) => s.id === seriesId)?.visible ?? true;
   }
 
-  /** Show or hide a specific layer within a multi-layer series. */
+  /**
+   * Show or hide a specific layer within a multi-layer series.
+   *
+   * Symmetric with {@link setSeriesVisible}: drives both the renderer's
+   * per-layer alpha fade and the engine's Y re-fit through `toggleMs` so the
+   * line fade and the axis adjustment finish on the same frame. Hidden layers
+   * are excluded from Y-range computation immediately (via the renderer's
+   * `getValueRange` reading `store.isVisible()`); the alpha fade keeps the
+   * layer's geometry on screen until the engine's Y ease settles.
+   */
   setLayerVisible(seriesId: string, layerIndex: number, visible: boolean): void {
     const entry = this.#series.find((s) => s.id === seriesId);
     if (!entry) return;
@@ -717,6 +726,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     entry.renderer.setLayerVisible(layerIndex, visible);
     this.#bumpOverlayVersion();
+
+    // Per-layer alpha fade rides alongside the engine's Y ease. Renderers
+    // without per-layer alpha (candlestick, pie) are already excluded above
+    // by the layer-count guard, so the optional call is just type-level safety.
+    const toggleMs = this.#animationsConfig.toggleMs;
+    entry.renderer.setLayerAlpha?.(layerIndex, visible ? 1 : 0, toggleMs);
+    this.#mainScheduler.markDirty();
+
     if (this.#batchDepth > 0) {
       this.#batchVisualDirty = true;
 
@@ -725,9 +742,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     this.#yInited = true;
     const now = performance.now();
-    this.#engine.onAxisReconfig(now);
+    this.#engine.onSeriesVisibilityChanged(now);
     this.#applyEngineState(now);
-    this.#mainScheduler.markDirty();
   }
 
   isLayerVisible(seriesId: string, layerIndex: number): boolean {
