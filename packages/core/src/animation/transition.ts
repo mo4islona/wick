@@ -25,19 +25,23 @@ export interface RetargetOptions {
 }
 
 /**
- * Y-bound transition contract. Implementations (`YRangeHermite`,
- * `YRangeSpring`, `YRangeSnap`) drive the visible Y range from one snapshot
- * to the next while maintaining `current` / `target` / velocity continuity.
+ * Smoothing-curve contract. Implementations (`YRangeHermite`, `YRangeSpring`,
+ * `YRangeSnap` for Y; `VisibleRangeSpring` for X) drive a value of type `T`
+ * from one snapshot to the next while maintaining `current` / `target` /
+ * velocity continuity.
  *
- * This is the single public customization point for the chart's Y curve.
+ * Parametric over `T` so X and Y can share the same interface — Y uses
+ * `Transition<YRange>` (default), X uses `Transition<VisibleRange>`.
+ *
+ * This is the single public customization point for the chart's curves.
  * Other animation math (entry tweens, pulse, axis tick fade) stays
  * engine-fixed.
  */
-export interface Transition {
+export interface Transition<T = YRange> {
   /** Current sampled position. Read by renderers on every frame. */
-  readonly current: YRange;
+  readonly current: T;
   /** Active retarget destination. May equal `current` after settle. */
-  readonly target: YRange;
+  readonly target: T;
   /** True while position has not yet converged to `target`. */
   readonly animating: boolean;
 
@@ -46,10 +50,10 @@ export interface Transition {
    * over (no reset twitch) and direction-aware durations from the factory
    * apply unless overridden via `opts.expandMs` / `opts.contractMs`.
    */
-  retarget(value: YRange, opts?: RetargetOptions): void;
+  retarget(value: T, opts?: RetargetOptions): void;
 
   /** Land at `value` instantly. Velocity resets to zero. */
-  snap(value: YRange, opts?: { now?: number }): void;
+  snap(value: T, opts?: { now?: number }): void;
 
   /** Advance to `now`. Returns `true` while still perceptibly moving. */
   tick(now: number): boolean;
@@ -57,20 +61,20 @@ export interface Transition {
 
 /**
  * Context handed to a {@link TransitionFactory} at chart construction.
- * Holds the initial Y range so the produced transition starts pinned to
+ * Holds the initial value so the produced transition starts pinned to
  * the same value the chart will render on its first frame.
  */
-export interface TransitionContext {
-  initial: YRange;
+export interface TransitionContext<T = YRange> {
+  initial: T;
 }
 
 /**
  * Factory function returning a fresh {@link Transition}. Pass one as
  * `animations.y.transition` to plug a custom Y-bound smoothing strategy.
  * Built-in factories live in their own modules so unused curves tree-shake
- * out: `hermite` (default), `spring`, `snap`.
+ * out: `hermite` (default), `spring`, `snap` for Y; `xSpring` for X.
  */
-export type TransitionFactory = (ctx: TransitionContext) => Transition;
+export type TransitionFactory<T = YRange> = (ctx: TransitionContext<T>) => Transition<T>;
 
 /** @internal — convenience re-export for factory implementations. */
 export type { Milliseconds };

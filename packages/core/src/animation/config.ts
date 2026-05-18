@@ -53,7 +53,27 @@ export const DEFAULT_PIE_UPDATE = 250;
 // X / Y / axis defaults
 // =============================================================================
 
-/** Floor duration for streaming X scroll. */
+/**
+ * Baseline settle time for the X spring on streaming retargets. Streaming
+ * also feeds the cadence EMA which tunes the per-tick settle time to
+ * `EMA × slack` (see `StreamingCadence.pickSettleMs`), so this constant is
+ * the floor used until a few ticks have been observed.
+ */
+export const DEFAULT_X_SETTLE_MS = 200;
+
+/**
+ * One-shot settle time applied to X spring retargets driven by user gestures
+ * (pan, wheel zoom) and programmatic `fitContent`. Stays short so wheel-zoom
+ * sequences feel responsive — the streaming baseline can be 3× the producer
+ * cadence (≥ 750 ms at 250 ms feeds) which would feel sluggish for a gesture.
+ */
+export const DEFAULT_X_GESTURE_SETTLE_MS = 150;
+
+/**
+ * @deprecated Replaced by spring physics — `dataTickMs` is no longer used.
+ * Retained as a constant for one release so external code referencing it
+ * still compiles. Use `settleMs` via {@link xSpring} or `animations.x.settle`.
+ */
 export const DEFAULT_X_DATA_TICK = 250;
 
 /**
@@ -161,27 +181,31 @@ export interface AnimationsConfig {
         visibility?: AnimationTime;
       };
   /**
-   * X viewport. `false` disables both gesture ease and the streaming-scroll
-   * floor — X changes snap instantly.
+   * X viewport. `false` disables animation — X changes snap instantly. With
+   * the default critically-damped spring, all X-target changes (streaming
+   * ticks, wheel zoom, pan drag) flow through the same physics: velocity
+   * carries across retargets so wheel-zoom sequences feel continuous, and
+   * stream ticks blend smoothly into gesture motion.
    */
   x?:
     | false
     | {
-        /** Floor duration for streaming X scroll. Default: 250 ms. */
+        /**
+         * Spring settle time in milliseconds. Spring reaches ~99% of the
+         * target after this many ms. Used for streaming retargets AND user
+         * gesture commits. Default: 200 ms (compromise between gesture
+         * responsiveness and streaming smoothness).
+         */
+        settle?: AnimationTime;
+        /**
+         * @deprecated Replaced by `settle` (spring physics handles streaming
+         * cadence automatically). When set without `settle`, used as the
+         * fallback settle time for one release; remove in next major.
+         */
         dataTick?: AnimationTime;
         /**
-         * Per-event ease applied to user pan/zoom commits. Logical state
-         * advances synchronously (gesture math, edge detection, autoscroll
-         * all read the committed target); the visual range eases over this
-         * duration so back-to-back wheel/trackpad events interpolate
-         * smoothly through the same animator.
-         *
-         * Default `0` (instant-apply). Opt in via `x: { gesture: 60 }` for
-         * an eased pan/zoom feel — the default is conservative because the
-         * animated visual range diverges from the committed target until
-         * the ease completes, and existing consumers reading
-         * `chart.getVisibleRange()` synchronously after a wheel/pan expect
-         * the new value.
+         * @deprecated Spring on gesture commits is always on with the new
+         * physics. Setting this has no effect; remove in next major.
          */
         gesture?: AnimationTime;
       };
@@ -242,13 +266,13 @@ const ZERO_SERIES_ANIMATIONS: ResolvedSeriesAnimations = {
  */
 export class AnimationConfig {
   readonly y: { transition: TransitionFactory; gestureMs: number; visibilityMs: number };
-  readonly x: { dataTickMs: number; gestureMs: number };
+  readonly x: { settleMs: number };
   readonly series: ResolvedSeriesAnimations;
   readonly axis: { tickFadeMs: number };
 
   private constructor(
     y: { transition: TransitionFactory; gestureMs: number; visibilityMs: number },
-    x: { dataTickMs: number; gestureMs: number },
+    x: { settleMs: number },
     series: ResolvedSeriesAnimations,
     axis: { tickFadeMs: number },
   ) {
@@ -268,7 +292,7 @@ export class AnimationConfig {
     if (input === false) {
       return new AnimationConfig(
         { transition: snap(), gestureMs: 0, visibilityMs: 0 },
-        { dataTickMs: 0, gestureMs: 0 },
+        { settleMs: 0 },
         ZERO_SERIES_ANIMATIONS,
         { tickFadeMs: 0 },
       );
@@ -289,12 +313,14 @@ export class AnimationConfig {
             visibilityMs: resolveAnimationTime(rawY?.visibility, DEFAULT_Y_VISIBILITY),
           };
 
+    // `settle` is the new spring settle time. `dataTick` is a deprecated
+    // alias used as fallback for one release. `gesture` is ignored — gesture
+    // commits flow through the same spring as streaming.
     const x =
       rawX === false
-        ? { dataTickMs: 0, gestureMs: 0 }
+        ? { settleMs: 0 }
         : {
-            dataTickMs: resolveAnimationTime(rawX?.dataTick, DEFAULT_X_DATA_TICK),
-            gestureMs: resolveAnimationTime(rawX?.gesture, DEFAULT_X_GESTURE),
+            settleMs: resolveAnimationTime(rawX?.settle ?? rawX?.dataTick, DEFAULT_X_SETTLE_MS),
           };
 
     const series = resolveSeriesAnimations(rawSeries);

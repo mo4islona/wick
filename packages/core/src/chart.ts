@@ -1,5 +1,11 @@
-import { AnimationConfig, DEFAULT_HERMITE_CONTRACT, DEFAULT_HERMITE_EXPAND } from './animation/config';
+import {
+  AnimationConfig,
+  DEFAULT_HERMITE_CONTRACT,
+  DEFAULT_HERMITE_EXPAND,
+  DEFAULT_X_GESTURE_SETTLE_MS,
+} from './animation/config';
 import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
+import { xSpring } from './animation/visible-range-spring';
 import { CanvasManager } from './canvas-manager';
 import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
 import { computeFitToData } from './chart/fit-to-data';
@@ -18,6 +24,7 @@ import {
 import { computePan, computeZoom } from './chart/pan-zoom-math';
 import { StreamingCadence } from './chart/streaming-cadence';
 import { computeStreamingTarget } from './chart/streaming-target';
+import { resolvePaddingTime } from './chart/viewport-padding';
 import { computeTargetYRange, resolveBound } from './chart/y-target';
 import { renderCrosshair } from './components/crosshair';
 import { renderGrid } from './components/grid';
@@ -177,9 +184,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    * closures supplied at construction.
    */
   readonly #engine: ViewportEngine;
-  /** EMA-smoothed real-wall-clock cadence between streaming appends. Drives
-   *  the adaptive `data_tick` duration so the X slide stays in lockstep
-   *  with the producer through small jitter. */
+  /** EMA-smoothed real-wall-clock cadence between streaming appends. The
+   *  X spring's `setSettleMs` is fed from this so the settle time stays just
+   *  longer than the producer's tick interval — the spring never quite
+   *  settles between ticks, so velocity carries continuously and the slide
+   *  doesn't pulse. */
   readonly #cadence: StreamingCadence;
   /**
    * Set by `onDataChanged` before the engine signal so the
@@ -264,14 +273,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     this.#engine = createViewportEngine({
       initial: { yRange: { min: 0, max: 0 }, xRange: { from: 0, to: 0 } },
       yTransition: this.#animationsConfig.y.transition({ initial: { min: 0, max: 0 } }),
-      dataTickMs: () => {
-        const floor = this.#animationsConfig.x.dataTickMs;
-        return floor > 0 ? this.#cadence.pickDuration(floor) : 0;
-      },
+      xTransition: xSpring({ settleMs: this.#animationsConfig.x.settleMs }),
       yStickyExpandMs: DEFAULT_HERMITE_EXPAND,
       yStickyContractMs: DEFAULT_HERMITE_CONTRACT,
       yGestureMs: this.#animationsConfig.y.gestureMs,
-      xGestureMs: this.#animationsConfig.x.gestureMs,
+      xGestureSettleMs: DEFAULT_X_GESTURE_SETTLE_MS,
       yVisibilityMs: this.#animationsConfig.y.visibilityMs,
       computeXTarget: () => this.#computeXTarget(),
       computeYTarget: ({ xTarget }) => this.#computeYTarget(xTarget),
@@ -734,9 +740,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     if (first === undefined || last === undefined) return;
     const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
     this.#fitVisibleToData(first, last, chartWidth);
-    // Y and X both ease through the engine — `data_tick` rides the sticky-Y
-    // baseline + the cadence-smoothed X duration so the axis and viewport
-    // converge on the same frame.
+    // Y and X both ease through the engine — Y rides the sticky-Y baseline,
+    // X rides the spring's settle time, so the axis and viewport converge on
+    // the same frame.
     this.#commitProgrammaticZoom({ xEase: true });
   }
 
@@ -1384,10 +1390,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     // Engine pulls the X target by calling `#computeXTarget`
     // through the `computeXTarget` closure — the closure runs viewport
-    // fit / cadence.observe / streaming-target math on demand and reads
-    // `#dataStart` / `#dataEnd` (for the timestamps) plus `#isBatchLoad`
-    // (set just below) to pick the right path. Y is pulled separately
-    // via the `computeYTarget` closure against the new X window.
+    // fit / streaming-target math on demand and reads `#dataStart` /
+    // `#dataEnd` (for the timestamps) plus `#isBatchLoad` (set just below)
+    // to pick the right path. Y is pulled separately via the
+    // `computeYTarget` closure against the new X window.
     // `#yInited` flips optimistically — `#computeYTarget` self-clears
     // it when no series has data in the window, so the next paint with
     // values lands as a first-paint snap.
@@ -1502,10 +1508,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    *   First-paint fit.
    * - **batch load + autoscroll** → fit to data, return logical. React-
    *   batched bursts / large `setSeriesData` payloads come here.
-   * - **streaming append + autoscroll** → `cadence.observe` (smooth the
-   *   inter-tick wall for the engine's `dataTickMs` callback to read),
-   *   `computeStreamingTarget` (preserves any pan offset across ticks
-   *   via `#prevDataEnd`).
+   * - **streaming append + autoscroll** → `computeStreamingTarget` (preserves
+   *   any pan offset across ticks via `#prevDataEnd`). The engine's X spring
+   *   absorbs the new target — velocity carries across retargets so a burst
+   *   of ticks doesn't restart easing on each one.
    * - **autoscroll off** → `null` (no X retarget; user has panned away
    *   from the tail).
    */
@@ -1554,10 +1560,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     // Observe cadence only when X actually advances. Sub-tick / intra-bar
     // emissions that don't move `lastTime` would otherwise poison the EMA
-    // with their wall-clock spacing — a 1-bar-per-second producer with
-    // 2 intra updates per bar would converge to ~500ms gap, then slide
-    // each bar over 500ms followed by 500ms of visible idle.
+    // with their wall-clock spacing. The spring's baseline settle time is
+    // then nudged so it stays slightly longer than the measured tick — the
+    // spring keeps velocity instead of decaying to rest between ticks.
     this.#cadence.observe(performance.now());
+    this.#engine.setXSettleMs(this.#cadence.pickSettleMs(this.#animationsConfig.x.settleMs));
 
     this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
     this.#prevDataEnd = this.#dataEnd;
@@ -1694,6 +1701,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#onEdgeReached?.(result.edgeReached);
     }
 
+    this.#cadence.pause();
     this.#emitGestureToEngine();
   }
 
@@ -1702,6 +1710,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    * Zoom-in pins the right edge; zoom-out is hard-capped at the padded
    * data span. Forwards the committed target to the engine as a gesture
    * for visual easing. Public so consumers can drive zoom programmatically.
+   *
+   * Sticky-follow: while `#autoScroll` is on, the new window is repositioned
+   * so its right edge sits at `dataEnd + paddingRight` (follow position).
+   * Span (zoom level) from `computeZoom` is preserved; only the position
+   * is locked to the tail. This avoids the next-tick `computeStreamingTarget`
+   * offset clamp (which would otherwise slide X left to the follow position
+   * and produce a visible jump). Cursor-anchored zoom is intentionally
+   * sacrificed in follow-live mode — pan first to inspect history.
    */
   zoomAt(centerTime: number, factor: number, chartWidth = this.#lastChartWidth): void {
     if (chartWidth > 0) this.#lastChartWidth = chartWidth;
@@ -1719,14 +1735,25 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     });
     if (result.newLogical === null) return;
 
-    this.#commitLogical(result.newLogical, { emitChange: true });
+    let newLogical = result.newLogical;
+
+    if (this.#autoScroll && this.#dataEnd !== null) {
+      const span = newLogical.to - newLogical.from;
+      const prTime = resolvePaddingTime(this.#padding.right, span, this.#dataInterval, chartWidth);
+      const desiredTo = this.#dataEnd + prTime;
+      newLogical = { from: desiredTo - span, to: desiredTo };
+      this.#prevDataEnd = this.#dataEnd;
+    }
+
+    this.#commitLogical(newLogical, { emitChange: true });
+    this.#cadence.pause();
     this.#emitGestureToEngine();
   }
 
   /**
    * Common tail for `pan` / `zoomAt`: routes the just-committed `#logical`
-   * to the engine as a gesture so the engine eases the visual over
-   * `x.gestureMs` / `y.gestureMs`.
+   * to the engine as a gesture so the X spring retargets and the Y spring
+   * eases over `y.gestureMs`.
    */
   #emitGestureToEngine(): void {
     const target = this.#logical;

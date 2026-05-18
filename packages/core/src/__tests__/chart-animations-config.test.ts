@@ -15,7 +15,7 @@ import {
   DEFAULT_LINE_ENTRY,
   DEFAULT_LINE_PULSE,
   DEFAULT_LINE_SMOOTH,
-  DEFAULT_X_GESTURE,
+  DEFAULT_X_SETTLE_MS,
   DEFAULT_Y_VISIBILITY,
 } from '../animation/config';
 import { ChartInstance } from '../chart';
@@ -27,7 +27,7 @@ describe('resolveAnimationsConfig', () => {
   it('defaults to all categories on when undefined', () => {
     expect(resolveAnimationsConfig(undefined)).toMatchObject({
       y: { gestureMs: 100, visibilityMs: DEFAULT_Y_VISIBILITY, transition: expect.any(Function) },
-      x: { dataTickMs: 250, gestureMs: DEFAULT_X_GESTURE },
+      x: { settleMs: DEFAULT_X_SETTLE_MS },
       series: {
         line: { entryMs: DEFAULT_LINE_ENTRY, smoothMs: DEFAULT_LINE_SMOOTH, pulseMs: DEFAULT_LINE_PULSE },
         candlestick: { entryMs: DEFAULT_CANDLESTICK_ENTRY, smoothMs: DEFAULT_CANDLESTICK_SMOOTH },
@@ -52,7 +52,7 @@ describe('resolveAnimationsConfig', () => {
   it('false collapses every field to 0', () => {
     expect(resolveAnimationsConfig(false)).toMatchObject({
       y: { gestureMs: 0, visibilityMs: 0, transition: expect.any(Function) },
-      x: { dataTickMs: 0, gestureMs: 0 },
+      x: { settleMs: 0 },
       series: {
         line: { entryMs: 0, smoothMs: 0, pulseMs: 0 },
         candlestick: { entryMs: 0, smoothMs: 0 },
@@ -99,9 +99,19 @@ describe('resolveAnimationsConfig', () => {
   });
 
   it('string time inputs parse', () => {
-    const out = resolveAnimationsConfig({ y: { visibility: '500ms' }, x: { gesture: '0.1s' } });
+    const out = resolveAnimationsConfig({ y: { visibility: '500ms' }, x: { settle: '0.1s' } });
     expect(out.y.visibilityMs).toBe(500);
-    expect(out.x.gestureMs).toBe(100);
+    expect(out.x.settleMs).toBe(100);
+  });
+
+  it('deprecated `dataTick` is used as fallback when `settle` is omitted', () => {
+    const out = resolveAnimationsConfig({ x: { dataTick: 500 } });
+    expect(out.x.settleMs).toBe(500);
+  });
+
+  it('`settle` wins over deprecated `dataTick`', () => {
+    const out = resolveAnimationsConfig({ x: { settle: 300, dataTick: 500 } });
+    expect(out.x.settleMs).toBe(300);
   });
 });
 

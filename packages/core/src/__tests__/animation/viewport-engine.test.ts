@@ -8,6 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { type ViewportEngine, createViewportEngine } from '../../animation/viewport-engine';
+import { xSpring } from '../../animation/visible-range-spring';
 import { hermite } from '../../animation/y-range-hermite';
 import type { VisibleRange, YRange } from '../../types';
 
@@ -16,6 +17,7 @@ interface SetupArgs {
   initialY?: YRange;
   nextX?: VisibleRange | null;
   nextY?: YRange | null;
+  xSettleMs?: number;
 }
 
 function setup(args: SetupArgs = {}): {
@@ -36,11 +38,11 @@ function setup(args: SetupArgs = {}): {
   const engine = createViewportEngine({
     initial: { xRange: initialX, yRange: initialY },
     yTransition: transitionFactory({ initial: initialY }),
-    dataTickMs: 300,
+    xTransition: xSpring({ settleMs: args.xSettleMs ?? 200 }),
     yStickyExpandMs: 250,
     yStickyContractMs: 1000,
     yGestureMs: 100,
-    xGestureMs: 0,
+    xGestureSettleMs: 150,
     yVisibilityMs: 250,
     computeXTarget,
     computeYTarget,
@@ -113,5 +115,82 @@ describe('ViewportEngine — push-model contract', () => {
     expect(computeYTarget).not.toHaveBeenCalled();
     expect(engine.getTarget().x).toEqual({ from: 0, to: 50 });
     expect(engine.getTarget().y).toEqual({ min: 10, max: 20 });
+  });
+});
+
+describe('ViewportEngine — X gesture lock-out', () => {
+  const STREAM_X: VisibleRange = { from: 200, to: 1200 };
+  const STREAM_Y: YRange = { min: 0, max: 50 };
+  const GESTURE_X: VisibleRange = { from: 500, to: 1500 };
+
+  it('absorbs the immediately-next onPointAppended after a gesture (100ms lockout window)', () => {
+    const { engine, computeXTarget, computeYTarget } = setup({ nextX: STREAM_X, nextY: STREAM_Y });
+
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 0);
+    computeXTarget.mockClear();
+    computeYTarget.mockClear();
+
+    engine.onPointAppended(50);
+    expect(computeXTarget).not.toHaveBeenCalled();
+    expect(computeYTarget).not.toHaveBeenCalled();
+    expect(engine.getTarget().x).toEqual(GESTURE_X);
+  });
+
+  it('releases lockout after the 100ms window', () => {
+    const { engine, computeXTarget } = setup({ nextX: STREAM_X, nextY: STREAM_Y });
+
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 0);
+    computeXTarget.mockClear();
+
+    engine.onPointAppended(110);
+    expect(computeXTarget).toHaveBeenCalledTimes(1);
+    expect(engine.getTarget().x).toEqual(STREAM_X);
+  });
+
+  it('repeated gestures extend the lockout deadline', () => {
+    const { engine, computeXTarget } = setup({ nextX: STREAM_X, nextY: STREAM_Y });
+
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 0);
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 40);
+    computeXTarget.mockClear();
+
+    engine.onPointAppended(110);
+    expect(computeXTarget).not.toHaveBeenCalled();
+
+    engine.onPointAppended(150);
+    expect(computeXTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('onProgrammaticZoom resets the lockout so the next stream tick goes through', () => {
+    const { engine, computeXTarget } = setup({ nextX: STREAM_X, nextY: STREAM_Y });
+
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 0);
+    engine.onProgrammaticZoom({ xTarget: { from: 700, to: 1700 } }, 20);
+    computeXTarget.mockClear();
+
+    engine.onPointAppended(30);
+    expect(computeXTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('snap resets the lockout', () => {
+    const { engine, computeXTarget } = setup({ nextX: STREAM_X, nextY: STREAM_Y });
+
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 0);
+    engine.snap({ x: { from: 0, to: 100 } }, 20);
+    computeXTarget.mockClear();
+
+    engine.onPointAppended(30);
+    expect(computeXTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('onDataReplaced bypasses lockout (exempt by design)', () => {
+    const { engine, computeXTarget } = setup({ nextX: STREAM_X, nextY: STREAM_Y });
+
+    engine.onPanZoom({ xTarget: GESTURE_X, yAuto: true }, 0);
+    computeXTarget.mockClear();
+
+    engine.onDataReplaced(30);
+    expect(computeXTarget).toHaveBeenCalledTimes(1);
+    expect(engine.getTarget().x).toEqual(STREAM_X);
   });
 });

@@ -4,6 +4,7 @@ export { type Easing, easeLinear, easeOutCubic } from './easing';
 export type { AnimationTime, Milliseconds } from './time';
 export { parseAnimationTime, resolveAnimationTime } from './time';
 export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './transition';
+export { VisibleRangeSpring, type VisibleRangeSpringOptions, type XSpringOpts, xSpring } from './visible-range-spring';
 export { type HermiteOpts, YRangeHermite, type YRangeHermiteOptions, hermite } from './y-range-hermite';
 export { YRangeSnap, snap } from './y-range-snap';
 export { type SpringOpts, YRangeSpring, type YRangeSpringOptions, spring } from './y-range-spring';

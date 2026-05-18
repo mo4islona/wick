@@ -22,10 +22,8 @@
  */
 
 import type { VisibleRange, YRange } from '../types';
-import { Animator } from './animator';
-import { easeLinear } from './easing';
 import type { Milliseconds } from './time';
-import type { Transition } from './transition';
+import type { Transition, TransitionFactory } from './transition';
 
 /**
  * Per-frame engine snapshot — same shape returned by the legacy
@@ -72,20 +70,25 @@ export interface ViewportEngineOptions {
   /** Pre-constructed Y transition (Hermite / Spring / Snap). */
   yTransition: Transition;
   /**
-   * Streaming retarget duration for X (linear ease). When a function is
-   * supplied, the engine queries it per emit — used by chart-side cadence
-   * smoothing (EMA of inter-tick wall) to keep the X slide in lockstep with
-   * a jittery producer.
+   * Factory for the X transition. Built once at construction with the
+   * initial X range. The default `xSpring()` produces a critically-damped
+   * spring whose velocity carries across retargets — wheel-zoom sequences
+   * stay continuous, streaming ticks blend smoothly into gesture motion.
    */
-  dataTickMs: Milliseconds | (() => Milliseconds);
+  xTransition: TransitionFactory<VisibleRange>;
   /** Outward Y settle duration baked into streaming retargets. */
   yStickyExpandMs: Milliseconds;
   /** Inward Y settle duration baked into streaming retargets (sticky). */
   yStickyContractMs: Milliseconds;
   /** Symmetric Y duration used during gestures (overrides sticky). */
   yGestureMs: Milliseconds;
-  /** X retarget duration on gestures. Often `0` = snap. */
-  xGestureMs: Milliseconds;
+  /**
+   * One-shot X spring settle time applied to `onPanZoom` / programmatic-zoom
+   * retargets — keeps user gestures responsive even while the streaming
+   * baseline (set by {@link ViewportEngine.setXSettleMs}) is tuned for
+   * pulse-free motion at the cadence-EMA rate (typically much longer).
+   */
+  xGestureSettleMs: Milliseconds;
   /** Cross-fade duration applied to Y on visibility toggles. */
   yVisibilityMs: Milliseconds;
   /**
@@ -158,75 +161,86 @@ export interface ViewportEngine {
    * streaming.
    */
   setXThreshold(threshold: number | null): void;
+
+  /**
+   * Update the X transition's baseline settle time. Used by cadence-driven
+   * adaptation: the chart measures inter-tick wall-clock and tunes the
+   * spring so it never quite settles between data ticks. No-op if the
+   * underlying transition doesn't support runtime tuning.
+   */
+  setXSettleMs(settleMs: number): void;
 }
 
-const rangeLerp = (from: VisibleRange, to: VisibleRange, t: number): VisibleRange => ({
-  from: from.from + (to.from - from.from) * t,
-  to: from.to + (to.to - from.to) * t,
-});
-
-const rangeEquals = (a: VisibleRange, b: VisibleRange): boolean => a.from === b.from && a.to === b.to;
+/**
+ * Gesture lock-out window. After a user pan/zoom, `onPointAppended` is
+ * blocked for this many milliseconds so the next stream tick doesn't fight
+ * the gesture's destination. With spring-based X, the lockout is shorter
+ * than the spring's settle time on purpose — once the lockout passes, the
+ * spring smoothly absorbs the next stream tick as a fresh retarget with
+ * carried velocity.
+ */
+const X_GESTURE_LOCKOUT_MS = 100;
 
 class ViewportEngineImpl implements ViewportEngine {
-  readonly #xAnimator: Animator<VisibleRange>;
+  readonly #xTransition: Transition<VisibleRange>;
   readonly #yTransition: Transition;
   readonly #computeX: () => VisibleRange | null;
   readonly #computeY: (args: { xTarget: VisibleRange }) => YRange | null;
-  readonly #dataTickMsOpt: Milliseconds | (() => Milliseconds);
   readonly #yExpandMs: Milliseconds;
   readonly #yContractMs: Milliseconds;
   readonly #yGestureMs: Milliseconds;
-  readonly #xGestureMs: Milliseconds;
+  readonly #xGestureSettleMs: Milliseconds;
   readonly #yVisibilityMs: Milliseconds;
   readonly #onWake: (() => void) | undefined;
   #xThreshold: number | null = null;
   #lastXTarget: VisibleRange | null = null;
   /** Per-frame `animating` snapshot — updated by `tick` so `get animating()` is O(1). */
   #lastAnimating = false;
+  /**
+   * Wall-time deadline after which `onPointAppended` is allowed to retarget
+   * again. While a gesture is active, the chart streams should not fight the
+   * user's wheel/pinch destination — blocking the body of `onPointAppended`
+   * keeps X and Y in lockstep with the gesture target until the lock-out
+   * expires.
+   */
+  #xGestureUntil = 0;
 
   constructor(opts: ViewportEngineOptions) {
-    this.#xAnimator = new Animator<VisibleRange>({
-      initial: { from: opts.initial.xRange.from, to: opts.initial.xRange.to },
-      duration: 0,
-      lerp: rangeLerp,
-      equals: rangeEquals,
-      easing: easeLinear,
-    });
+    this.#xTransition = opts.xTransition({ initial: opts.initial.xRange });
     this.#yTransition = opts.yTransition;
     this.#computeX = opts.computeXTarget;
     this.#computeY = opts.computeYTarget;
-    this.#dataTickMsOpt = opts.dataTickMs;
     this.#yExpandMs = opts.yStickyExpandMs;
     this.#yContractMs = opts.yStickyContractMs;
     this.#yGestureMs = opts.yGestureMs;
-    this.#xGestureMs = opts.xGestureMs;
+    this.#xGestureSettleMs = opts.xGestureSettleMs;
     this.#yVisibilityMs = opts.yVisibilityMs;
     this.#onWake = opts.onWake;
   }
 
   // --- Helpers -------------------------------------------------------------
 
-  #dataTickMs(): Milliseconds {
-    return typeof this.#dataTickMsOpt === 'function' ? this.#dataTickMsOpt() : this.#dataTickMsOpt;
-  }
-
   /**
-   * Retarget X with the supplied duration. Honors `#xThreshold` (filters
-   * sub-threshold drift) and updates `#lastXTarget` only when the retarget
-   * actually fires — autoscroll consults that field, so we must not
-   * advertise an X destination the animator didn't accept.
+   * Retarget X. Honors `#xThreshold` (filters sub-threshold drift) and
+   * updates `#lastXTarget` only when the retarget actually fires — autoscroll
+   * consults that field, so we must not advertise an X destination the
+   * spring didn't accept.
+   *
+   * `expandMs` is a one-shot per-call override for the spring's settle time.
+   * Gestures pass `#xGestureSettleMs` (fast — responsive feel) while stream
+   * ticks omit it (falls back to the cadence-tuned baseline).
    */
-  #retargetX(target: VisibleRange, duration: Milliseconds, now: number): void {
+  #retargetX(target: VisibleRange, now: number, expandMs?: Milliseconds): void {
     if (this.#xThreshold !== null && this.#xThreshold > 0 && this.#lastXTarget !== null) {
       const delta = Math.abs(target.to - this.#lastXTarget.to);
       if (delta < this.#xThreshold) return;
     }
-    this.#xAnimator.setTarget(target, { duration, now });
+    this.#xTransition.retarget(target, { now, expandMs });
     this.#lastXTarget = { from: target.from, to: target.to };
   }
 
-  #snapX(target: VisibleRange): void {
-    this.#xAnimator.snap({ from: target.from, to: target.to });
+  #snapX(target: VisibleRange, now: number): void {
+    this.#xTransition.snap({ from: target.from, to: target.to }, { now });
     this.#lastXTarget = { from: target.from, to: target.to };
   }
 
@@ -238,16 +252,17 @@ class ViewportEngineImpl implements ViewportEngine {
   // --- Inputs --------------------------------------------------------------
 
   onPointAppended(now?: number): void {
+    const startWall = now ?? performance.now();
+    if (startWall < this.#xGestureUntil) return;
+
     const newX = this.#computeX();
-    const yWindow = newX ?? this.#xAnimator.target;
+    const yWindow = newX ?? this.#xTransition.target;
     const newY = this.#computeY({ xTarget: yWindow });
     if (newX === null && newY === null) return;
 
-    const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
-    const dataTickMs = this.#dataTickMs();
 
-    if (newX !== null) this.#retargetX(newX, dataTickMs, startWall);
+    if (newX !== null) this.#retargetX(newX, startWall);
     if (newY !== null) {
       this.#yTransition.retarget(newY, {
         now: startWall,
@@ -259,7 +274,7 @@ class ViewportEngineImpl implements ViewportEngine {
   }
 
   onSeriesVisibilityChanged(now?: number): void {
-    const newY = this.#computeY({ xTarget: this.#xAnimator.target });
+    const newY = this.#computeY({ xTarget: this.#xTransition.target });
     if (newY === null) return;
 
     const startWall = now ?? performance.now();
@@ -276,7 +291,8 @@ class ViewportEngineImpl implements ViewportEngine {
     const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
 
-    this.#retargetX(opts.xTarget, this.#xGestureMs, startWall);
+    this.#retargetX(opts.xTarget, startWall, this.#xGestureSettleMs);
+    this.#xGestureUntil = startWall + X_GESTURE_LOCKOUT_MS;
 
     if (opts.yAuto) {
       const yTarget = this.#computeY({ xTarget: opts.xTarget });
@@ -292,7 +308,7 @@ class ViewportEngineImpl implements ViewportEngine {
   }
 
   onAxisReconfig(now?: number): void {
-    const newY = this.#computeY({ xTarget: this.#xAnimator.target });
+    const newY = this.#computeY({ xTarget: this.#xTransition.target });
     if (newY === null) return;
 
     const startWall = now ?? performance.now();
@@ -302,13 +318,13 @@ class ViewportEngineImpl implements ViewportEngine {
   }
 
   onProgrammaticZoom(opts: ProgrammaticZoomOptions, now?: number): void {
+    this.#xGestureUntil = 0;
     const newY = this.#computeY({ xTarget: opts.xTarget });
     const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
 
     if (opts.xEase === true) {
-      const dataTickMs = this.#dataTickMs();
-      this.#retargetX(opts.xTarget, dataTickMs, startWall);
+      this.#retargetX(opts.xTarget, startWall, this.#xGestureSettleMs);
       if (newY !== null) {
         this.#yTransition.retarget(newY, {
           now: startWall,
@@ -321,7 +337,7 @@ class ViewportEngineImpl implements ViewportEngine {
       return;
     }
 
-    this.#snapX(opts.xTarget);
+    this.#snapX(opts.xTarget, startWall);
     if (newY !== null) {
       this.#yTransition.retarget(newY, {
         now: startWall,
@@ -334,20 +350,21 @@ class ViewportEngineImpl implements ViewportEngine {
 
   onDataReplaced(now?: number): void {
     const newX = this.#computeX();
-    const newY = this.#computeY({ xTarget: newX ?? this.#xAnimator.target });
+    const newY = this.#computeY({ xTarget: newX ?? this.#xTransition.target });
     if (newX === null && newY === null) return;
 
     const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
-    if (newX !== null) this.#snapX(newX);
+    if (newX !== null) this.#snapX(newX, startWall);
     if (newY !== null) this.#yTransition.snap(newY, { now: startWall });
     this.#wake(wasIdle);
   }
 
   snap(target: SnapTarget, now?: number): void {
+    this.#xGestureUntil = 0;
     const startWall = now ?? performance.now();
     const wasIdle = !this.#lastAnimating;
-    if (target.x !== undefined) this.#snapX(target.x);
+    if (target.x !== undefined) this.#snapX(target.x, startWall);
     if (target.y !== undefined) this.#yTransition.snap(target.y, { now: startWall });
     this.#wake(wasIdle);
   }
@@ -355,13 +372,13 @@ class ViewportEngineImpl implements ViewportEngine {
   // --- Outputs -------------------------------------------------------------
 
   tick(now: number): AnimationState {
-    this.#xAnimator.tick(now);
+    this.#xTransition.tick(now);
     this.#yTransition.tick(now);
-    const animating = this.#xAnimator.animating || this.#yTransition.animating;
+    const animating = this.#xTransition.animating || this.#yTransition.animating;
     this.#lastAnimating = animating;
 
     return {
-      xRange: this.#xAnimator.current,
+      xRange: this.#xTransition.current,
       yRange: this.#yTransition.current,
       animating,
     };
@@ -369,18 +386,18 @@ class ViewportEngineImpl implements ViewportEngine {
 
   getAnimationState(): AnimationState {
     return {
-      xRange: this.#xAnimator.current,
+      xRange: this.#xTransition.current,
       yRange: this.#yTransition.current,
-      animating: this.#xAnimator.animating || this.#yTransition.animating,
+      animating: this.#xTransition.animating || this.#yTransition.animating,
     };
   }
 
   getTarget(): { x: VisibleRange; y: YRange } {
-    return { x: this.#xAnimator.target, y: this.#yTransition.target };
+    return { x: this.#xTransition.target, y: this.#yTransition.target };
   }
 
   get animating(): boolean {
-    return this.#xAnimator.animating || this.#yTransition.animating;
+    return this.#xTransition.animating || this.#yTransition.animating;
   }
 
   get lastXTarget(): VisibleRange | null {
@@ -389,6 +406,13 @@ class ViewportEngineImpl implements ViewportEngine {
 
   setXThreshold(threshold: number | null): void {
     this.#xThreshold = threshold;
+  }
+
+  setXSettleMs(settleMs: number): void {
+    const transition = this.#xTransition as Transition<VisibleRange> & {
+      setSettleMs?: (ms: number) => void;
+    };
+    transition.setSettleMs?.(settleMs);
   }
 }
 
