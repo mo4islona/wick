@@ -6,15 +6,20 @@ import { renderedStackPercentTop, renderedStackTop, sumStack } from './stack-mat
 import type { SeriesRenderContext, SeriesRenderer } from './types';
 
 /**
- * Shape of the options that {@link BaseMultiLayerSeries} reads directly from
- * its concrete subclass. Each subclass narrows its own options type and
- * returns this projection via {@link BaseMultiLayerSeries.getCommonOptions}.
+ * Shape of the options that {@link BaseMultiLayerSeries} reads directly.
+ * Subclasses store a narrower options object (with all their concrete
+ * fields) and assign it to {@link BaseMultiLayerSeries.options}; structural
+ * subtyping lets the base see only this slice.
+ *
+ * Durations are concrete numbers — subclasses normalize `false → 0` at
+ * their option-merge boundary (constructor + `updateOptions`), so the base
+ * never has to handle the disable sentinel.
  */
 export interface CommonSeriesOptions {
   colors: string[];
   stacking: 'off' | 'normal' | 'percent';
-  entryMs?: number | false;
-  smoothMs?: number | false;
+  entryMs: number;
+  smoothMs: number;
 }
 
 /** Per-point entrance animation state — start wall-time so `render` can
@@ -38,10 +43,19 @@ const scalarLerp = (a: number, b: number, t: number): number => a + (b - a) * t;
  *      for the layer's last point, with a {@link Animator}-driven chase so
  *      `updateLastPoint` smooths instead of snapping.
  *
- * Concrete subclasses provide entry-style + duration via the three resolver
- * hooks below.
+ * Concrete subclasses populate {@link options} with their own narrower
+ * resolved-options shape; the base reads only the common slice declared
+ * by {@link CommonSeriesOptions}.
  */
 export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements SeriesRenderer {
+  /**
+   * Common-slice view of the subclass's options. Each subclass widens the
+   * field type in its own declaration (via `declare`) to its full resolved
+   * shape and assigns the merged + normalized options in its constructor /
+   * `updateOptions`.
+   */
+  protected abstract options: CommonSeriesOptions;
+
   protected readonly stores: TimeSeriesStore<TData>[];
 
   // --- Animation state (per layer) ----------------------------------------
@@ -74,15 +88,6 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
 
   // --- Subclass hooks -------------------------------------------------------
 
-  /** Return the subset of options that the base class needs to read. */
-  protected abstract getCommonOptions(): CommonSeriesOptions;
-
-  /** Resolved entrance duration in ms. `0` disables the entrance animation. */
-  protected abstract resolvedEntryMs(): number;
-
-  /** Resolved live-value chase duration in ms. `0` disables smoothing. */
-  protected abstract resolvedSmoothMs(): number;
-
   /**
    * Whether the subclass's entry-animation style is anything other than
    * `'none'`. Controls registration of new entries on `appendPoint`.
@@ -99,11 +104,11 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   // --- Color accessors ------------------------------------------------------
 
   getColor(): string {
-    return this.getCommonOptions().colors[0];
+    return this.options.colors[0];
   }
 
   getColors(): string[] {
-    return this.getCommonOptions().colors;
+    return this.options.colors;
   }
 
   // --- Data ingest ----------------------------------------------------------
@@ -140,7 +145,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     this.displayedLastValues[layerIndex] = value;
     this.#liveAnimators[layerIndex] = null;
 
-    const entryMs = this.resolvedEntryMs();
+    const entryMs = this.options.entryMs;
     if (this.isEntryEnabled() && entryMs > 0) {
       this.entries[layerIndex].set(time, { startTime: performance.now() });
     }
@@ -154,7 +159,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     store.updateLast({ ...p, time: normalizeTime(p.time) } as unknown as TData);
 
     const target = p.value as number;
-    const smoothMs = this.resolvedSmoothMs();
+    const smoothMs = this.options.smoothMs;
     if (smoothMs <= 0) {
       this.displayedLastValues[layerIndex] = target;
       this.#liveAnimators[layerIndex] = null;
@@ -228,7 +233,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     const state = this.entries[layerIndex]?.get(time);
     if (state === undefined) return 1;
 
-    const entryMs = this.resolvedEntryMs();
+    const entryMs = this.options.entryMs;
     if (entryMs <= 0) return 1;
 
     const elapsed = performance.now() - state.startTime;
@@ -269,7 +274,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
         if (!stillAnimating) this.#liveAnimators[li] = null;
       }
 
-      const entryMs = this.resolvedEntryMs();
+      const entryMs = this.options.entryMs;
       if (entryMs <= 0) {
         this.entries[li].clear();
         continue;
@@ -389,7 +394,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
     }
     if (lastTime === -Infinity) return null;
 
-    const stacking = this.getCommonOptions().stacking;
+    const stacking = this.options.stacking;
     if (stacking === 'off') {
       // Non-stacked multi-layer: there's no single "top" — report the last
       // value of the last visible layer. Callers that want per-layer values
@@ -448,7 +453,7 @@ export abstract class BaseMultiLayerSeries<TData extends TimePoint> implements S
   }
 
   getValueRange(from: number, to: number): { min: number; max: number } | null {
-    const stacking = this.getCommonOptions().stacking;
+    const stacking = this.options.stacking;
     if (stacking === 'percent') {
       return { min: 0, max: 100 };
     }

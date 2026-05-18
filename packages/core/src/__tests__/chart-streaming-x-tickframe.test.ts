@@ -89,7 +89,7 @@ describe('streaming X slide — DOM re-render trigger fires per animating frame'
 
   it('tickFrame fires once per RAF while the X animator is in flight (covers tick-non-fading windows)', () => {
     const id = chart.addLineSeries();
-    // 30 bars at INTERVAL = 60_000 ms. Default tickFadeMs ~ 250 ms, so after
+    // 30 bars at INTERVAL = 60_000 ms. Default ticksMs ~ 250 ms, so after
     // the initial-paint settle the tick trackers are not animating.
     chart.setSeriesData(
       id,
@@ -103,7 +103,7 @@ describe('streaming X slide — DOM re-render trigger fires per animating frame'
     });
 
     // Append a single bar. The engine starts an X retarget; the slide rides
-    // `animations.x.dataTickMs` (250 ms by default) but is extended to the
+    // `animations.axis.x.settle` (200 ms by default) but is extended to the
     // EMA-smoothed producer cadence after a couple of observes — either way
     // the engine reports `animating = true` for many frames after this call.
     chart.appendData(id, { time: 1_000_000 + 30 * INTERVAL, value: 60 });

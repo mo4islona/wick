@@ -5,39 +5,56 @@ import type { ChartTheme } from '../theme/types';
 import type { LineSeriesOptions, TimePoint } from '../types';
 import { hexToRgba } from '../utils/color';
 import { lerp } from '../utils/math';
-import { BaseMultiLayerSeries, type CommonSeriesOptions } from './base-multi-layer';
-import { resolveMs } from './shared-animation';
+import { BaseMultiLayerSeries } from './base-multi-layer';
 import type { OverlayRenderContext, SeriesRenderContext } from './types';
 
-const DEFAULT_OPTIONS: LineSeriesOptions = {
+/** Internal resolved shape: `entryMs` / `smoothMs` / `pulseMs` are concrete
+ *  numbers (`false` from the public surface gets normalized to `0` at the
+ *  merge boundary, so downstream reads never see the disable sentinel). */
+type ResolvedLineOptions = Omit<LineSeriesOptions, 'entryMs' | 'smoothMs' | 'pulseMs'> & {
+  entryMs: number;
+  smoothMs: number;
+  pulseMs: number;
+};
+
+const DEFAULT_OPTIONS: ResolvedLineOptions = {
   colors: ['#2962FF'],
   strokeWidth: 1,
   area: { visible: true },
   pulse: true,
   stacking: 'off',
+  entryMs: DEFAULT_LINE_ENTRY,
+  smoothMs: DEFAULT_LINE_SMOOTH,
+  pulseMs: DEFAULT_LINE_PULSE,
 };
 
 /**
  * Normalize caller-supplied line options. Folds the legacy flat `areaFill`
  * boolean (still used by `<Sparkline>` and React's `<LineSeries>` for
  * back-compat) into the structured `area` shape so the rest of the renderer
- * only reads the canonical field.
+ * only reads the canonical field, and converts the `false` disable sentinel
+ * on duration fields into `0`.
  */
-function normalizeLineOptions(input?: Partial<LineSeriesOptions>): Partial<LineSeriesOptions> {
-  if (!input) return {};
+function normalize(input: LineSeriesOptions): ResolvedLineOptions {
   const legacyAreaFill = (input as { areaFill?: boolean }).areaFill;
-  if (legacyAreaFill === undefined || input.area !== undefined) return input;
+  const area = legacyAreaFill !== undefined && input.area === undefined ? { visible: !!legacyAreaFill } : input.area;
 
-  return { ...input, area: { visible: !!legacyAreaFill } };
+  return {
+    ...input,
+    area,
+    entryMs: input.entryMs === false ? 0 : (input.entryMs ?? DEFAULT_LINE_ENTRY),
+    smoothMs: input.smoothMs === false ? 0 : (input.smoothMs ?? DEFAULT_LINE_SMOOTH),
+    pulseMs: input.pulseMs === false ? 0 : (input.pulseMs ?? DEFAULT_LINE_PULSE),
+  };
 }
 
 export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
-  private options: LineSeriesOptions;
+  protected declare options: ResolvedLineOptions;
   private areaGradientCache = new Map<string, { gradient: CanvasGradient; bottomY: number; color: string }>();
 
   constructor(layerCount: number, options?: Partial<LineSeriesOptions>) {
     super(layerCount);
-    this.options = { ...DEFAULT_OPTIONS, ...normalizeLineOptions(options) };
+    this.options = normalize({ ...DEFAULT_OPTIONS, ...options });
   }
 
   /** Back-compat: first store. */
@@ -46,15 +63,11 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
   }
 
   updateOptions(options: Partial<LineSeriesOptions>): void {
-    this.options = { ...this.options, ...normalizeLineOptions(options) };
+    this.options = normalize({ ...this.options, ...options });
   }
 
   getStacking(): string {
     return this.options.stacking;
-  }
-
-  protected getCommonOptions(): CommonSeriesOptions {
-    return this.options;
   }
 
   applyTheme(theme: ChartTheme, prev: ChartTheme): void {
@@ -76,25 +89,12 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     }
   }
 
-  /** Resolved pulse period in ms. 0 disables the pulse entirely. */
-  private resolvedPulseMs(): number {
-    return resolveMs(this.options.pulseMs, DEFAULT_LINE_PULSE);
-  }
-
-  protected resolvedEntryMs(): number {
-    return resolveMs(this.options.entryMs, DEFAULT_LINE_ENTRY);
-  }
-
-  protected resolvedSmoothMs(): number {
-    return resolveMs(this.options.smoothMs, DEFAULT_LINE_SMOOTH);
-  }
-
   protected isEntryEnabled(): boolean {
     return (this.options.entryAnimation ?? 'grow') !== 'none';
   }
 
   get hasPulse(): boolean {
-    return this.options.pulse && this.resolvedPulseMs() > 0 && this.stores.some((s) => s.isVisible() && s.length > 0);
+    return this.options.pulse && this.options.pulseMs > 0 && this.stores.some((s) => s.isVisible() && s.length > 0);
   }
 
   get overlayNeedsAnimation(): boolean {
@@ -516,7 +516,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
 
     const { scope, timeScale, yScale, crosshair, dataInterval } = ctx;
     const size = scope;
-    const pulseMs = this.resolvedPulseMs();
+    const pulseMs = this.options.pulseMs;
     // Closed-form pulse phase ∈ [0, 1). One full cycle per `pulseMs * 2π`
     // wall-clock window — kept inline here (rather than routed through the
     // viewport engine) so the renderer carries no cross-module state for a

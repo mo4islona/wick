@@ -1,43 +1,43 @@
-import type { YRange } from '../types';
 import type { Milliseconds } from './time';
 
 /**
- * Per-call override for {@link Transition.retarget}. Either field overrides
- * the engine's baseline settle time for this single call — used during user
- * gestures (short ease) and visibility toggles (one-shot duration sync with
- * the alpha cross-fade). Asymmetric expand vs contract is the historical
- * sticky-Y mechanism; Phase 2 will collapse both into a single `duration`
- * once the engine becomes authoritative over per-call timing.
+ * Per-call settle times supplied by the engine to {@link Transition.retarget}.
+ * The engine owns all durations and pushes them per call; the curves carry
+ * no baseline of their own.
+ *
+ * X transitions use only `expandMs` (single direction). Y transitions use
+ * both `expandMs` (outward — new extreme enters window) and `contractMs`
+ * (inward — extreme leaves; the sticky-Y mechanism).
  */
 export interface RetargetOptions {
   /** Optional wall clock. Defaults to `performance.now()`. */
   now?: number;
   /**
-   * One-shot expand-direction settle time (ms). When the bound moves
-   * *outward* — a side reaching a new extreme entering the visible window.
+   * Settle time (ms) for *outward* motion — bound reaching a new extreme.
+   * Also used by X (single-direction) as the spring's settle time.
    */
   expandMs?: number;
   /**
-   * One-shot contract-direction settle time (ms). When the bound moves
-   * *inward* — contracting after an extreme leaves the window.
+   * Settle time (ms) for *inward* motion — bound contracting after an
+   * extreme leaves the window. Y-only; X transitions ignore this field.
    */
   contractMs?: number;
 }
 
 /**
  * Smoothing-curve contract. Implementations (`YRangeHermite`, `YRangeSpring`,
- * `YRangeSnap` for Y; `VisibleRangeSpring` for X) drive a value of type `T`
- * from one snapshot to the next while maintaining `current` / `target` /
- * velocity continuity.
+ * `RangeSnap` for Y; `VisibleRangeSpring`, `RangeSnap` for X) drive a value
+ * of type `T` from one snapshot to the next while maintaining `current` /
+ * `target` / velocity continuity.
  *
- * Parametric over `T` so X and Y can share the same interface — Y uses
+ * Parametric over `T` so X and Y share the same interface — Y uses
  * `Transition<YRange>` (default), X uses `Transition<VisibleRange>`.
  *
  * This is the single public customization point for the chart's curves.
  * Other animation math (entry tweens, pulse, axis tick fade) stays
  * engine-fixed.
  */
-export interface Transition<T = YRange> {
+export interface Transition<T> {
   /** Current sampled position. Read by renderers on every frame. */
   readonly current: T;
   /** Active retarget destination. May equal `current` after settle. */
@@ -47,8 +47,8 @@ export interface Transition<T = YRange> {
 
   /**
    * Begin a new transition toward `value`. Existing velocity is carried
-   * over (no reset twitch) and direction-aware durations from the factory
-   * apply unless overridden via `opts.expandMs` / `opts.contractMs`.
+   * over (no reset twitch). The engine supplies the active settle times
+   * via `opts.expandMs` (and `opts.contractMs` for Y).
    */
   retarget(value: T, opts?: RetargetOptions): void;
 
@@ -64,17 +64,17 @@ export interface Transition<T = YRange> {
  * Holds the initial value so the produced transition starts pinned to
  * the same value the chart will render on its first frame.
  */
-export interface TransitionContext<T = YRange> {
+export interface TransitionContext<T> {
   initial: T;
 }
 
 /**
  * Factory function returning a fresh {@link Transition}. Pass one as
- * `animations.y.transition` to plug a custom Y-bound smoothing strategy.
- * Built-in factories live in their own modules so unused curves tree-shake
- * out: `hermite` (default), `spring`, `snap` for Y; `xSpring` for X.
+ * `animations.axis.y.curve` (or `animations.axis.x.curve`) to plug a custom
+ * smoothing strategy. Built-in factories: {@link hermite} (Y default),
+ * {@link spring} (X default, also valid for Y), {@link snap} (no animation).
  */
-export type TransitionFactory<T = YRange> = (ctx: TransitionContext<T>) => Transition<T>;
+export type TransitionFactory<T> = (ctx: TransitionContext<T>) => Transition<T>;
 
 /** @internal — convenience re-export for factory implementations. */
 export type { Milliseconds };

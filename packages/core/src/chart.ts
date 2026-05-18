@@ -1,11 +1,5 @@
-import {
-  AnimationConfig,
-  DEFAULT_HERMITE_CONTRACT,
-  DEFAULT_HERMITE_EXPAND,
-  DEFAULT_X_GESTURE_SETTLE_MS,
-} from './animation/config';
+import { AnimationConfig } from './animation/config';
 import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
-import { xSpring } from './animation/visible-range-spring';
 import { CanvasManager } from './canvas-manager';
 import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
 import { computeFitToData } from './chart/fit-to-data';
@@ -270,15 +264,22 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // last-value smoothing) live on the renderers / series / scale trackers
     // and tick independently.
     this.#cadence = new StreamingCadence();
+    const animY = this.#animationsConfig.axis.y;
+    const animX = this.#animationsConfig.axis.x;
     this.#engine = createViewportEngine({
       initial: { yRange: { min: 0, max: 0 }, xRange: { from: 0, to: 0 } },
-      yTransition: this.#animationsConfig.y.transition({ initial: { min: 0, max: 0 } }),
-      xTransition: xSpring({ settleMs: this.#animationsConfig.x.settleMs }),
-      yStickyExpandMs: DEFAULT_HERMITE_EXPAND,
-      yStickyContractMs: DEFAULT_HERMITE_CONTRACT,
-      yGestureMs: this.#animationsConfig.y.gestureMs,
-      xGestureSettleMs: DEFAULT_X_GESTURE_SETTLE_MS,
-      yVisibilityMs: this.#animationsConfig.y.visibilityMs,
+      y: {
+        curve: animY.curve,
+        settleMs: animY.settleMs,
+        stickyMs: animY.stickyMs,
+        gestureMs: animY.gestureMs,
+        toggleMs: this.#animationsConfig.toggleMs,
+      },
+      x: {
+        curve: animX.curve,
+        settleMs: animX.settleMs,
+        gestureMs: animX.gestureMs,
+      },
       computeXTarget: () => this.#computeXTarget(),
       computeYTarget: ({ xTarget }) => this.#computeYTarget(xTarget),
       onWake: () => this.#mainScheduler?.markDirty(),
@@ -295,9 +296,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     this.timeScale = new TimeScale();
     this.yScale = new YScale();
 
-    const tickFadeMs = this.#animationsConfig.axis.tickFadeMs;
-    this.timeScale.tickTracker.setFadeMs(tickFadeMs);
-    this.yScale.tickTracker.setFadeMs(tickFadeMs);
+    const ticksMs = this.#animationsConfig.axis.ticksMs;
+    this.timeScale.tickTracker.setFadeMs(ticksMs);
+    this.yScale.tickTracker.setFadeMs(ticksMs);
 
     const monitor = this.#perfMonitor;
     if (monitor) {
@@ -655,11 +656,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   }
 
   /** Show or hide a series. The series cross-fades over
-   *  `animations.viewport.visibilityMs`; the Y range re-fits on the same
-   *  schedule (one-shot duration override) so the fade and the axis
-   *  adjustment finish on the same frame. Hidden series are excluded
-   *  from Y-range computation immediately so the axis can start moving
-   *  while the line fades out in parallel.
+   *  `animations.toggle`; the Y range re-fits on the same schedule
+   *  (one-shot duration override) so the fade and the axis adjustment
+   *  finish on the same frame. Hidden series are excluded from Y-range
+   *  computation immediately so the axis can start moving while the line
+   *  fades out in parallel.
    */
   setSeriesVisible(seriesId: string, visible: boolean): void {
     const entry = this.#series.find((s) => s.id === seriesId);
@@ -672,8 +673,8 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // Y retarget below so the cross-fade lives next to the geometry that
     // draws it. Pie and other renderers without `setAlpha` ride the binary
     // `entry.visible` flag and skip the fade entirely.
-    const visibilityMs = this.#animationsConfig.y.visibilityMs;
-    entry.renderer.setAlpha?.(visible ? 1 : 0, visibilityMs);
+    const toggleMs = this.#animationsConfig.toggleMs;
+    entry.renderer.setAlpha?.(visible ? 1 : 0, toggleMs);
     this.#mainScheduler.markDirty();
 
     if (this.#batchDepth > 0) {
@@ -1564,7 +1565,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // then nudged so it stays slightly longer than the measured tick — the
     // spring keeps velocity instead of decaying to rest between ticks.
     this.#cadence.observe(performance.now());
-    this.#engine.setXSettleMs(this.#cadence.pickSettleMs(this.#animationsConfig.x.settleMs));
+    this.#engine.setXSettleMs(this.#cadence.pickSettleMs(this.#animationsConfig.axis.x.settleMs));
 
     this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
     this.#prevDataEnd = this.#dataEnd;
@@ -1753,7 +1754,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
   /**
    * Common tail for `pan` / `zoomAt`: routes the just-committed `#logical`
    * to the engine as a gesture so the X spring retargets and the Y spring
-   * eases over `y.gestureMs`.
+   * eases over `animations.axis.y.gesture`.
    */
   #emitGestureToEngine(): void {
     const target = this.#logical;

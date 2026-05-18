@@ -12,7 +12,7 @@
  */
 
 import { Animator } from '../animation/animator';
-import { DEFAULT_AXIS_TICK_FADE } from '../animation/config';
+import { DEFAULT_TICKS_MS } from '../animation/config';
 
 export interface TickEntry {
   /** Tick value (time or price). */
@@ -53,7 +53,7 @@ function sameTicks(a: readonly number[], b: readonly number[]): boolean {
 }
 
 export interface AxisTickTrackerOptions {
-  /** Cross-fade duration in ms once {@link markArmed} has flipped. Defaults to {@link DEFAULT_AXIS_TICK_FADE}. */
+  /** Cross-fade duration in ms once {@link markArmed} has flipped. Defaults to {@link DEFAULT_TICKS_MS}. */
   fadeMs?: number;
 }
 
@@ -72,7 +72,7 @@ export class AxisTickTracker {
   #armed = false;
 
   constructor(opts: AxisTickTrackerOptions = {}) {
-    this.#fadeMs = opts.fadeMs ?? DEFAULT_AXIS_TICK_FADE;
+    this.#fadeMs = opts.fadeMs ?? DEFAULT_TICKS_MS;
   }
 
   /**
@@ -162,7 +162,7 @@ export class AxisTickTracker {
 
   /**
    * Reconfigure the cross-fade duration. Chart calls this after resolving
-   * `animations.axis.tickFadeMs` so the tracker honors the user's config
+   * `animations.axis.ticks` so the tracker honors the user's config
    * without plumbing options through the scale constructors.
    */
   setFadeMs(ms: number): void {

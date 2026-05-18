@@ -1,24 +1,25 @@
-import type { YRange } from '../types';
+import type { VisibleRange, YRange } from '../types';
 import type { Transition, TransitionFactory } from './transition';
 
 /**
- * No-animation Y transition. Every `retarget` lands instantly, every `tick`
- * is a no-op. Used internally when the caller sets `animations.y: false`
- * (or `animations: false`) — the Y bounds just track the data extremes
- * frame-by-frame with no easing.
+ * No-animation transition. Every `retarget` lands instantly, every `tick`
+ * is a no-op. Used internally when the caller sets `animations.axis.y: false`
+ * (or `animations: false`) — the bounds just track the data extremes
+ * frame-by-frame with no easing. Generic over `T` so the same factory works
+ * for both Y (`YRange`) and X (`VisibleRange`).
  */
-export class YRangeSnap implements Transition {
-  #state: YRange;
+export class RangeSnap<T extends YRange | VisibleRange> implements Transition<T> {
+  #state: T;
 
-  constructor(opts: { initial: YRange }) {
-    this.#state = { min: opts.initial.min, max: opts.initial.max };
+  constructor(opts: { initial: T }) {
+    this.#state = { ...opts.initial };
   }
 
-  get current(): YRange {
+  get current(): T {
     return this.#state;
   }
 
-  get target(): YRange {
+  get target(): T {
     return this.#state;
   }
 
@@ -26,12 +27,12 @@ export class YRangeSnap implements Transition {
     return false;
   }
 
-  retarget(value: YRange): void {
-    this.#state = { min: value.min, max: value.max };
+  retarget(value: T): void {
+    this.#state = { ...value };
   }
 
-  snap(value: YRange): void {
-    this.#state = { min: value.min, max: value.max };
+  snap(value: T): void {
+    this.#state = { ...value };
   }
 
   tick(): boolean {
@@ -44,10 +45,14 @@ export class YRangeSnap implements Transition {
 // =============================================================================
 
 /**
- * Snap factory — no animation, no parameters. Exposed so power users can
- * opt out of Y motion without disabling other animations:
- * `animations={{ y: { transition: snap() } }}`.
+ * Snap factory — no animation, no parameters. Generic so it works for both
+ * Y and X. Exposed so power users can opt out of axis motion without
+ * disabling other animations:
+ *
+ * ```
+ * animations: { axis: { y: { curve: snap() } } }
+ * ```
  */
-export function snap(): TransitionFactory {
-  return ({ initial }) => new YRangeSnap({ initial });
+export function snap<T extends YRange | VisibleRange = YRange>(): TransitionFactory<T> {
+  return ({ initial }) => new RangeSnap<T>({ initial });
 }

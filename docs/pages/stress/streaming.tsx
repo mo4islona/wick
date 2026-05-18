@@ -57,7 +57,7 @@ function WarmUpComparison({ theme, perfHud, yEngine }: PanelCtx) {
   const seedRef = useRef(seed);
   const runningRef = useRef(running);
   runningRef.current = running;
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   // Single interval for the lifetime of the panel — appends until the burst
   // length is reached, then no-ops. Depending on `data.length` here would
@@ -145,7 +145,7 @@ function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 30 * INTERVAL, 30), []);
   const [data, setData] = useState<TimePoint[]>(seed);
   const tickRef = useRef(0);
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -198,7 +198,7 @@ function SharpJumps({ theme, perfHud, yEngine }: PanelCtx) {
 function VariableJitter({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
   const [data, setData] = useState<TimePoint[]>(seed);
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,7 +244,7 @@ function BurstThenPause({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 30 * INTERVAL, 30), []);
   const [data, setData] = useState<TimePoint[]>(seed);
   const [phase, setPhase] = useState<'burst' | 'idle'>('burst');
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     let cancelled = false;
@@ -315,7 +315,7 @@ function MonotonicRamp({ theme, perfHud, yEngine }: PanelCtx) {
   }, []);
 
   const [data, setData] = useState<TimePoint[]>(seed);
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -368,7 +368,7 @@ function OutlierRebound({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 15 * INTERVAL, 15, BASE), []);
   const [data, setData] = useState<TimePoint[]>(seed);
   const tickRef = useRef(0);
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -462,7 +462,7 @@ function CadenceChart({
 }) {
   const seed = useMemo(() => makeSeed(startTime, 30), [startTime]);
   const [data, setData] = useState<TimePoint[]>(seed);
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -515,7 +515,7 @@ function CadenceChart({
 function ConcurrentEvents({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 40 * INTERVAL, 40), []);
   const [data, setData] = useState<TimePoint[]>(seed);
-  const animations = useMemo(() => ({ y: { transition: yEngine }, x: { gesture: 200 } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine }, x: { gesture: 200 } } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -564,7 +564,7 @@ function BackgroundTabRecovery({ theme, perfHud, yEngine }: PanelCtx) {
   const seed = useMemo(() => makeSeed(Date.now() - 50 * INTERVAL, 50), []);
   const [data, setData] = useState<TimePoint[]>(seed);
   const lastTimeRef = useRef(seed[seed.length - 1].time);
-  const animations = useMemo(() => ({ y: { transition: yEngine } }), [yEngine]);
+  const animations = useMemo(() => ({ axis: { y: { curve: yEngine } } }), [yEngine]);
 
   useEffect(() => {
     const id = setInterval(() => {

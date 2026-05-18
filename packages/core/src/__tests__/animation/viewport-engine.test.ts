@@ -7,8 +7,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
+import { spring } from '../../animation/spring';
 import { type ViewportEngine, createViewportEngine } from '../../animation/viewport-engine';
-import { xSpring } from '../../animation/visible-range-spring';
 import { hermite } from '../../animation/y-range-hermite';
 import type { VisibleRange, YRange } from '../../types';
 
@@ -34,16 +34,20 @@ function setup(args: SetupArgs = {}): {
     return args.nextY ?? null;
   });
 
-  const transitionFactory = hermite({ expand: 250, contract: 1000 });
   const engine = createViewportEngine({
     initial: { xRange: initialX, yRange: initialY },
-    yTransition: transitionFactory({ initial: initialY }),
-    xTransition: xSpring({ settleMs: args.xSettleMs ?? 200 }),
-    yStickyExpandMs: 250,
-    yStickyContractMs: 1000,
-    yGestureMs: 100,
-    xGestureSettleMs: 150,
-    yVisibilityMs: 250,
+    y: {
+      curve: hermite(),
+      settleMs: 250,
+      stickyMs: 1000,
+      gestureMs: 100,
+      toggleMs: 250,
+    },
+    x: {
+      curve: spring<VisibleRange>(),
+      settleMs: args.xSettleMs ?? 200,
+      gestureMs: 150,
+    },
     computeXTarget,
     computeYTarget,
   });

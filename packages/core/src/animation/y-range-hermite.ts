@@ -1,23 +1,18 @@
 import type { YRange } from '../types';
-import { DEFAULT_HERMITE_CONTRACT, DEFAULT_HERMITE_EXPAND } from './config';
-import { type AnimationTime, resolveAnimationTime } from './time';
 import type { RetargetOptions, Transition, TransitionFactory } from './transition';
 
-export interface YRangeHermiteOptions {
-  initial: YRange;
-  /** Duration (ms) for *outward* bound motion — when a side moves away from
-   *  the centre to reach a new extreme. */
-  expandMs: number;
-  /** Duration (ms) for *inward* bound motion — contracting toward the
-   *  centre after a recent extreme leaves the visible window. */
-  contractMs: number;
-}
+/**
+ * Default duration for an uncovered side. Per-call overrides
+ * (`RetargetOptions.expandMs` / `contractMs`) from the engine always win;
+ * this fallback only matters if `retarget()` is ever called bare.
+ */
+const FALLBACK_MS = 250;
 
 /**
  * Velocity-matched cubic Hermite animator for {@link YRange}. Direct
- * alternative to {@link YRangeSpring} with the same {@link Transition}
- * contract — switchable at chart construction so the spring vs Hermite
- * trade-off can be evaluated A/B without code changes elsewhere.
+ * alternative to the spring with the same {@link Transition} contract —
+ * switchable at chart construction so the spring vs Hermite trade-off can
+ * be evaluated A/B without code changes elsewhere.
  *
  * Each `retarget` starts a new cubic Hermite segment per side
  *
@@ -34,37 +29,32 @@ export interface YRangeHermiteOptions {
  * Why this exists alongside Spring: Hermite has a *bounded* duration —
  * after `D` ms each side is exactly at the target with velocity zero, no
  * exponential tail. That's predictable for animations whose end-state
- * matters (axis labels can settle in a known time). Spring has no
- * deadline — convergence is asymptotic. For rapid continuous retargets
- * (the streaming-Y case), Spring is usually smoother because its physics
- * naturally absorbs velocity changes; for one-shot moves with a clear end
- * (zoom, programmatic fit), Hermite is more controlled.
+ * matters. Spring has no deadline — convergence is asymptotic. For rapid
+ * continuous retargets (the streaming-Y case), Spring is usually smoother
+ * because its physics naturally absorbs velocity changes; for one-shot
+ * moves with a clear end (zoom, programmatic fit), Hermite is more
+ * controlled.
  *
- * Per-side direction-aware duration: same semantics as Spring — outward
- * moves use `expandMs`, inward moves use `contractMs`. Sides may run at
- * different durations during the same retarget.
+ * Per-side direction-aware duration: outward moves use `expandMs` from the
+ * retarget call, inward moves use `contractMs`. Sides may run at different
+ * durations during the same retarget. The engine is the source of truth
+ * for the actual durations — the curve has no stored baseline.
  */
-export class YRangeHermite implements Transition {
+export class YRangeHermite implements Transition<YRange> {
   #x0: YRange;
   #v0Min = 0;
   #v0Max = 0;
   #target: YRange;
   #t0: number = -1;
   /** Per-side active duration in seconds. */
-  #durMin: number;
-  #durMax: number;
-  #expandMs: number;
-  #contractMs: number;
+  #durMin = FALLBACK_MS / 1000;
+  #durMax = FALLBACK_MS / 1000;
   #cached: YRange;
 
-  constructor(opts: YRangeHermiteOptions) {
+  constructor(opts: { initial: YRange }) {
     this.#x0 = { min: opts.initial.min, max: opts.initial.max };
     this.#target = { min: opts.initial.min, max: opts.initial.max };
     this.#cached = { min: opts.initial.min, max: opts.initial.max };
-    this.#expandMs = opts.expandMs;
-    this.#contractMs = opts.contractMs;
-    this.#durMin = opts.expandMs / 1000;
-    this.#durMax = opts.expandMs / 1000;
   }
 
   get current(): YRange {
@@ -86,15 +76,10 @@ export class YRangeHermite implements Transition {
     return Math.abs(this.#cached.min - this.#target.min) > eps || Math.abs(this.#cached.max - this.#target.max) > eps;
   }
 
-  setSettleMs(opts: { expandMs?: number; contractMs?: number }): void {
-    if (opts.expandMs !== undefined) this.#expandMs = opts.expandMs;
-    if (opts.contractMs !== undefined) this.#contractMs = opts.contractMs;
-  }
-
   retarget(value: YRange, opts: RetargetOptions = {}): void {
     const now = opts.now ?? performance.now();
-    const expandMs = opts.expandMs ?? this.#expandMs;
-    const contractMs = opts.contractMs ?? this.#contractMs;
+    const expandMs = opts.expandMs ?? FALLBACK_MS;
+    const contractMs = opts.contractMs ?? FALLBACK_MS;
 
     if (this.#t0 < 0) {
       this.#target = { min: value.min, max: value.max };
@@ -215,30 +200,15 @@ export class YRangeHermite implements Transition {
 // =============================================================================
 
 /**
- * Per-instance baseline timings for {@link hermite}. The chart applies per-
- * call overrides (user gesture short-ease, visibility-toggle sync) via the
- * `expandMs` / `contractMs` arguments to `retarget()`; these defaults govern
- * everything else — normal streaming retargets, programmatic fit, etc.
- */
-export interface HermiteOpts {
-  /** Outward (expanding) settle time. Default 250 ms. */
-  expand?: AnimationTime;
-  /** Inward (contracting) settle time. Default 2500 ms. */
-  contract?: AnimationTime;
-}
-
-/**
- * Default Y transition. Velocity-matched cubic Hermite with a fixed
- * per-segment deadline: after `expand` / `contract` ms each side is exactly
- * at the target. Direction-aware — outward moves use `expand`, inward moves
- * use `contract`.
+ * Velocity-matched cubic Hermite Y transition. Direction-aware: per-call
+ * `expandMs` (outward, default 250 ms via the engine) and `contractMs`
+ * (inward, default 2500 ms — sticky-Y) are supplied through `retarget()`.
  *
- * Lives in its own module so the Hermite math isn't pulled into bundles
- * that only use spring or snap.
+ * Default Y transition. Bounded duration — after the supplied settle each
+ * side lands exactly at the target with zero velocity, unlike spring's
+ * asymptotic approach. Predictable for animations whose end-state matters
+ * (axis labels can settle in a known time).
  */
-export function hermite(opts: HermiteOpts = {}): TransitionFactory {
-  const expandMs = resolveAnimationTime(opts.expand, DEFAULT_HERMITE_EXPAND);
-  const contractMs = resolveAnimationTime(opts.contract, DEFAULT_HERMITE_CONTRACT);
-
-  return ({ initial }) => new YRangeHermite({ initial, expandMs, contractMs });
+export function hermite(): TransitionFactory<YRange> {
+  return ({ initial }) => new YRangeHermite({ initial });
 }

@@ -1,28 +1,9 @@
 import type { YRange } from '../types';
-import { DEFAULT_SPRING_CONTRACT_SPEED, DEFAULT_SPRING_EXPAND_SPEED } from './config';
-import { type AnimationTime, resolveAnimationTime } from './time';
-import type { RetargetOptions, Transition, TransitionFactory } from './transition';
+import type { RetargetOptions, Transition } from './transition';
 
-export interface YRangeSpringOptions {
-  initial: YRange;
-  /**
-   * Approximate settle time in milliseconds for *outward* motion — when a
-   * bound is moving away from the current centre to reach a new extreme.
-   * Used to derive ω_expand = 4.6 / (expandMs / 1000); the spring's
-   * position reaches within ~1% of the target after `expandMs` from a
-   * cold start.
-   */
-  expandMs: number;
-  /**
-   * Approximate settle time in milliseconds for *inward* motion — when a
-   * bound is contracting toward the centre (a recent extreme has left the
-   * window). Longer than `expandMs` produces the "sticky-Y" feel: the
-   * chart reacts quickly to new highs / lows but holds the wider bound
-   * after an outlier scrolls off. Pass equal to `expandMs` for symmetric
-   * behaviour.
-   */
-  contractMs: number;
-}
+/** Default ω if engine ever calls `retarget` bare (engine always supplies). */
+const FALLBACK_MS = 250;
+const FALLBACK_OMEGA = 4.6 / (FALLBACK_MS / 1000);
 
 /**
  * Critically-damped spring tracking a {@link YRange} target. The min and
@@ -31,12 +12,12 @@ export interface YRangeSpringOptions {
  * that bound is moving:
  *
  * - **Outward** (new target is *outside* the current bound — new extreme
- *   enters the window): the bound uses {@link YRangeSpringOptions.expandMs}.
- *   Reaction is fast so the entering value doesn't render off-canvas.
+ *   enters the window): the bound uses the call's `expandMs`. Reaction is
+ *   fast so the entering value doesn't render off-canvas.
  * - **Inward** (new target is *inside* the current bound — extreme has
- *   left the window): the bound uses {@link YRangeSpringOptions.contractMs}.
- *   Slower so the chart holds the wider range and doesn't visibly reflow
- *   each time a high/low scrolls out of view.
+ *   left the window): the bound uses the call's `contractMs`. Slower so
+ *   the chart holds the wider range and doesn't visibly reflow each time
+ *   a high/low scrolls out of view.
  *
  * Why spring instead of `Animator<YRange>` with an easing curve: every
  * `retarget` while the animator was already in flight restarted the cubic
@@ -52,32 +33,26 @@ export interface YRangeSpringOptions {
  * `x(t) = target + (a + b·t)·e^(−ωt)` (with `a = x₀ − target` and
  * `b = v₀ + ω·a`) is integrated analytically per `tick`, so the simulation
  * is stable for any frame interval and any settle time.
+ *
+ * The engine is the single source of truth for the per-call durations —
+ * this curve has no stored baseline.
  */
-export class YRangeSpring implements Transition {
+export class YRangeSpring implements Transition<YRange> {
   #x0: YRange;
   #v0Min = 0;
   #v0Max = 0;
   #target: YRange;
-  #omegaExpand: number;
-  #omegaContract: number;
   /** Per-side ω selected at the most recent retarget call. Sample uses
    *  these — sides can run at different speeds during the same chase. */
-  #omegaMin: number;
-  #omegaMax: number;
+  #omegaMin = FALLBACK_OMEGA;
+  #omegaMax = FALLBACK_OMEGA;
   #t0: number = -1;
   #cached: YRange;
 
-  constructor(opts: YRangeSpringOptions) {
+  constructor(opts: { initial: YRange }) {
     this.#x0 = { min: opts.initial.min, max: opts.initial.max };
     this.#target = { min: opts.initial.min, max: opts.initial.max };
     this.#cached = { min: opts.initial.min, max: opts.initial.max };
-    this.#omegaExpand = 4.6 / (opts.expandMs / 1000);
-    this.#omegaContract = 4.6 / (opts.contractMs / 1000);
-
-    // Start with expand frequency — irrelevant until the first retarget,
-    // but keeps animating()/eps() from dividing by NaN.
-    this.#omegaMin = this.#omegaExpand;
-    this.#omegaMax = this.#omegaExpand;
   }
 
   get current(): YRange {
@@ -100,21 +75,12 @@ export class YRangeSpring implements Transition {
     );
   }
 
-  /** Update both natural frequencies from new settle targets. Existing
-   *  position and velocity are preserved. */
-  setSettleMs(opts: { expandMs?: number; contractMs?: number }): void {
-    if (opts.expandMs !== undefined) {
-      this.#omegaExpand = 4.6 / (opts.expandMs / 1000);
-    }
-    if (opts.contractMs !== undefined) {
-      this.#omegaContract = 4.6 / (opts.contractMs / 1000);
-    }
-  }
-
   retarget(value: YRange, opts: RetargetOptions = {}): void {
     const now = opts.now ?? performance.now();
-    const omegaExpand = opts.expandMs !== undefined ? 4.6 / (opts.expandMs / 1000) : this.#omegaExpand;
-    const omegaContract = opts.contractMs !== undefined ? 4.6 / (opts.contractMs / 1000) : this.#omegaContract;
+    const expandMs = opts.expandMs ?? FALLBACK_MS;
+    const contractMs = opts.contractMs ?? FALLBACK_MS;
+    const omegaExpand = 4.6 / (expandMs / 1000);
+    const omegaContract = 4.6 / (contractMs / 1000);
 
     if (this.#t0 < 0) {
       this.#target = { min: value.min, max: value.max };
@@ -212,43 +178,4 @@ export class YRangeSpring implements Transition {
 
     return range * 1e-4;
   }
-}
-
-// =============================================================================
-// Factory
-// =============================================================================
-
-/**
- * Per-instance baseline timings for {@link spring}. **Note:** spring is
- * critically-damped and asymptotic — these are *settle times* (~99% target),
- * NOT bounded deadlines. A spring reaches ~5× this distance after the
- * settle value; pick smaller numbers than for `hermite` to feel similar.
- */
-export interface SpringOpts {
-  /**
-   * Outward settle time (ms). Spring reaches ~99% of an outward target
-   * after this many ms. Default 250 ms.
-   */
-  expandSpeed?: AnimationTime;
-  /**
-   * Inward settle time (ms). Longer than `expandSpeed` produces the sticky-Y
-   * feel — the chart holds the wider bound after an outlier scrolls off.
-   * Default 2500 ms.
-   */
-  contractSpeed?: AnimationTime;
-}
-
-/**
- * Critically-damped spring Y transition. Asymptotic approach, no fixed
- * deadline; usually smoother than hermite on continuously-retargeted Y
- * (streaming feeds).
- *
- * Lives in its own module so the spring math isn't pulled into bundles
- * that only use hermite or snap.
- */
-export function spring(opts: SpringOpts = {}): TransitionFactory {
-  const expandMs = resolveAnimationTime(opts.expandSpeed, DEFAULT_SPRING_EXPAND_SPEED);
-  const contractMs = resolveAnimationTime(opts.contractSpeed, DEFAULT_SPRING_CONTRACT_SPEED);
-
-  return ({ initial }) => new YRangeSpring({ initial, expandMs, contractMs });
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { ChartTheme, TransitionFactory } from '@wick-charts/react';
+import type { ChartTheme, TransitionFactory, YRange } from '@wick-charts/react';
 
 import { Cell } from '../../components/Cell';
 
@@ -9,10 +9,10 @@ export interface PanelCtx {
   /** `perf={true}` passes through to the panel's ChartContainer. */
   perfHud: boolean;
   /** Y-bound transition factory. Panels that exercise streaming Y motion
-   *  forward this through `ChartContainer.animations.y.transition`.
+   *  forward this through `ChartContainer.animations.axis.y.curve`.
    *  The stress page swaps between built-ins (hermite / spring / snap)
    *  via the top-bar toggle. */
-  yEngine: TransitionFactory;
+  yEngine: TransitionFactory<YRange>;
   /** Short label for the currently selected transition — used in panel keys
    *  so toggling re-mounts the charts (the factory is captured at
    *  ChartContainer mount, so a live swap needs a fresh ChartInstance). */
@@ -41,13 +41,13 @@ export function StressPanels({
   panels: readonly StressPanel[];
   theme: ChartTheme;
   perfHud: boolean;
-  yEngine: TransitionFactory;
+  yEngine: TransitionFactory<YRange>;
   yEngineLabel: string;
 }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       {panels.map((p) => (
-        // `ChartContainer` captures `perf` and `animations.y.transition`
+        // `ChartContainer` captures `perf` and `animations.axis.y.curve`
         // at mount only, so toggling the global HUD or the Y transition re-keys
         // each panel to force a remount.
         <div key={`${p.id}:${perfHud ? 'perf' : 'no-perf'}:${yEngineLabel}`} style={{ display: 'grid', gap: 4 }}>

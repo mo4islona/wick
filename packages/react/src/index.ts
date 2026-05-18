@@ -25,7 +25,6 @@ export type {
   EdgeReachedInfo,
   EdgeSide,
   EdgeState,
-  HermiteOpts,
   HoverInfo,
   LegendItem,
   /** @deprecated Use {@link TimePoint} instead. */
@@ -44,7 +43,6 @@ export type {
   SeriesType,
   SliceInfo,
   SnapshotSort,
-  SpringOpts,
   StackingMode,
   ThemeConfig,
   ThemePreset,

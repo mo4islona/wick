@@ -67,7 +67,7 @@ export class StreamingCadence {
    * otherwise its velocity decays toward zero between ticks and the slide
    * reads as a bell-curve pulse (accelerate → peak → decelerate → restart).
    *
-   * `floor` is the user-configured baseline (typically `animations.x.settle`);
+   * `floor` is the user-configured baseline (typically `animations.axis.x.settle`);
    * returned value is `max(floor, ema * slack)` clamped at {@link SETTLE_MS_MAX}.
    * The `slack` multiplier (default 3.0) means the spring's 99 %-settle
    * window is ~3 × the measured cadence — at any one tick the spring is at

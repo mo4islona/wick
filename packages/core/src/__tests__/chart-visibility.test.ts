@@ -27,7 +27,7 @@ function makeChart(): { chart: ChartInstance; container: HTMLElement } {
   return {
     chart: new ChartInstance(container, {
       interactive: false,
-      animations: { y: { visibility: 0 } },
+      animations: { toggle: 0 },
     }),
     container,
   };

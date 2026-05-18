@@ -2,22 +2,39 @@ import { DEFAULT_BAR_ENTRY, DEFAULT_BAR_SMOOTH } from '../animation/config';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
 import type { BarSeriesOptions, TimePoint } from '../types';
-import { BaseMultiLayerSeries, type CommonSeriesOptions } from './base-multi-layer';
-import { resolveMs } from './shared-animation';
+import { BaseMultiLayerSeries } from './base-multi-layer';
 import type { SeriesRenderContext } from './types';
 
-const DEFAULT_OPTIONS: BarSeriesOptions = {
+/** Internal resolved shape: `entryMs` / `smoothMs` are concrete numbers
+ *  (`false` from the public surface gets normalized to `0` at the merge
+ *  boundary, so downstream reads never see the disable sentinel). */
+type ResolvedBarOptions = Omit<BarSeriesOptions, 'entryMs' | 'smoothMs'> & {
+  entryMs: number;
+  smoothMs: number;
+};
+
+const DEFAULT_OPTIONS: ResolvedBarOptions = {
   colors: ['#26a69a', '#ef5350'],
   barWidthRatio: 0.6,
   stacking: 'off',
+  entryMs: DEFAULT_BAR_ENTRY,
+  smoothMs: DEFAULT_BAR_SMOOTH,
 };
 
+function normalize(options: BarSeriesOptions): ResolvedBarOptions {
+  return {
+    ...options,
+    entryMs: options.entryMs === false ? 0 : (options.entryMs ?? DEFAULT_BAR_ENTRY),
+    smoothMs: options.smoothMs === false ? 0 : (options.smoothMs ?? DEFAULT_BAR_SMOOTH),
+  };
+}
+
 export class BarRenderer extends BaseMultiLayerSeries<TimePoint> {
-  private options: BarSeriesOptions;
+  protected declare options: ResolvedBarOptions;
 
   constructor(layerCount: number, options?: Partial<BarSeriesOptions>) {
     super(layerCount);
-    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.options = normalize({ ...DEFAULT_OPTIONS, ...options });
   }
 
   /** For chart compatibility — returns first store */
@@ -26,19 +43,7 @@ export class BarRenderer extends BaseMultiLayerSeries<TimePoint> {
   }
 
   updateOptions(options: Partial<BarSeriesOptions>): void {
-    this.options = { ...this.options, ...options };
-  }
-
-  protected getCommonOptions(): CommonSeriesOptions {
-    return this.options;
-  }
-
-  protected resolvedEntryMs(): number {
-    return resolveMs(this.options.entryMs, DEFAULT_BAR_ENTRY);
-  }
-
-  protected resolvedSmoothMs(): number {
-    return resolveMs(this.options.smoothMs, DEFAULT_BAR_SMOOTH);
+    this.options = normalize({ ...this.options, ...options });
   }
 
   protected isEntryEnabled(): boolean {

@@ -1,22 +1,9 @@
 import type { VisibleRange } from '../types';
-import { DEFAULT_X_SETTLE_MS } from './config';
-import { type AnimationTime, resolveAnimationTime } from './time';
-import type { RetargetOptions, Transition, TransitionFactory } from './transition';
+import type { RetargetOptions, Transition } from './transition';
 
-export interface VisibleRangeSpringOptions {
-  initial: VisibleRange;
-  /**
-   * Approximate settle time in milliseconds. Used to derive ω = 4.6 /
-   * (settleMs / 1000); the spring's position reaches within ~1% of the
-   * target after `settleMs` from a cold start.
-   *
-   * X has no expand/contract distinction — both sides of the visible range
-   * use the same natural frequency. Stream-tick targets advance forward,
-   * gesture targets can move either way, and a single ω keeps the visual
-   * symmetric and predictable.
-   */
-  settleMs: number;
-}
+/** Default ω if engine ever calls `retarget` bare (engine always supplies). */
+const FALLBACK_MS = 200;
+const FALLBACK_OMEGA = 4.6 / (FALLBACK_MS / 1000);
 
 /**
  * Critically-damped spring tracking a {@link VisibleRange} target. The `from`
@@ -38,38 +25,27 @@ export interface VisibleRangeSpringOptions {
  * solution `x(t) = target + (a + b·t)·e^(−ωt)` (with `a = x₀ − target` and
  * `b = v₀ + ω·a`) is integrated analytically per `tick`, so the simulation
  * is stable for any frame interval and any settle time.
+ *
+ * X has no expand/contract distinction — both sides of the visible range
+ * use the same natural frequency. The engine always supplies the active
+ * settle time per call via `RetargetOptions.expandMs`; this curve has no
+ * stored baseline. Per-call `expandMs <= 0` folds the retarget into a snap.
  */
 export class VisibleRangeSpring implements Transition<VisibleRange> {
   #x0: VisibleRange;
   #v0From = 0;
   #v0To = 0;
   #target: VisibleRange;
-  /**
-   * Baseline natural frequency, derived from `settleMs` at construction or
-   * via {@link setSettleMs}. Used as the fallback when a `retarget` call
-   * doesn't supply a per-call `expandMs` override.
-   */
-  #omegaBase: number;
-  /**
-   * Active natural frequency for the current animation. Set on each
-   * `retarget` from either the per-call `expandMs` (gesture) or the
-   * baseline (streaming). Stays in effect until the next retarget.
-   */
-  #omega: number;
-  #instant: boolean;
+  /** Active natural frequency for the current animation. Set on each
+   *  `retarget` from the per-call `expandMs`. */
+  #omega = FALLBACK_OMEGA;
   #t0: number = -1;
   #cached: VisibleRange;
 
-  constructor(opts: VisibleRangeSpringOptions) {
+  constructor(opts: { initial: VisibleRange }) {
     this.#x0 = { from: opts.initial.from, to: opts.initial.to };
     this.#target = { from: opts.initial.from, to: opts.initial.to };
     this.#cached = { from: opts.initial.from, to: opts.initial.to };
-    // `settleMs <= 0` is a snap-only config (`animations: false`); fold
-    // every `retarget` into `snap` and clamp omega so the math stays finite
-    // even when the snap path is bypassed.
-    this.#instant = opts.settleMs <= 0;
-    this.#omegaBase = this.#instant ? Number.MAX_SAFE_INTEGER : 4.6 / (opts.settleMs / 1000);
-    this.#omega = this.#omegaBase;
   }
 
   get current(): VisibleRange {
@@ -91,27 +67,16 @@ export class VisibleRangeSpring implements Transition<VisibleRange> {
     );
   }
 
-  /** Update the baseline natural frequency. Subsequent `retarget` calls
-   *  without a per-call `expandMs` will use this value. Existing position
-   *  and velocity are preserved. */
-  setSettleMs(settleMs: number): void {
-    if (this.#instant || settleMs <= 0) return;
-    this.#omegaBase = 4.6 / (settleMs / 1000);
-  }
-
   retarget(value: VisibleRange, opts: RetargetOptions = {}): void {
-    if (this.#instant) {
+    const expandMs = opts.expandMs ?? FALLBACK_MS;
+    if (expandMs <= 0) {
       this.snap(value, opts);
 
       return;
     }
+
     const now = opts.now ?? performance.now();
-    // RetargetOptions carries expandMs/contractMs for Y semantics. For X we
-    // collapse to a single per-call override: use `expandMs` if supplied,
-    // otherwise fall back to the baseline (streaming cadence target). The
-    // override is one-shot — `#omegaBase` is NOT modified, so the next
-    // streaming retarget reads the cadence-tuned baseline again.
-    const omega = opts.expandMs !== undefined ? 4.6 / (opts.expandMs / 1000) : this.#omegaBase;
+    const omega = 4.6 / (expandMs / 1000);
 
     if (this.#t0 < 0) {
       this.#target = { from: value.from, to: value.to };
@@ -148,8 +113,6 @@ export class VisibleRangeSpring implements Transition<VisibleRange> {
   /** Advance the analytic solution to `now`. Returns `true` while still
    *  perceptibly moving (animating); `false` when settled within ε of target. */
   tick(now: number): boolean {
-    if (this.#instant) return false;
-
     if (this.#t0 < 0) {
       this.#t0 = now;
 
@@ -199,28 +162,4 @@ export class VisibleRangeSpring implements Transition<VisibleRange> {
 
     return range * 1e-4;
   }
-}
-
-// =============================================================================
-// Factory
-// =============================================================================
-
-export interface XSpringOpts {
-  /**
-   * Settle time (ms). Spring reaches ~99% of the target after this many ms.
-   * Default {@link DEFAULT_X_SETTLE_MS}.
-   */
-  settleMs?: AnimationTime;
-}
-
-/**
- * Critically-damped spring X transition. Asymptotic approach, no fixed
- * deadline; velocity-continuous through any mid-flight retarget. Used for
- * the streaming X slide AND user gesture targets so a wheel-zoom series
- * feels continuous instead of stepping through discrete snaps.
- */
-export function xSpring(opts: XSpringOpts = {}): TransitionFactory<VisibleRange> {
-  const settleMs = resolveAnimationTime(opts.settleMs, DEFAULT_X_SETTLE_MS);
-
-  return ({ initial }) => new VisibleRangeSpring({ initial, settleMs });
 }

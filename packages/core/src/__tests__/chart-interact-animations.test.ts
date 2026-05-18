@@ -33,7 +33,7 @@ describe('gesture priority on the X slot', () => {
       }) as DOMRect;
     document.body.appendChild(container);
 
-    return new ChartInstance(container, { animations: { x: { gesture: 0 } } });
+    return new ChartInstance(container, { animations: { axis: { x: { gesture: 0 } } } });
   }
 
   it('pan during a streaming append commits logical to the pan destination, not the stream target', () => {
@@ -106,7 +106,7 @@ describe('autoscroll re-engagement reads logical, not visual', () => {
       }) as DOMRect;
     document.body.appendChild(container);
 
-    return new ChartInstance(container, { animations: { x: { gesture: 0 } } });
+    return new ChartInstance(container, { animations: { axis: { x: { gesture: 0 } } } });
   }
 
   it('pan back over dataEnd re-engages autoScroll the next renderMain tick', () => {

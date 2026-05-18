@@ -2,8 +2,8 @@
  * Animation config — single home for:
  *
  *   1. Default durations (`DEFAULT_*`) — shared baselines consumed by
- *      {@link AnimationConfig.resolve}, the renderer factories, the Y
- *      transition factories, and the axis tick-fade tracker.
+ *      {@link AnimationConfig.resolve}, the renderer factories, and the
+ *      axis tick-fade tracker.
  *   2. Public {@link AnimationsConfig} shape — what users pass to
  *      `ChartOptions.animations`.
  *   3. Runtime {@link AnimationConfig} class — resolved view with every
@@ -11,6 +11,8 @@
  *      for the chart's `addXSeries` option-merge.
  */
 
+import type { VisibleRange, YRange } from '../types';
+import { spring } from './spring';
 import { type AnimationTime, resolveAnimationTime } from './time';
 import type { TransitionFactory } from './transition';
 import { hermite } from './y-range-hermite';
@@ -50,7 +52,7 @@ export const DEFAULT_PIE_ENTRY = 250;
 export const DEFAULT_PIE_UPDATE = 250;
 
 // =============================================================================
-// X / Y / axis defaults
+// Axis durations
 // =============================================================================
 
 /**
@@ -67,63 +69,41 @@ export const DEFAULT_X_SETTLE_MS = 200;
  * sequences feel responsive — the streaming baseline can be 3× the producer
  * cadence (≥ 750 ms at 250 ms feeds) which would feel sluggish for a gesture.
  */
-export const DEFAULT_X_GESTURE_SETTLE_MS = 150;
+export const DEFAULT_X_GESTURE_MS = 150;
 
 /**
- * @deprecated Replaced by spring physics — `dataTickMs` is no longer used.
- * Retained as a constant for one release so external code referencing it
- * still compiles. Use `settleMs` via {@link xSpring} or `animations.x.settle`.
+ * Outward Y settle duration — applied when a bound moves *away* from the
+ * current centre to reach a new extreme. Fast so the entering value doesn't
+ * render off-canvas.
  */
-export const DEFAULT_X_DATA_TICK = 250;
+export const DEFAULT_Y_SETTLE_MS = 250;
 
 /**
- * Per-event ease applied to user pan/zoom commits. Logical state advances
- * synchronously (gesture math, edge detection, autoscroll all read the
- * committed target); the visual range eases over this duration so a single
- * mouse event isn't a teleport and back-to-back wheel/trackpad events
- * interpolate smoothly through the same animator.
- *
- * Defaults to `0` (instant apply) — opt in via `animations.x.gesture`
- * (suggested value 60). The default is conservative because the animated
- * visual range diverges from the committed target until the ease completes;
- * consumers reading `chart.getVisibleRange()` synchronously after a wheel/pan
- * expect the new value.
+ * Inward Y settle duration — applied when a bound contracts *toward* the
+ * current centre after a recent extreme leaves the window. Long so the chart
+ * holds the wider bound when an outlier scrolls off (the "sticky-Y" feel).
  */
-export const DEFAULT_X_GESTURE = 0;
+export const DEFAULT_Y_STICKY_MS = 2_500;
 
 /**
  * Short-ease applied to the Y animator while a user gesture is active.
- * The default sticky-Y contract duration (2500 ms) is intentionally long
- * for streaming feeds — outliers leaving the window shouldn't reflow the
- * whole chart — but during pan/zoom the user explicitly chose a new view,
- * so contractions should converge in roughly one frame per wheel tick
- * instead of crawling over the full contract budget.
+ * Default Y sticky-contract (2500 ms) is intentionally long for streaming
+ * feeds, but during pan/zoom the user explicitly chose a new view, so
+ * contractions should converge in roughly one frame per wheel tick instead
+ * of crawling over the full sticky budget.
  */
-export const DEFAULT_Y_GESTURE = 100;
+export const DEFAULT_Y_GESTURE_MS = 100;
 
 /**
- * Default duration for `ChartInstance.setSeriesVisible` fade transitions —
- * the cross-fade applied to the series alpha AND the one-shot Y-range
- * duration override used for the same toggle, so the fade and the axis
- * re-fit settle on the same frame.
+ * Default duration for {@link AnimationsConfig.toggle} — the cross-fade
+ * applied to series alpha AND the one-shot Y-range re-fit override used for
+ * the same toggle, so the fade and the axis adjustment settle on the same
+ * frame.
  */
-export const DEFAULT_Y_VISIBILITY = 250;
+export const DEFAULT_TOGGLE_MS = 250;
 
 /** Axis tick label cross-fade duration. */
-export const DEFAULT_AXIS_TICK_FADE = 250;
-
-// =============================================================================
-// Y transition factory baselines
-// =============================================================================
-
-/** Outward (expanding) settle time baked into `hermite()` when unset. */
-export const DEFAULT_HERMITE_EXPAND = 250;
-/** Inward (contracting) settle time baked into `hermite()` when unset. */
-export const DEFAULT_HERMITE_CONTRACT = 2_500;
-/** Outward settle time baked into `spring()` when unset. ~99% target after this many ms. */
-export const DEFAULT_SPRING_EXPAND_SPEED = 250;
-/** Inward settle time baked into `spring()` when unset. */
-export const DEFAULT_SPRING_CONTRACT_SPEED = 2_500;
+export const DEFAULT_TICKS_MS = 250;
 
 // =============================================================================
 // Public `AnimationsConfig` input surface
@@ -132,83 +112,97 @@ export const DEFAULT_SPRING_CONTRACT_SPEED = 2_500;
 /**
  * Animation behavior knobs grouped by surface:
  *
- * - `y` — Y bound chase: pluggable transition curve, gesture-time short
- *   ease, visibility-toggle re-fit duration.
- * - `x` — X viewport: streaming scroll floor, per-event pan/zoom ease.
+ * - `axis.y` — Y bound chase: pluggable curve, expand/contract/gesture
+ *   settle times.
+ * - `axis.x` — X viewport: streaming settle + gesture override.
+ * - `axis.ticks` — axis tick label cross-fade.
+ * - `toggle` — series visibility (alpha fade + Y re-fit, locked to one
+ *   duration so they finish on the same frame).
  * - `series.{line,candlestick,bar,pie}` — per-series-type data tweens.
- * - `axis.tickFade` — axis tick label cross-fade.
  *
- * Top-level `false` disables every animation category. Each category-level
- * `false` disables every field in that category. Series-type-level `false`
- * (`series: { line: false }`) disables that type only.
+ * Top-level `false` disables every animation category. `axis: false`
+ * disables both axes and ticks. `axis.y: false` / `axis.x: false` disables
+ * that axis only. Series-type-level `false` (`series: { line: false }`)
+ * disables that type only.
  *
  * The per-series numeric fields (`entry` / `smooth` / `pulse`) also exist
  * on individual series options (`<XSeries options={{ entryMs }}>`). The
  * chart-level field acts as the default for any series that hasn't set its
  * own override; an explicit `series.<type>: false` (or top-level `false`)
  * is a hard disable that overrides per-series.
- *
- * All settling animations share a 250 ms default so the X re-fit, Y range
- * update, and last-bar live-track all settle on the same frame on a
- * streaming tick. Pulse cycle period (600 ms) and `x.gesture` (0, opt-in)
- * keep their own values.
  */
 export interface AnimationsConfig {
   /**
-   * Y bound chase. `false` disables: Y range snaps instantly and visibility
-   * toggles skip their fade.
+   * Axis-level animation. `false` collapses both axes and ticks to instant.
    */
-  y?:
+  axis?:
     | false
     | {
-        /** Y curve factory. See {@link hermite}, {@link spring}, {@link snap}. */
-        transition?: TransitionFactory;
         /**
-         * One-shot Y settle time applied while a user gesture (pan/zoom) is
-         * active. Shorter than the curve's baseline so contractions during
-         * interaction converge in ~one frame per wheel tick instead of
-         * crawling through the long sticky-Y window. Default: 100 ms.
+         * Y bound chase. `false` snaps Y instantly.
          */
-        gesture?: AnimationTime;
+        y?:
+          | false
+          | {
+              /** Y curve. See {@link hermite}, {@link spring}, {@link snap}. */
+              curve?: TransitionFactory<YRange>;
+              /**
+               * Outward settle time — bound expanding to a new extreme.
+               * Default {@link DEFAULT_Y_SETTLE_MS}.
+               */
+              settle?: AnimationTime;
+              /**
+               * Inward settle time — bound contracting after an extreme
+               * leaves the window. Long by default so the chart doesn't
+               * reflow when outliers scroll off ("sticky-Y").
+               * Default {@link DEFAULT_Y_STICKY_MS}.
+               */
+              sticky?: AnimationTime;
+              /**
+               * One-shot override during a user gesture (pan/zoom). Shorter
+               * than `sticky` so contractions during interaction converge in
+               * ~one frame per wheel tick. Default {@link DEFAULT_Y_GESTURE_MS}.
+               */
+              gesture?: AnimationTime;
+            };
         /**
-         * Duration of the show/hide transition triggered by
-         * `ChartInstance.setSeriesVisible`. The line/bar/candle alpha
-         * cross-fades over this window AND the Y range re-fit uses the same
-         * duration (one-shot override over the curve's baseline), so the
-         * fade and the axis adjustment finish on the same frame. Default:
-         * 250 ms. `false` / `0` makes visibility toggles instant.
+         * X viewport. `false` snaps X instantly. The default critically-
+         * damped spring carries velocity across retargets so wheel-zoom
+         * sequences feel continuous and stream ticks blend smoothly into
+         * gesture motion.
          */
-        visibility?: AnimationTime;
+        x?:
+          | false
+          | {
+              /** X curve. See {@link spring}, {@link snap}. */
+              curve?: TransitionFactory<VisibleRange>;
+              /**
+               * Streaming settle time. Spring reaches ~99% of the target
+               * after this many ms. Used for streaming retargets; the
+               * streaming-cadence EMA tunes the effective value upward when
+               * data arrives slower than the baseline.
+               * Default {@link DEFAULT_X_SETTLE_MS}.
+               */
+              settle?: AnimationTime;
+              /**
+               * One-shot override applied to user pan/zoom commits and to
+               * programmatic `fitContent`. Default {@link DEFAULT_X_GESTURE_MS}.
+               */
+              gesture?: AnimationTime;
+            };
+        /**
+         * Axis tick label cross-fade. `false` makes tick relabel instant.
+         * Default {@link DEFAULT_TICKS_MS}.
+         */
+        ticks?: AnimationTime;
       };
   /**
-   * X viewport. `false` disables animation — X changes snap instantly. With
-   * the default critically-damped spring, all X-target changes (streaming
-   * ticks, wheel zoom, pan drag) flow through the same physics: velocity
-   * carries across retargets so wheel-zoom sequences feel continuous, and
-   * stream ticks blend smoothly into gesture motion.
+   * Series-visibility toggle duration. Drives BOTH the renderer's alpha
+   * cross-fade and the engine's Y re-fit ease, so the two animations land
+   * on the same frame. Default {@link DEFAULT_TOGGLE_MS}. `false` makes
+   * `setSeriesVisible` instant.
    */
-  x?:
-    | false
-    | {
-        /**
-         * Spring settle time in milliseconds. Spring reaches ~99% of the
-         * target after this many ms. Used for streaming retargets AND user
-         * gesture commits. Default: 200 ms (compromise between gesture
-         * responsiveness and streaming smoothness).
-         */
-        settle?: AnimationTime;
-        /**
-         * @deprecated Replaced by `settle` (spring physics handles streaming
-         * cadence automatically). When set without `settle`, used as the
-         * fallback settle time for one release; remove in next major.
-         */
-        dataTick?: AnimationTime;
-        /**
-         * @deprecated Spring on gesture commits is always on with the new
-         * physics. Setting this has no effect; remove in next major.
-         */
-        gesture?: AnimationTime;
-      };
+  toggle?: AnimationTime;
   /**
    * Per-series-type data animations. `false` disables every per-point
    * animation across every series. Setting a single type to `false`
@@ -231,13 +225,26 @@ export interface AnimationsConfig {
          */
         pie?: false | { entry?: AnimationTime; update?: AnimationTime };
       };
-  /** Axis tick label cross-fade. `false` makes tick relabel instant. */
-  axis?: false | { tickFade?: AnimationTime };
 }
 
 // =============================================================================
 // Resolved runtime shape — used internally by chart + viewport-engine
 // =============================================================================
+
+/** Resolved per-axis Y durations. */
+export interface ResolvedYAxisAnimation {
+  curve: TransitionFactory<YRange>;
+  settleMs: number;
+  stickyMs: number;
+  gestureMs: number;
+}
+
+/** Resolved per-axis X durations. */
+export interface ResolvedXAxisAnimation {
+  curve: TransitionFactory<VisibleRange>;
+  settleMs: number;
+  gestureMs: number;
+}
 
 /** Resolved per-series numeric durations (Pie has its own `updateMs`). */
 export interface ResolvedSeriesAnimations {
@@ -265,21 +272,22 @@ const ZERO_SERIES_ANIMATIONS: ResolvedSeriesAnimations = {
  * @internal
  */
 export class AnimationConfig {
-  readonly y: { transition: TransitionFactory; gestureMs: number; visibilityMs: number };
-  readonly x: { settleMs: number };
+  readonly axis: {
+    y: ResolvedYAxisAnimation;
+    x: ResolvedXAxisAnimation;
+    ticksMs: number;
+  };
+  readonly toggleMs: number;
   readonly series: ResolvedSeriesAnimations;
-  readonly axis: { tickFadeMs: number };
 
   private constructor(
-    y: { transition: TransitionFactory; gestureMs: number; visibilityMs: number },
-    x: { settleMs: number },
+    axis: { y: ResolvedYAxisAnimation; x: ResolvedXAxisAnimation; ticksMs: number },
+    toggleMs: number,
     series: ResolvedSeriesAnimations,
-    axis: { tickFadeMs: number },
   ) {
-    this.y = y;
-    this.x = x;
-    this.series = series;
     this.axis = axis;
+    this.toggleMs = toggleMs;
+    this.series = series;
   }
 
   /**
@@ -291,46 +299,57 @@ export class AnimationConfig {
   static resolve(input: boolean | AnimationsConfig | undefined): AnimationConfig {
     if (input === false) {
       return new AnimationConfig(
-        { transition: snap(), gestureMs: 0, visibilityMs: 0 },
-        { settleMs: 0 },
+        {
+          y: { curve: snap(), settleMs: 0, stickyMs: 0, gestureMs: 0 },
+          x: { curve: snap(), settleMs: 0, gestureMs: 0 },
+          ticksMs: 0,
+        },
+        0,
         ZERO_SERIES_ANIMATIONS,
-        { tickFadeMs: 0 },
       );
     }
 
     const cfg = input === true || input === undefined ? undefined : input;
-    const rawY = cfg?.y;
-    const rawX = cfg?.x;
-    const rawSeries = cfg?.series;
     const rawAxis = cfg?.axis;
+    const rawY = rawAxis === false ? false : rawAxis?.y;
+    const rawX = rawAxis === false ? false : rawAxis?.x;
+    const rawTicks = rawAxis === false ? false : rawAxis?.ticks;
+    const rawToggle = cfg?.toggle;
+    const rawSeries = cfg?.series;
 
-    const y =
+    const y: ResolvedYAxisAnimation =
       rawY === false
-        ? { transition: snap(), gestureMs: 0, visibilityMs: 0 }
+        ? {
+            curve: snap(),
+            settleMs: 0,
+            stickyMs: 0,
+            gestureMs: 0,
+          }
         : {
-            transition: rawY?.transition ?? hermite(),
-            gestureMs: resolveAnimationTime(rawY?.gesture, DEFAULT_Y_GESTURE),
-            visibilityMs: resolveAnimationTime(rawY?.visibility, DEFAULT_Y_VISIBILITY),
+            curve: rawY?.curve ?? hermite(),
+            settleMs: resolveAnimationTime(rawY?.settle, DEFAULT_Y_SETTLE_MS),
+            stickyMs: resolveAnimationTime(rawY?.sticky, DEFAULT_Y_STICKY_MS),
+            gestureMs: resolveAnimationTime(rawY?.gesture, DEFAULT_Y_GESTURE_MS),
           };
 
-    // `settle` is the new spring settle time. `dataTick` is a deprecated
-    // alias used as fallback for one release. `gesture` is ignored — gesture
-    // commits flow through the same spring as streaming.
-    const x =
+    const x: ResolvedXAxisAnimation =
       rawX === false
-        ? { settleMs: 0 }
+        ? {
+            curve: snap<VisibleRange>(),
+            settleMs: 0,
+            gestureMs: 0,
+          }
         : {
-            settleMs: resolveAnimationTime(rawX?.settle ?? rawX?.dataTick, DEFAULT_X_SETTLE_MS),
+            curve: rawX?.curve ?? spring<VisibleRange>(),
+            settleMs: resolveAnimationTime(rawX?.settle, DEFAULT_X_SETTLE_MS),
+            gestureMs: resolveAnimationTime(rawX?.gesture, DEFAULT_X_GESTURE_MS),
           };
 
+    const ticksMs = rawTicks === false ? 0 : resolveAnimationTime(rawTicks, DEFAULT_TICKS_MS);
+    const toggleMs = resolveAnimationTime(rawToggle, DEFAULT_TOGGLE_MS);
     const series = resolveSeriesAnimations(rawSeries);
 
-    const axis =
-      rawAxis === false
-        ? { tickFadeMs: 0 }
-        : { tickFadeMs: resolveAnimationTime(rawAxis?.tickFade, DEFAULT_AXIS_TICK_FADE) };
-
-    return new AnimationConfig(y, x, series, axis);
+    return new AnimationConfig({ y, x, ticksMs }, toggleMs, series);
   }
 
   /**
