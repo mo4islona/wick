@@ -308,10 +308,12 @@ function resolveTypeName(typeNode) {
     // sitting under `node_modules/` so user-side type packages like
     // `@types/react` aren't expanded either. Local API config types
     // (our own interfaces) always live in the project source tree and
-    // pass this check.
+    // pass this check. `continue` (not `return null`) so a later
+    // in-repo declaration of the same symbol (interface merging /
+    // module augmentation) is still considered.
     const sf = d.getSourceFile();
-    if (program.isSourceFileDefaultLibrary(sf)) return null;
-    if (sf.fileName.includes('/node_modules/')) return null;
+    if (program.isSourceFileDefaultLibrary(sf)) continue;
+    if (sf.fileName.includes('/node_modules/')) continue;
 
     if (ts.isInterfaceDeclaration(d)) {
       if (['Partial', 'Pick', 'Omit', 'Record'].includes(aliased.getName())) return null;
