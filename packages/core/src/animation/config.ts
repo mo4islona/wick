@@ -148,20 +148,24 @@ export interface AnimationsConfig {
               curve?: TransitionFactory<YRange>;
               /**
                * Outward settle time — bound expanding to a new extreme.
-               * Default {@link DEFAULT_Y_SETTLE_MS}.
+               *
+               * @default {@link DEFAULT_Y_SETTLE_MS}
                */
               settle?: AnimationTime;
               /**
                * Inward settle time — bound contracting after an extreme
                * leaves the window. Long by default so the chart doesn't
                * reflow when outliers scroll off ("sticky-Y").
-               * Default {@link DEFAULT_Y_STICKY_MS}.
+               *
+               * @default {@link DEFAULT_Y_STICKY_MS}
                */
               sticky?: AnimationTime;
               /**
                * One-shot override during a user gesture (pan/zoom). Shorter
                * than `sticky` so contractions during interaction converge in
-               * ~one frame per wheel tick. Default {@link DEFAULT_Y_GESTURE_MS}.
+               * ~one frame per wheel tick.
+               *
+               * @default {@link DEFAULT_Y_GESTURE_MS}
                */
               gesture?: AnimationTime;
             };
@@ -181,26 +185,31 @@ export interface AnimationsConfig {
                * after this many ms. Used for streaming retargets; the
                * streaming-cadence EMA tunes the effective value upward when
                * data arrives slower than the baseline.
-               * Default {@link DEFAULT_X_SETTLE_MS}.
+               *
+               * @default {@link DEFAULT_X_SETTLE_MS}
                */
               settle?: AnimationTime;
               /**
                * One-shot override applied to user pan/zoom commits and to
-               * programmatic `fitContent`. Default {@link DEFAULT_X_GESTURE_MS}.
+               * programmatic `fitContent`.
+               *
+               * @default {@link DEFAULT_X_GESTURE_MS}
                */
               gesture?: AnimationTime;
             };
         /**
          * Axis tick label cross-fade. `false` makes tick relabel instant.
-         * Default {@link DEFAULT_TICKS_MS}.
+         *
+         * @default {@link DEFAULT_TICKS_MS}
          */
         ticks?: AnimationTime;
       };
   /**
    * Series-visibility toggle duration. Drives BOTH the renderer's alpha
    * cross-fade and the engine's Y re-fit ease, so the two animations land
-   * on the same frame. Default {@link DEFAULT_TOGGLE_MS}. `false` makes
-   * `setSeriesVisible` instant.
+   * on the same frame. `false` makes `setSeriesVisible` instant.
+   *
+   * @default {@link DEFAULT_TOGGLE_MS}
    */
   toggle?: AnimationTime;
   /**
@@ -215,15 +224,99 @@ export interface AnimationsConfig {
   series?:
     | false
     | {
-        line?: false | { entry?: AnimationTime; smooth?: AnimationTime; pulse?: AnimationTime };
-        candlestick?: false | { entry?: AnimationTime; smooth?: AnimationTime };
-        bar?: false | { entry?: AnimationTime; smooth?: AnimationTime };
+        /**
+         * Line-series tweens. `false` disables all line animations
+         * (entrance, live-smoothing, pulse).
+         */
+        line?:
+          | false
+          | {
+              /**
+               * Per-point entrance duration. `false` disables the entrance
+               * (equivalent to `entryAnimation: 'none'`).
+               *
+               * @default {@link DEFAULT_LINE_ENTRY}
+               */
+              entry?: AnimationTime;
+              /**
+               * Last-value chase duration on `updateLastPoint`. `false` /
+               * `0` snaps to the target instantly.
+               *
+               * @default {@link DEFAULT_LINE_SMOOTH}
+               */
+              smooth?: AnimationTime;
+              /**
+               * Halo cycle period at the line tail. Periodic loop, not a
+               * one-shot. `false` / `0` turns the halo off entirely (drawing
+               * and animation loop).
+               *
+               * @default {@link DEFAULT_LINE_PULSE}
+               */
+              pulse?: AnimationTime;
+            };
+        /**
+         * Candlestick tweens. `false` disables candle entrance + OHLC chase.
+         */
+        candlestick?:
+          | false
+          | {
+              /**
+               * Per-candle entrance duration. `false` disables the entrance
+               * (equivalent to `entryAnimation: 'none'`).
+               *
+               * @default {@link DEFAULT_CANDLESTICK_ENTRY}
+               */
+              entry?: AnimationTime;
+              /**
+               * Live OHLC chase duration on `updateLastPoint`. `false` / `0`
+               * snaps to the target instantly.
+               *
+               * @default {@link DEFAULT_CANDLESTICK_SMOOTH}
+               */
+              smooth?: AnimationTime;
+            };
+        /**
+         * Bar-series tweens. `false` disables bar entrance + value chase.
+         */
+        bar?:
+          | false
+          | {
+              /**
+               * Per-bar entrance duration. `false` disables the entrance
+               * (equivalent to `entryAnimation: 'none'`).
+               *
+               * @default {@link DEFAULT_BAR_ENTRY}
+               */
+              entry?: AnimationTime;
+              /**
+               * Live value chase duration on `updateLastPoint`. `false` /
+               * `0` snaps to the target instantly.
+               *
+               * @default {@link DEFAULT_BAR_SMOOTH}
+               */
+              smooth?: AnimationTime;
+            };
         /**
          * Pie segment entry/update tweens. Parsed at config-time; the actual
          * wiring lands in a later phase — providing a value here today is a
          * no-op but the shape is stable.
          */
-        pie?: false | { entry?: AnimationTime; update?: AnimationTime };
+        pie?:
+          | false
+          | {
+              /**
+               * Slice grow-in duration on first paint.
+               *
+               * @default {@link DEFAULT_PIE_ENTRY}
+               */
+              entry?: AnimationTime;
+              /**
+               * Slice resize duration when data changes.
+               *
+               * @default {@link DEFAULT_PIE_UPDATE}
+               */
+              update?: AnimationTime;
+            };
       };
 }
 

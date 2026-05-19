@@ -160,15 +160,16 @@ export interface CandlestickSeriesOptions {
    * // Override for one series:
    * <CandlestickSeries options={{ entryMs: 600 }} data={data} />
    *
-   * // Or set the default for every series at once:
-   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   * // Or set the default for every candlestick series at once:
+   * <ChartContainer animations={{ series: { candlestick: { entry: 600 } } }}>
    *   <CandlestickSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `false` or `0` disables the entrance (equivalent to
-   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
-   * hard disable that wins over this field.
+   * `entryAnimation: 'none'`). A chart-level
+   * `animations.series.candlestick: false` is a hard disable that wins over
+   * this field.
    *
    * @see CandlestickSeriesOptions.entryAnimation
    */
@@ -182,14 +183,14 @@ export interface CandlestickSeriesOptions {
    * <CandlestickSeries options={{ smoothMs: 100 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   * <ChartContainer animations={{ series: { candlestick: { smooth: 100 } } }}>
    *   <CandlestickSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `0` or `false` snaps the displayed value to the target on every tick
-   * (no smoothing). A chart-level `animations.points: false` is a hard
-   * disable that wins over this field.
+   * (no smoothing). A chart-level `animations.series.candlestick: false` is
+   * a hard disable that wins over this field.
    */
   smoothMs?: number | false;
 }
@@ -229,14 +230,14 @@ export interface LineSeriesOptions {
    * <LineSeries options={{ pulseMs: 1200 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { pulseMs: 1200 } }}>
+   * <ChartContainer animations={{ series: { line: { pulse: 1200 } } }}>
    *   <LineSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `false` or `0` turns the halo off entirely (drawing and animation loop).
-   * A chart-level `animations.points: false` is a hard disable that wins
-   * over this field.
+   * A chart-level `animations.series.line: false` is a hard disable that
+   * wins over this field.
    */
   pulseMs?: number | false;
   /** Stacking mode. Default: 'off'. */
@@ -256,15 +257,15 @@ export interface LineSeriesOptions {
    * // Override for one series:
    * <LineSeries options={{ entryMs: 600 }} data={data} />
    *
-   * // Or set the default for every series at once:
-   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   * // Or set the default for every line series at once:
+   * <ChartContainer animations={{ series: { line: { entry: 600 } } }}>
    *   <LineSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `false` or `0` disables the entrance (equivalent to
-   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
-   * hard disable that wins over this field.
+   * `entryAnimation: 'none'`). A chart-level `animations.series.line: false`
+   * is a hard disable that wins over this field.
    *
    * @see LineSeriesOptions.entryAnimation
    */
@@ -278,13 +279,13 @@ export interface LineSeriesOptions {
    * <LineSeries options={{ smoothMs: 100 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   * <ChartContainer animations={{ series: { line: { smooth: 100 } } }}>
    *   <LineSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `0` or `false` snaps the displayed value to the target on every tick
-   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * (no smoothing). A chart-level `animations.series.line: false` is a hard
    * disable that wins over this field.
    */
   smoothMs?: number | false;
@@ -328,15 +329,15 @@ export interface BarSeriesOptions {
    * // Override for one series:
    * <BarSeries options={{ entryMs: 600 }} data={data} />
    *
-   * // Or set the default for every series at once:
-   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   * // Or set the default for every bar series at once:
+   * <ChartContainer animations={{ series: { bar: { entry: 600 } } }}>
    *   <BarSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `false` or `0` disables the entrance (equivalent to
-   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
-   * hard disable that wins over this field.
+   * `entryAnimation: 'none'`). A chart-level `animations.series.bar: false`
+   * is a hard disable that wins over this field.
    *
    * @see BarSeriesOptions.entryAnimation
    */
@@ -350,13 +351,13 @@ export interface BarSeriesOptions {
    * <BarSeries options={{ smoothMs: 100 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   * <ChartContainer animations={{ series: { bar: { smooth: 100 } } }}>
    *   <BarSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `0` or `false` snaps the displayed value to the target on every tick
-   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * (no smoothing). A chart-level `animations.series.bar: false` is a hard
    * disable that wins over this field.
    */
   smoothMs?: number | false;

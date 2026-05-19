@@ -77,7 +77,7 @@ function barRenderer(
  * Issue 1 — React wrappers replay the user's options on every render via
  * `updateSeriesOptions`; this path must enforce the same chart-level
  * force-off gates that `addXSeries` applies, otherwise
- * `animations.points: false` silently re-enables the moment the series
+ * `animations.series: false` silently re-enables the moment the series
  * gets its next options pass.
  */
 describe('updateSeriesOptions honors chart-level animation gates', () => {

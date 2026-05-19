@@ -697,7 +697,7 @@ export class LineRenderer extends BaseMultiLayerSeries<TimePoint> {
     // Pulse dots for line series (runs on overlay, not main layer).
     // Keep live-tracking in sync with the overlay pass — otherwise the pulse dot
     // would lag the smoothed line head by a frame.
-    // `pulseMs <= 0` at the chart level (`animations.points.pulseMs: false`
+    // `pulseMs <= 0` at the chart level (`animations.series.line.pulse: false`
     // or `animations: false`) disables the halo entirely; per-series `pulse`
     // still controls whether the dot is ever drawn.
     if (this.hasPulse && pulseMs > 0) {
