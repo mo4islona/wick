@@ -169,9 +169,9 @@ describe('CandlestickRenderer — live-tracking animation', () => {
       expect(fadedCalls.length).toBeGreaterThan(0);
     });
 
-    it('reaches full opacity after enterMs and clears needsAnimation', () => {
+    it('reaches full opacity after entryMs and clears needsAnimation', () => {
       const store = mkStore([{ time: 10, ...BULL }]);
-      const r = new CandlestickRenderer(store, { enterMs: 250 });
+      const r = new CandlestickRenderer(store, { entryMs: 250 });
       renderFrame(r);
 
       r.appendPoint({ time: 30, ...BULL });
@@ -186,7 +186,7 @@ describe('CandlestickRenderer — live-tracking animation', () => {
 
     it('mid-duration render returns partial progress, not fully-complete', () => {
       const store = mkStore([{ time: 10, ...BULL }]);
-      const r = new CandlestickRenderer(store, { enterMs: 250 });
+      const r = new CandlestickRenderer(store, { entryMs: 250 });
       renderFrame(r);
 
       r.appendPoint({ time: 30, ...BULL });
@@ -214,9 +214,9 @@ describe('CandlestickRenderer — live-tracking animation', () => {
       expect(displayedLast(r)).toEqual(liveAfterAppend);
     });
 
-    it("enterAnimation: 'none' never registers an entry", () => {
+    it("entryAnimation: 'none' never registers an entry", () => {
       const store = mkStore([{ time: 10, ...BULL }]);
-      const r = new CandlestickRenderer(store, { enterAnimation: 'none' });
+      const r = new CandlestickRenderer(store, { entryAnimation: 'none' });
       renderFrame(r);
 
       r.appendPoint({ time: 30, ...BULL });
@@ -236,7 +236,7 @@ describe('CandlestickRenderer — live-tracking animation', () => {
   describe('entrance styles', () => {
     function firstBodyRectWhileEntering(style: 'fade' | 'unfold' | 'slide' | 'fade-unfold') {
       const store = mkStore([{ time: 10, ...BULL }]);
-      const r = new CandlestickRenderer(store, { enterAnimation: style });
+      const r = new CandlestickRenderer(store, { entryAnimation: style });
       renderFrame(r);
 
       r.appendPoint({ time: 30, ...BULL });

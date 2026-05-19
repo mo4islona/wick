@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { formatTime, resolveAxisFontSize, resolveAxisTextColor } from '@wick-charts/core';
-import { computed, onUnmounted, watch } from 'vue';
+import { mountAxisLabels } from '@wick-charts/core';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 
-import { useVisibleRange } from '../composables';
 import { useChartInstance } from '../context';
 
 const props = defineProps<{
@@ -12,13 +11,8 @@ const props = defineProps<{
   minLabelSpacing?: number;
 }>();
 
-interface TrackedTick {
-  opacity: number;
-  addedAt: number;
-}
-
 const chart = useChartInstance();
-const visibleRange = useVisibleRange(chart);
+const containerRef = ref<HTMLDivElement | null>(null);
 
 const applyDensity = () => {
   chart.setTimeAxisLabelDensity({
@@ -32,51 +26,20 @@ onUnmounted(() => {
   chart.setTimeAxisLabelDensity({ labelCount: null, minLabelSpacing: null });
 });
 
-const tickMap = new Map<number, TrackedTick>();
-
-const theme = computed(() => chart.getTheme());
-
-const tickData = computed(() => {
-  // Access visibleRange.value to track dependency
-  void visibleRange.value;
-
-  const dataInterval = chart.getDataInterval();
-  const { ticks: currentTicks, tickInterval } = chart.timeScale.niceTickValues(dataInterval);
-  const currentSet = new Set(currentTicks);
-  const now = performance.now();
-
-  // Mark current ticks as visible
-  for (const t of currentTicks) {
-    if (!tickMap.has(t)) {
-      tickMap.set(t, { opacity: 1, addedAt: now });
-    } else {
-      tickMap.get(t)!.opacity = 1;
-    }
-  }
-
-  // Mark missing ticks for fade-out
-  for (const [t, entry] of tickMap) {
-    if (!currentSet.has(t)) {
-      entry.opacity = 0;
-    }
-  }
-
-  // Clean up old faded-out ticks
-  for (const [t, entry] of tickMap) {
-    if (entry.opacity === 0 && now - entry.addedAt > 5000) {
-      tickMap.delete(t);
-    }
-  }
-
-  return {
-    allTicks: Array.from(tickMap.entries()),
-    tickInterval,
-  };
+let cleanup: (() => void) | null = null;
+onMounted(() => {
+  if (containerRef.value === null) return;
+  cleanup = mountAxisLabels({ chart, container: containerRef.value, axis: 'x' });
+});
+onUnmounted(() => {
+  cleanup?.();
+  cleanup = null;
 });
 </script>
 
 <template>
   <div
+    ref="containerRef"
     :style="{
       position: 'absolute',
       left: '0',
@@ -87,25 +50,5 @@ const tickData = computed(() => {
       display: 'flex',
       alignItems: 'center',
     }"
-  >
-    <span
-      v-for="[time, entry] in tickData.allTicks"
-      :key="time"
-      :style="{
-        position: 'absolute',
-        left: chart.timeScale.timeToX(time) + 'px',
-        transform: 'translateX(-50%)',
-        color: resolveAxisTextColor(theme, 'x'),
-        fontSize: resolveAxisFontSize(theme, 'x') + 'px',
-        fontFamily: theme.typography.fontFamily,
-        userSelect: 'none',
-        whiteSpace: 'nowrap',
-        opacity: entry.opacity,
-        transition: 'opacity 0.25s ease',
-        willChange: 'opacity',
-      }"
-    >
-      {{ formatTime(time, tickData.tickInterval) }}
-    </span>
-  </div>
+  />
 </template>

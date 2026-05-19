@@ -22,8 +22,6 @@ export interface PerfStats {
   mainRendersPerSec: number;
   /** Same as {@link mainRendersPerSec} but for the overlay (crosshair + pulse) layer. */
   overlayRendersPerSec: number;
-  /** @deprecated Alias for {@link mainRendersPerSec}. Kept for older consumers. */
-  fps: number;
   mainFrameMs: FrameTimingSample;
   overlayFrameMs: FrameTimingSample;
   /** Total frames recorded per layer. Lets consumers distinguish "no data yet" from "drew once and ms is 0". */
@@ -229,7 +227,6 @@ export class PerfMonitor {
     return {
       mainRendersPerSec,
       overlayRendersPerSec: fpsFromStamps(this.overlayStamps),
-      fps: mainRendersPerSec,
       mainFrameMs: percentiles(this.mainMs),
       overlayFrameMs: percentiles(this.overlayMs),
       frameCount: { main: this.mainFrameCount, overlay: this.overlayFrameCount },

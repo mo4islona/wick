@@ -9,7 +9,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Animator } from '../../animation/animator';
-import { ANIM } from '../../animation/durations';
 import { type Easing, easeLinear } from '../../animation/easing';
 
 const numLerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -436,17 +435,17 @@ describe('Animator', () => {
     });
   });
 
-  describe('integration with ANIM constants', () => {
-    it('typical streaming retarget completes within ANIM.streamTick ms', () => {
+  describe('integration with shared 250ms baseline', () => {
+    it('typical streaming retarget completes within 250 ms', () => {
       const a = new Animator<number>({
         initial: 0,
-        duration: ANIM.streamTick,
+        duration: 250,
         lerp: numLerp,
       });
       now = 0;
       a.setTarget(100);
 
-      now = ANIM.streamTick;
+      now = 250;
       expect(a.tick(now)).toBe(false);
       expect(a.current).toBe(100);
     });

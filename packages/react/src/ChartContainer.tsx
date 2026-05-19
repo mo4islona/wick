@@ -18,6 +18,7 @@ import {
   type ChartOptions,
   type ChartTheme,
   type EdgeReachedInfo,
+  type VisibleRangeSpec,
 } from '@wick-charts/core';
 
 type PerfOption = NonNullable<ChartOptions['perf']>;
@@ -63,6 +64,30 @@ export interface ChartContainerProps {
      */
     left?: number | { intervals: number };
   };
+  /**
+   * Viewport-level streaming behavior. Captured at mount only — changing this
+   * prop after the chart is created is ignored.
+   */
+  viewport?: {
+    /**
+     * Width of the visible window in data bars, set on the first data load
+     * to `maxVisibleBars * dataInterval`. While the dataset is smaller than
+     * this width, streaming ticks render into the empty right-side gap and
+     * the viewport stays put; once the data reaches the right edge, the
+     * viewport pans forward to keep the latest bar pinned (tail-scroll).
+     * Default: 200.
+     */
+    maxVisibleBars?: number;
+    /**
+     * Initial visible range applied before the first paint with data. Same
+     * shape as the imperative `chart.setVisibleRange` — pass a bar count
+     * (e.g. `35`), an explicit `{from, to}` window, or `{from, bars}` for
+     * a warm-up pair. The standard alternative is calling
+     * `setVisibleRange` from a `useEffect`, but that runs post-paint and
+     * makes the chart visibly re-zoom on the next RAF. Captured at mount.
+     */
+    initialRange?: VisibleRangeSpec;
+  };
   /** Show the chart background gradient. Defaults to true. */
   gradient?: boolean;
   /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
@@ -82,33 +107,16 @@ export interface ChartContainerProps {
    */
   headerLayout?: 'overlay' | 'inline';
   /**
-   * Chart-level animation configuration. See {@link AnimationsConfig} for the
-   * full shape.
+   * Animation control. `true` / omitted uses built-in defaults; `false`
+   * disables every category. Per-series options on `<LineSeries>` /
+   * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
+   * defaults unless the category here is explicitly `false`.
    *
-   * Two layers — remember which is which:
-   *
-   * - **Chart-level (this prop)** — `animations.points.{enterMs, smoothMs,
-   *   pulseMs}` and `animations.viewport.{reboundMs, yAxisMs,
-   *   inputResponseMs}`. Acts as the default for every series.
-   * - **Per-series** — `<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`
-   *   (and the analogous CandlestickSeries / BarSeries options). Overrides
-   *   the chart-level default for that one series. Note the spelling:
-   *   `entryMs` per-series, `enterMs` chart-level — historical artefact,
-   *   both refer to the same animation.
-   *
-   * Resolution: per-series option wins over chart-level numeric value.
-   * Chart-level wins only when its category is explicitly `false` — that's
-   * a hard disable that overrides per-series too.
-   *
-   * Shorthands:
-   * - `true` / omitted — built-in defaults (every settling animation 250 ms,
-   *   pulse cycle 600 ms, input ease 0 / off).
-   * - `false` — disables every animation category.
-   * - `{ points: false }` / `{ viewport: false }` — disables a category.
-   *
-   * Runtime updates: changing this prop after mount calls
-   * `chart.setAnimations(...)` so the new durations take effect on the next
-   * animation / render.
+   * **Init-only by reference identity.** A new `animations` object
+   * recreates the underlying `ChartInstance` (and its canvas). Wrap the
+   * value in `useMemo(() => ({...}), [deps])` so an unstable parent
+   * render doesn't tear down the chart every commit. In dev mode the
+   * container emits a console warning when it detects >3 recreates / s.
    */
   animations?: boolean | AnimationsConfig;
   /**
@@ -227,6 +235,7 @@ export function ChartContainer({
   theme,
   axis,
   padding,
+  viewport,
   gradient = true,
   interactive,
   grid,
@@ -249,15 +258,33 @@ export function ChartContainer({
   const chartRef = useRef<ChartInstance | null>(null);
   const [_, setRevision] = useState(0);
 
-  // useLayoutEffect — synchronous, runs before paint.
+  // Dev-only: warn when `animations` reference identity changes more than
+  // three times per second. The most common cause is a parent re-rendering
+  // with a fresh inline object; ChartInstance is no longer reconfigurable
+  // post-construction, so each new reference is a full canvas teardown.
+  const recreateStampsRef = useRef<number[]>([]);
+
+  // useLayoutEffect — synchronous, runs before paint. Re-runs when
+  // `animations` changes by reference: chart-level animation timings, the
+  // Y transition factory and per-series timings are init-only contracts
+  // in Phase 2, so a new `animations` object is a full rebuild.
+  //
+  // TODO(api): this identity-based init-only contract is fragile — any
+  // streaming caller that forgets to wrap `animations` in useMemo gets
+  // a destroy+recreate on every tick (see docs/pages/stress/streaming.tsx
+  // for the worked example: ~30 rebuilds/sec at 32ms intervals). Either
+  // diff structurally here, or split the init-only sub-fields (the Y
+  // transition factory and per-series timings) into a separate prop with
+  // a name that signals "stable identity required", so the common
+  // chart-level timings can stay live-updatable.
   useLayoutEffect(() => {
     if (!containerRef.current) return;
-    if (chartRef.current) return;
 
     const options: ChartOptions = {};
     if (axis) options.axis = axis;
     if (resolvedTheme) options.theme = resolvedTheme;
     if (padding) options.padding = padding;
+    if (viewport) options.viewport = viewport;
     if (interactive !== undefined) options.interactive = interactive;
     if (grid !== undefined) options.grid = grid;
     if (perfRef.current !== undefined) options.perf = perfRef.current;
@@ -265,24 +292,31 @@ export function ChartContainer({
     if (onEdgeReachedRef.current) options.onEdgeReached = onEdgeReachedRef.current;
     chartRef.current = new ChartInstance(containerRef.current, options);
 
-    // Note: the init path above already propagated `grid` into the chart. The
-    // effect below handles live updates, but also needs to run on the same
-    // commit so an initial `grid={{visible:false}}` isn't silently reset.
+    if (process.env.NODE_ENV !== 'production') {
+      const now = performance.now();
+      const stamps = recreateStampsRef.current;
+      stamps.push(now);
+      while (stamps.length > 0 && now - stamps[0] > 1000) stamps.shift();
+      if (stamps.length > 3) {
+        console.warn(
+          '[wick-charts] <ChartContainer> recreated the chart >3 times in the last second. ' +
+            'The `animations` prop is init-only — wrap it in useMemo(() => ({...}), [deps]) ' +
+            'so a stable reference identity prevents tear-down on every render.',
+        );
+      }
+    }
+
+    // The init path above already propagated `grid` into the chart. The
+    // effect below also writes it for live updates, but it needs to fire
+    // on the same commit so an initial `grid={{visible:false}}` isn't
+    // silently reset.
     setRevision((r) => r + 1);
 
     return () => {
-      // Destroy synchronously. A previous revision deferred this through
-      // `setTimeout(..., 0)` to "tolerate StrictMode" but the guard was
-      // broken: in the StrictMode remount sequence (cleanup → second mount →
-      // timeout), the check `if (!chartRef.current) instance.destroy()`
-      // always saw the second instance and skipped the destroy — leaking
-      // the first ChartInstance's canvases (hence 4 canvases per chart in
-      // dev). StrictMode exists precisely to exercise cleanup; a correct
-      // `destroy` is cheap enough to run on every cycle.
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-  }, []);
+  }, [animations]);
 
   useEffect(() => {
     if (chartRef.current && resolvedTheme) {
@@ -296,16 +330,6 @@ export function ChartContainer({
     }
   }, [axis?.y?.width, axis?.y?.min, axis?.y?.max, axis?.y?.visible, axis?.x?.height, axis?.x?.visible]);
 
-  useEffect(() => {
-    if (chartRef.current && animations !== undefined) {
-      chartRef.current.setAnimations(animations);
-    }
-    // Dep array is the JSON shape of the config — covers both the boolean
-    // shorthand and the full object. Cheap to stringify (the object is tiny)
-    // and lets callers pass a fresh reference each render without thrashing
-    // animator state when nothing has actually changed.
-  }, [JSON.stringify(animations)]);
-
   // Top-overlay height (title + info bar) — measured below. Declared here so
   // the padding effect can fold it into `padding.top`.
   const topOverlayRef = useRef<HTMLDivElement>(null);
@@ -318,7 +342,12 @@ export function ChartContainer({
   // fire redundant `chart.setPadding(...)` calls (headerExtra stays 0).
   const headerExtra = headerLayout === 'overlay' ? topOverlayHeight : 0;
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the header-height fold-in lands
+  // before the browser paints the chart for the first time. With
+  // `useEffect` the padding update would fire AFTER paint, causing a
+  // visible "chart drawn, then everything shifts down by the header
+  // height on the next frame" jump on initial mount.
+  useLayoutEffect(() => {
     const current = chartRef.current;
     if (!current) return;
     const userTop = padding?.top ?? 20;

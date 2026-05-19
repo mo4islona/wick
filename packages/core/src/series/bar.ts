@@ -1,67 +1,53 @@
-import { DEFAULT_ENTER_MS } from '../animation-constants';
+import { DEFAULT_BAR_ENTRY, DEFAULT_BAR_SMOOTH } from '../animation/config';
 import type { TimeSeriesStore } from '../data/store';
 import type { ChartTheme } from '../theme/types';
-import type { BarSeriesOptions, LineData } from '../types';
-import { BaseMultiLayerSeries, type CommonSeriesOptions } from './base-multi-layer';
-import { resolveMs } from './shared-animation';
+import type { BarSeriesOptions, TimePoint } from '../types';
+import { BaseMultiLayerSeries } from './base-multi-layer';
 import type { SeriesRenderContext } from './types';
 
-const DEFAULT_OPTIONS: BarSeriesOptions = {
+/** Internal resolved shape: `entryMs` / `smoothMs` are concrete numbers
+ *  (`false` from the public surface gets normalized to `0` at the merge
+ *  boundary, so downstream reads never see the disable sentinel). */
+type ResolvedBarOptions = Omit<BarSeriesOptions, 'entryMs' | 'smoothMs'> & {
+  entryMs: number;
+  smoothMs: number;
+};
+
+const DEFAULT_OPTIONS: ResolvedBarOptions = {
   colors: ['#26a69a', '#ef5350'],
   barWidthRatio: 0.6,
   stacking: 'off',
+  entryMs: DEFAULT_BAR_ENTRY,
+  smoothMs: DEFAULT_BAR_SMOOTH,
 };
 
-/**
- * Normalize caller-supplied bar options. Folds the deprecated `enterAnimation`
- * / `enterMs` aliases into `entryAnimation` / `entryMs` so the renderer reads
- * only the canonical fields.
- */
-function normalizeBarOptions(input?: Partial<BarSeriesOptions>): Partial<BarSeriesOptions> {
-  if (!input) return {};
-
-  const out: Partial<BarSeriesOptions> = { ...input };
-  if (input.enterAnimation !== undefined && input.entryAnimation === undefined) {
-    out.entryAnimation = input.enterAnimation;
-  }
-  if (input.enterMs !== undefined && input.entryMs === undefined) {
-    out.entryMs = input.enterMs;
-  }
-
-  return out;
+function normalize(options: BarSeriesOptions): ResolvedBarOptions {
+  return {
+    ...options,
+    entryMs: options.entryMs === false ? 0 : (options.entryMs ?? DEFAULT_BAR_ENTRY),
+    smoothMs: options.smoothMs === false ? 0 : (options.smoothMs ?? DEFAULT_BAR_SMOOTH),
+  };
 }
 
-interface BarEntry {
-  startTime: number;
-}
-
-export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
-  private options: BarSeriesOptions;
+export class BarRenderer extends BaseMultiLayerSeries<TimePoint> {
+  protected declare options: ResolvedBarOptions;
 
   constructor(layerCount: number, options?: Partial<BarSeriesOptions>) {
     super(layerCount);
-    this.options = { ...DEFAULT_OPTIONS, ...normalizeBarOptions(options) };
+    this.options = normalize({ ...DEFAULT_OPTIONS, ...options });
   }
 
   /** For chart compatibility — returns first store */
-  get store(): TimeSeriesStore<LineData> {
+  get store(): TimeSeriesStore<TimePoint> {
     return this.stores[0];
   }
 
   updateOptions(options: Partial<BarSeriesOptions>): void {
-    this.options = { ...this.options, ...normalizeBarOptions(options) };
+    this.options = normalize({ ...this.options, ...options });
   }
 
-  protected getCommonOptions(): CommonSeriesOptions {
-    return this.options;
-  }
-
-  protected createEntry(_layerIndex: number, _time: number, now: number): BarEntry | null {
-    const style = this.options.entryAnimation ?? 'fade-grow';
-    const enterMs = resolveMs(this.options.entryMs, DEFAULT_ENTER_MS);
-    if (style === 'none' || enterMs <= 0) return null;
-
-    return { startTime: now };
+  protected isEntryEnabled(): boolean {
+    return (this.options.entryAnimation ?? 'fade-grow') !== 'none';
   }
 
   applyTheme(theme: ChartTheme, prev: ChartTheme): void {
@@ -122,7 +108,8 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
   }
 
   render(ctx: SeriesRenderContext): void {
-    this.advanceLiveTracking(performance.now());
+    this.tickAnimations(performance.now());
+
     switch (this.options.stacking) {
       case 'normal':
         this.renderStacked(ctx, false);
@@ -141,7 +128,6 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
     const { scope, timeScale, yScale, dataInterval } = ctx;
     const { context, horizontalPixelRatio } = scope;
     const range = timeScale.getRange();
-    const now = performance.now();
 
     // Bar slot width — only cap when the visible range is sparse (≤ 2
     // points on the most-populated layer). Dense zooms must keep wide bars.
@@ -177,8 +163,8 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
         // Skip poisoned values (null / NaN / ±Infinity / undefined) — the
         // renderer must not draw a NaN-height bar.
         if (!Number.isFinite(d.value)) continue;
-        const value = this.effectiveValue(0, d.time, d.value);
-        const progress = this.entranceProgress(0, d.time, now);
+        const value = this.effectiveValue(ctx, 0, d.time, d.value);
+        const progress = this.entranceProgress(ctx, 0, d.time);
         const cx = timeScale.timeToBitmapX(d.time);
         if (value >= 0) {
           const topY = yScale.valueToBitmapY(value);
@@ -200,31 +186,44 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
         }
       }
     } else {
-      // Multi-layer: collect per-time, draw tallest first so shorter bars appear in front
-      const layers = this.stores.map((store) => (store.isVisible() ? store.getVisibleData(range.from, range.to) : []));
+      // Multi-layer: collect per-time, draw tallest first so shorter bars appear in front.
+      // Drawn value = effectiveValue × getLayerAlpha — geometry shrinks toward
+      // the baseline as the layer fades, so the bar stays inside the Y range
+      // that is simultaneously contracting to "without this layer". Without
+      // the alpha-weight, a tall bar (value=500) keeps full height while the
+      // Y axis eases to a much smaller max → topY goes negative and the bar
+      // visibly flies off the top of the canvas during the toggle window.
+      // Alpha=0 is fully excluded one step earlier so the timeMap stays clean.
+      const layers = this.stores.map((store, li) =>
+        this.getLayerAlpha(li) > 0 ? store.getVisibleData(range.from, range.to) : [],
+      );
       const timeMap = new Map<number, { layer: number; value: number }[]>();
       for (let li = 0; li < layers.length; li++) {
+        const alpha = this.getLayerAlpha(li);
         for (const d of layers[li]) {
-          // Skip poisoned values — same reason as the single-layer path.
           if (!Number.isFinite(d.value)) continue;
           let arr = timeMap.get(d.time);
           if (!arr) {
             arr = [];
             timeMap.set(d.time, arr);
           }
-          // Substitute smoothed value for the live last bar of this layer.
-          arr.push({ layer: li, value: this.effectiveValue(li, d.time, d.value) });
+          arr.push({ layer: li, value: this.effectiveValue(ctx, li, d.time, d.value) * alpha });
         }
       }
 
       for (const [time, entries] of timeMap) {
-        // Sort by |value| descending — tallest drawn first (behind)
-        entries.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+        // Sort by |value| descending — tallest drawn first (behind). With
+        // alpha-weighted values a fading layer naturally moves toward the
+        // back of the stack as it shrinks, which is the correct paint order.
+        entries.sort(
+          (a: { layer: number; value: number }, b: { layer: number; value: number }) =>
+            Math.abs(b.value) - Math.abs(a.value),
+        );
         const cx = timeScale.timeToBitmapX(time);
 
         for (const { layer, value } of entries) {
           const color = this.options.colors[layer % this.options.colors.length];
-          const progress = this.entranceProgress(layer, time, now);
+          const progress = this.entranceProgress(ctx, layer, time);
           if (value >= 0) {
             const topY = yScale.valueToBitmapY(value);
             const barHeight = Math.max(1, zeroY - topY);
@@ -254,7 +253,6 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
     const { scope, timeScale, yScale, dataInterval } = ctx;
     const { context, horizontalPixelRatio } = scope;
     const range = timeScale.getRange();
-    const now = performance.now();
 
     // Bar slot width — sparse-only cap, see renderOff above.
     let maxVisibleCount = 0;
@@ -270,30 +268,39 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
     const bodyWidth = Math.max(1, Math.round(barWidth * this.options.barWidthRatio) - 2);
     const halfBody = Math.floor(bodyWidth / 2);
 
-    // Collect all visible data per layer (hidden layers contribute empty data)
-    const layers = this.stores.map((store) => (store.isVisible() ? store.getVisibleData(range.from, range.to) : []));
+    // Collect data per layer, gating on alpha (not the binary store flag) so
+    // a layer mid-fade still contributes shrinking geometry to the stack
+    // instead of disappearing the moment `setLayerVisible(false)` flips the
+    // store. Alpha=0 layers are pre-filtered to keep the timeMap clean.
+    const layers = this.stores.map((store, li) =>
+      this.getLayerAlpha(li) > 0 ? store.getVisibleData(range.from, range.to) : [],
+    );
     if (layers.every((l) => l.length === 0)) return;
 
-    // Build values per time — hidden layers contribute 0. Use effectiveValue so
-    // the last bar of each layer smoothly chases updateLastPoint even when
-    // rendered as a stacked slice (where the stacked math depends on the
-    // per-layer value, not just the geometry of one isolated bar).
+    // Per-layer value × alpha. The cumulative built from these values shrinks
+    // toward "without this layer" as the layer fades; the Y axis is easing to
+    // the same final bounds over `toggleMs`, so geometry and axis converge on
+    // the same frame instead of the binary `isVisible()` jump that produced
+    // the visible "stack collapses instantly" artifact in stacked modes.
     const timeMap = new Map<number, number[]>();
     for (let li = 0; li < layers.length; li++) {
+      const alpha = this.getLayerAlpha(li);
       for (const d of layers[li]) {
         let arr = timeMap.get(d.time);
         if (!arr) {
           arr = new Array(layers.length).fill(0);
           timeMap.set(d.time, arr);
         }
-        // Treat non-finite values as 0 in the stack — one layer's gap must
-        // not NaN-out the whole stacked bar at that time slot.
+        // Non-finite → 0 in the stack so one gap doesn't NaN-out the column.
         const raw = Number.isFinite(d.value) ? d.value : 0;
-        arr[li] = this.stores[li].isVisible() ? this.effectiveValue(li, d.time, raw) : 0;
+        arr[li] = this.effectiveValue(ctx, li, d.time, raw) * alpha;
       }
     }
 
-    // Draw layer by layer, bottom to top
+    // Draw layer by layer, bottom to top. A fading layer shrinks via
+    // alpha-weighted cumulative (its slice height goes to zero as alpha → 0)
+    // — bars don't take an additional opacity fade because the geometry
+    // collapse already reads cleanly as the layer leaving the stack.
     for (let li = 0; li < layers.length; li++) {
       const color = this.options.colors[li % this.options.colors.length];
 
@@ -312,7 +319,7 @@ export class BarRenderer extends BaseMultiLayerSeries<LineData, BarEntry> {
           else baseNegative += v;
         }
 
-        const progress = this.entranceProgress(li, time, now);
+        const progress = this.entranceProgress(ctx, li, time);
 
         if (percent) {
           // Normalize to 0–100%

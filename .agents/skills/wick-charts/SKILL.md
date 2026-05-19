@@ -37,6 +37,7 @@ Root component. Requires a defined width + height.
   theme={catppuccin.theme}
   axis={{ y: { min: 0, max: 'auto' }, x: { visible: true } }}
   padding={{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }}
+  viewport={{ maxVisibleBars: 200, initialRange: 35 }}
   gradient grid={{ visible: true }} interactive
   headerLayout="overlay"
   style={{ width: '100%', height: 400 }}
@@ -45,11 +46,56 @@ Root component. Requires a defined width + height.
 </ChartContainer>
 ```
 
-React props: `theme`, `axis`, `padding`, `gradient`, `grid`, `interactive`, `headerLayout`, `style`, `className` (all optional, safe defaults). `padding.top|bottom` are pixels; `padding.left|right` accept pixels **or** `{ intervals: N }` for N empty data slots. `grid` is `{ visible: boolean }` — pass `grid={{ visible: false }}` to hide. `axis.y` / `axis.x` accept `width` / `height` respectively for axis gutter sizing. `headerLayout` is `'overlay' | 'inline'` — defaults to `'overlay'` (Title / InfoBar float above the canvas with their height folded into `padding.top`); `'inline'` pushes them into the vertical flow instead.
-
-Vue / Svelte props (current subset): `theme`, `axis` (+ `style` in Svelte). `padding`/`gradient`/`grid`/`interactive` are React-only at the moment — use the sensible defaults on Vue and Svelte, or size via the wrapping element.
+Props: `theme`, `axis`, `padding`, `viewport`, `gradient`, `grid`, `interactive`, `headerLayout`, `animations`, `onEdgeReached`, `perf`, `style`, `className` — all optional with safe defaults, in parity across React/Vue/Svelte (style is React/Svelte only). `padding.top|bottom` are pixels; `padding.left|right` accept pixels **or** `{ intervals: N }` for N empty data slots. `grid` is `{ visible: boolean }` — pass `grid={{ visible: false }}` to hide. `axis.y` / `axis.x` accept `width` / `height` respectively for axis gutter sizing. `headerLayout` is `'overlay' | 'inline'` — defaults to `'overlay'` (Title / InfoBar float above the canvas with their height folded into `padding.top`); `'inline'` pushes them into the vertical flow instead. `viewport.maxVisibleBars` (default 200) caps the visible window before tail-scroll kicks in. `viewport.initialRange` matches `chart.setVisibleRange(spec)` (bar count, `{from, to}`, or `{from, bars}`) and is applied **before** the first paint — use instead of an after-mount `useEffect(() => chart.setVisibleRange(...))` to avoid a visible re-zoom on the next frame. `animations` is configured at construction time and is **init-only** — there is no `chart.setAnimations` runtime setter; remount the chart (or change the React `key`) to swap curves or durations.
 
 `AxisBound` = `'auto' | number | "+10%" | ((values: number[]) => number)`.
+
+## Animations
+
+`<ChartContainer animations={…}>` accepts a single `AnimationsConfig` object with three top-level groups:
+
+```ts
+import { hermite, spring, snap } from '@wick-charts/react';
+
+<ChartContainer
+  animations={{
+    axis: {
+      y: { curve: hermite(), settle: 250, sticky: 2500, gesture: 100 },
+      x: { curve: spring(), settle: 200, gesture: 150 },
+      ticks: 250,
+    },
+    series: {
+      line:        { entry: 250, smooth: 250, pulse: 600 },
+      candlestick: { entry: 250, smooth: 250 },
+      bar:         { entry: 250, smooth: 250 },
+      pie:         { entry: 250, update: 250 },
+    },
+    toggle: 250,
+  }}
+/>
+```
+
+| Group | Field | Default | Notes |
+|---|---|---|---|
+| `axis.y.curve` | `hermite()` / `spring()` / `snap()` | `hermite()` | Hermite = fixed-duration cubic. Spring = critically-damped physics. Snap = no easing. |
+| `axis.y.settle` | ms | `250` | Outward chase to a new extreme. Lower = punchier reaction to spikes. |
+| `axis.y.sticky` | ms | `2500` | Inward contraction after an extreme leaves the window. Sticky-Y feel. |
+| `axis.y.gesture` | ms | `100` | One-shot override during pan/zoom — short = frame-per-tick interactive feel. |
+| `axis.x.curve` | `spring()` / `snap()` | `spring()` | Spring carries velocity across streaming ticks. |
+| `axis.x.settle` | ms | `200` | Streaming retarget baseline. The cadence EMA tunes this at runtime. |
+| `axis.x.gesture` | ms | `150` | Pan/zoom commit easing. `0` = instant apply. |
+| `axis.ticks` | ms | `250` | Cross-fade duration for axis tick labels. |
+| `series.<kind>.entry` | ms | `250` (`linePulse: 600`) | Per-point/candle/bar/slice entrance duration. `false` disables. |
+| `series.<kind>.smooth` | ms | `250` | Last-value chase on `updateData` ticks. `false` snaps. |
+| `series.line.pulse` | ms | `600` | Halo cycle period at the line tail (periodic loop). `false` disables. |
+| `series.pie.update` | ms | `250` | Slice-resize duration on data change. |
+| `toggle` | ms | `250` | Series-visibility fade + Y re-fit duration. |
+
+**Disabling a whole group.** Any group field accepts `false` to skip animations for that subtree — `animations: false` (chart-wide), `animations: { axis: false }`, `animations: { series: { line: false } }`, etc.
+
+**Per-series-type entry style.** Each series option also accepts `entryAnimation` for the visual *style* (separate from duration). Defaults: line `'grow'`, bar `'fade-grow'`, candlestick `'unfold'`. See each chart-type page for the full enum.
+
+**Curve factories.** `hermite()`, `spring()`, `snap()` are factories — call them when assigning. Reuse the same factory instance across renders (memoize in `useMemo` / `computed`) so the engine doesn't see a fresh reference on every re-render.
 
 ## UI overlay components
 
@@ -223,6 +269,7 @@ Pass a new `data` array reference when data changes (e.g. via immutable state up
 ## Critical rules
 
 - `time` is milliseconds (`Date.now()`-style). `TimePointInput` / `OHLCInput` also accept `Date`.
-- `TimePoint` is canonical; `LineData` is a deprecated alias.
+- `TimePoint` is the canonical point shape (used by `LineSeries`, `BarSeries`, `Sparkline`).
 - `LineSeries` / `BarSeries` `data` is always `TimePoint[][]` — wrap single datasets as `[myData]`.
 - `PieSeries` `data` is flat `PieSliceData[]`.
+- `VisibleRange` is a deprecated alias for `XRange` (identical shape `{ from, to }`). Use `XRange` in new code.

@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 
 import {
   BarSeries,
@@ -14,7 +14,6 @@ import {
   YAxis,
   YLabel,
   resolveCandlestickBodyColor,
-  useChartInstance,
 } from '@wick-charts/react';
 
 import { Cell } from '../components/Cell';
@@ -65,30 +64,15 @@ interface StreamProps {
 
 // ── Chart components ──────────────────────────────────────────
 
-function InitialCandleZoom({ bars, ready }: { bars: number; ready: boolean }) {
-  const chart = useChartInstance();
-  const applied = useRef(false);
-
-  useEffect(() => {
-    if (applied.current || !chart || !ready) return;
-
-    chart.setVisibleRange(bars);
-    applied.current = true;
-  }, [chart, bars, ready]);
-
-  return null;
-}
-
 function CandleChart({ theme, speed }: StreamProps) {
   const { data } = useOHLCStream(ohlcBTC, { interval: DEMO_INTERVAL, speed, maxPoints: MAX_POINTS });
   const sid = 'candle';
   const mobile = useIsMobile();
   return (
-    <ChartContainer theme={theme}>
+    <ChartContainer theme={theme} viewport={{ initialRange: INITIAL_CANDLE_BARS }}>
       <Title sub="Live Candlestick">BTC/USD</Title>
       {!mobile && <InfoBar />}
       <CandlestickSeries id={sid} data={data} />
-      <InitialCandleZoom bars={INITIAL_CANDLE_BARS} ready={data.length > 0} />
       <YLabel seriesId={sid} />
       <Crosshair />
       <YAxis />

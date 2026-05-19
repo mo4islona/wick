@@ -88,11 +88,13 @@ function compactType(s) {
  *   - "Default: `'both'` (e.g. ...)." → 'both'        (parenthetical ignored)
  */
 function parseLeadingDefault(description) {
-  // Match the first `Default:` / `Defaults:` token anywhere in the
-  // description — many props embed it mid-sentence ("What to display per
-  // label. Default: `'both'`."). The token-based parser below then trims
-  // any trailing context (parentheticals, sentence period) cleanly.
-  const m = description.match(/\bDefaults?:\s+([\s\S]+)/);
+  // Match the first `Default:` / `Defaults:` / `Default ` token anywhere
+  // in the description — many props embed it mid-sentence ("What to
+  // display per label. Default: `'both'`."). The colon is optional so a
+  // bare "Default `250ms`." also picks up. The token-based parser below
+  // then trims any trailing context (parentheticals, sentence period)
+  // cleanly.
+  const m = description.match(/\bDefaults?(?::\s+|\s+)([\s\S]+)/);
   if (!m) return null;
   const body = m[1];
 
@@ -131,8 +133,75 @@ function parseLeadingDefault(description) {
   return captured.trim() || null;
 }
 
+/**
+ * Lazy-built map of every top-level `const NAME = …` declaration across the
+ * program's user-land source files. Populated on first call to
+ * `resolveConstantValue`; lets the `{@link CONST}` resolver follow alias
+ * chains (`DEFAULT_LINE_ENTRY → DEFAULT_SERIES_ENTRY → 250`) without paying
+ * for a full-program scan per reference.
+ */
+let constantInitializerCache = null;
+function getConstantInitializers() {
+  if (constantInitializerCache) return constantInitializerCache;
+  const table = new Map();
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue;
+    if (program.isSourceFileDefaultLibrary(sf)) continue;
+    if (sf.fileName.includes('/node_modules/')) continue;
+    ts.forEachChild(sf, function visit(node) {
+      if (ts.isVariableStatement(node)) {
+        for (const decl of node.declarationList.declarations) {
+          if (ts.isIdentifier(decl.name) && decl.initializer) {
+            // First declaration wins — re-exports of the same name from
+            // multiple barrels would otherwise clobber each other.
+            if (!table.has(decl.name.text)) table.set(decl.name.text, decl.initializer);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    });
+  }
+  constantInitializerCache = table;
+  return table;
+}
+
+/** Resolve a `{@link X}` JSDoc reference to a literal value (number / string). */
+function resolveConstantValue(name) {
+  const init = getConstantInitializers().get(name);
+  return init ? evalConstExpr(init) : null;
+}
+
+function evalConstExpr(node) {
+  if (ts.isNumericLiteral(node)) return Number(node.text);
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isIdentifier(node)) return resolveConstantValue(node.text);
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
+    const inner = evalConstExpr(node.operand);
+    if (typeof inner === 'number') return -inner;
+  }
+
+  return null;
+}
+
+/**
+ * Inline `{@link DEFAULT_FOO}` references in a JSDoc description with the
+ * resolved literal value. `DEFAULT_*` constants in this codebase are always
+ * durations (ms) — they pick up an `ms` unit suffix. Unresolved links fall
+ * back to the bare identifier so the description stays human-readable.
+ */
+function expandLinkedConstants(description) {
+  return description.replace(/\{@link (\w+)\}/g, (_full, name) => {
+    const val = resolveConstantValue(name);
+    if (typeof val === 'number') return `\`${val}ms\``;
+    if (typeof val === 'string') return `\`${val}\``;
+
+    return name;
+  });
+}
+
 function getJsDocInfo(symbol) {
-  const description = ts.displayPartsToString(symbol.getDocumentationComment(checker)).trim();
+  const rawDescription = ts.displayPartsToString(symbol.getDocumentationComment(checker)).trim();
+  const description = expandLinkedConstants(rawDescription);
   const tags = symbol.getJsDocTags(checker);
 
   let defaultValue = null;
@@ -140,7 +209,10 @@ function getJsDocInfo(symbol) {
   const see = [];
 
   for (const tag of tags) {
-    const text = ts.displayPartsToString(tag.text).trim();
+    // Expand `{@link DEFAULT_FOO}` references in tag text too so
+    // `@default {@link DEFAULT_Y_SETTLE_MS}` resolves to the literal value
+    // for the rendered `default` badge.
+    const text = expandLinkedConstants(ts.displayPartsToString(tag.text).trim());
     if (tag.name === 'default' || tag.name === 'defaultValue') {
       // Strip surrounding backticks — the renderer applies its own code
       // styling, matching `parseLeadingDefault`'s behaviour.
@@ -183,7 +255,19 @@ function printPropType(prop, decl) {
 function resolveExpandable(decl) {
   if (!decl || !ts.isPropertySignature(decl) || !decl.type) return null;
 
-  const t = decl.type;
+  return resolveExpandableType(decl.type);
+}
+
+/**
+ * Walk a {@link ts.TypeNode} looking for something the API table can
+ * render as a nested row group: a bare type reference, an inline object
+ * literal, or a union that contains either. Recursing into unions lets
+ * us expand props typed `boolean | SomeConfig` (e.g. `animations`) and
+ * `false | { ... }` (e.g. `animations.points`) — the first member that
+ * resolves wins, non-object members (`boolean`, `'string'` literals,
+ * etc.) are skipped silently.
+ */
+function resolveExpandableType(t) {
   if (ts.isTypeReferenceNode(t)) {
     const name = t.typeName.getText();
     if (name === 'Partial' && t.typeArguments?.length === 1) {
@@ -195,6 +279,13 @@ function resolveExpandable(decl) {
 
   if (ts.isTypeLiteralNode(t)) {
     return { kind: 'inline', members: t.members };
+  }
+
+  if (ts.isUnionTypeNode(t)) {
+    for (const member of t.types) {
+      const result = resolveExpandableType(member);
+      if (result !== null) return result;
+    }
   }
 
   return null;
@@ -210,6 +301,20 @@ function resolveTypeName(typeNode) {
   const decls = aliased.getDeclarations() ?? [];
 
   for (const d of decls) {
+    // Skip platform / library declarations (Intl.NumberFormatOptions,
+    // Math, RegExp, ...) — they don't describe our API and the resulting
+    // nested rows are noise. `isSourceFileDefaultLibrary` flags
+    // TypeScript's built-in `.d.ts` files; we extend it to anything
+    // sitting under `node_modules/` so user-side type packages like
+    // `@types/react` aren't expanded either. Local API config types
+    // (our own interfaces) always live in the project source tree and
+    // pass this check. `continue` (not `return null`) so a later
+    // in-repo declaration of the same symbol (interface merging /
+    // module augmentation) is still considered.
+    const sf = d.getSourceFile();
+    if (program.isSourceFileDefaultLibrary(sf)) continue;
+    if (sf.fileName.includes('/node_modules/')) continue;
+
     if (ts.isInterfaceDeclaration(d)) {
       if (['Partial', 'Pick', 'Omit', 'Record'].includes(aliased.getName())) return null;
 

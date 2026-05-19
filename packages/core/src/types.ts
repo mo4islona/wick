@@ -4,6 +4,9 @@
  */
 export type TimeValue = number | Date;
 
+/** Horizontal padding expressed as a fixed pixel offset or a number of data intervals. */
+export type HorizontalPadding = number | { intervals: number };
+
 /** A single OHLC(V) candlestick data point. Time is a timestamp in milliseconds. */
 export interface OHLCData {
   time: number;
@@ -26,20 +29,35 @@ export interface TimePoint {
 /** {@link TimePoint} that also accepts `Date` for the time field. */
 export type TimePointInput = Omit<TimePoint, 'time'> & { time: TimeValue };
 
-/** @deprecated Use {@link TimePoint} instead. */
-export type LineData = TimePoint;
-
 /** Time range (timestamps in milliseconds) of the currently visible portion of the chart. */
-export interface VisibleRange {
+export interface XRange {
   from: number;
   to: number;
 }
 
-/** Min/max value range for the Y axis. */
+/** @deprecated Use {@link XRange} instead. Visible time range of the chart. */
+export type VisibleRange = XRange;
+
+/** Value range covered by the chart's Y axis at a given frame. Animated as a
+ *  single struct so the upper and lower bounds always move in lockstep — no
+ *  half-tween states where the visible domain is wider on one side than the
+ *  other for a frame. */
 export interface YRange {
   min: number;
   max: number;
 }
+
+/**
+ * Argument accepted by {@link Chart.setVisibleRange}. Three forms:
+ *
+ * - `number N` — show the last N bars from the data tail (anchor right).
+ * - `{ from, to }` — explicit time range; `from`/`to` accept either epoch
+ *   milliseconds or `Date`, normalised to ms internally.
+ * - `{ from, bars }` — anchor the visible window at `from` and extend
+ *   right by `bars` data intervals. Useful for "show N bars starting
+ *   here" patterns (warm-up windows for streaming charts, etc.).
+ */
+export type VisibleRangeSpec = number | { from: TimeValue; to: TimeValue } | { from: TimeValue; bars: number };
 
 /** Axis-aligned rectangle in media (CSS) coordinates. */
 export interface Rect {
@@ -105,9 +123,6 @@ export type SeriesType = 'candlestick' | 'line' | 'bar' | 'pie';
  */
 export type CandlestickEntryAnimation = 'none' | 'fade' | 'unfold' | 'slide' | 'fade-unfold';
 
-/** @deprecated Use {@link CandlestickEntryAnimation} instead. */
-export type CandlestickEnterAnimation = CandlestickEntryAnimation;
-
 /**
  * `body` shape encodes the fill mode: a single color renders flat; a
  * `[top, bottom]` tuple renders a 2-stop vertical gradient. Use
@@ -138,8 +153,6 @@ export interface CandlestickSeriesOptions {
    * @see entryMs — cross-linked duration for this animation.
    */
   entryAnimation?: CandlestickEntryAnimation;
-  /** @deprecated Use {@link entryAnimation} instead. */
-  enterAnimation?: CandlestickEntryAnimation;
   /**
    * Per-candle entrance duration in milliseconds. Default: `250`.
    *
@@ -147,24 +160,20 @@ export interface CandlestickSeriesOptions {
    * // Override for one series:
    * <CandlestickSeries options={{ entryMs: 600 }} data={data} />
    *
-   * // Or set the default for every series at once:
-   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   * // Or set the default for every candlestick series at once:
+   * <ChartContainer animations={{ series: { candlestick: { entry: 600 } } }}>
    *   <CandlestickSeries data={data} />
    * </ChartContainer>
    * ```
    *
-   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
-   * animation, two names for historical reasons.
-   *
    * `false` or `0` disables the entrance (equivalent to
-   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
-   * hard disable that wins over this field.
+   * `entryAnimation: 'none'`). A chart-level
+   * `animations.series.candlestick: false` is a hard disable that wins over
+   * this field.
    *
    * @see CandlestickSeriesOptions.entryAnimation
    */
   entryMs?: number | false;
-  /** @deprecated Use {@link entryMs} instead. */
-  enterMs?: number | false;
   /**
    * How long the displayed OHLC takes to catch up to the actual last value
    * on every `updateLastPoint`. Default: `250` ms.
@@ -174,14 +183,14 @@ export interface CandlestickSeriesOptions {
    * <CandlestickSeries options={{ smoothMs: 100 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   * <ChartContainer animations={{ series: { candlestick: { smooth: 100 } } }}>
    *   <CandlestickSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `0` or `false` snaps the displayed value to the target on every tick
-   * (no smoothing). A chart-level `animations.points: false` is a hard
-   * disable that wins over this field.
+   * (no smoothing). A chart-level `animations.series.candlestick: false` is
+   * a hard disable that wins over this field.
    */
   smoothMs?: number | false;
 }
@@ -193,9 +202,6 @@ export interface CandlestickSeriesOptions {
  * - `'fade'` — geometry fixed; trailing segment strokes in with alpha 0→1.
  */
 export type LineEntryAnimation = 'none' | 'grow' | 'fade';
-
-/** @deprecated Use {@link LineEntryAnimation} instead. */
-export type LineEnterAnimation = LineEntryAnimation;
 
 /** Visual options for a line series. */
 export interface LineSeriesOptions {
@@ -224,14 +230,14 @@ export interface LineSeriesOptions {
    * <LineSeries options={{ pulseMs: 1200 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { pulseMs: 1200 } }}>
+   * <ChartContainer animations={{ series: { line: { pulse: 1200 } } }}>
    *   <LineSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `false` or `0` turns the halo off entirely (drawing and animation loop).
-   * A chart-level `animations.points: false` is a hard disable that wins
-   * over this field.
+   * A chart-level `animations.series.line: false` is a hard disable that
+   * wins over this field.
    */
   pulseMs?: number | false;
   /** Stacking mode. Default: 'off'. */
@@ -244,8 +250,6 @@ export interface LineSeriesOptions {
    * @see entryMs — cross-linked duration for this animation.
    */
   entryAnimation?: LineEntryAnimation;
-  /** @deprecated Use {@link entryAnimation} instead. */
-  enterAnimation?: LineEntryAnimation;
   /**
    * Per-point entrance duration in milliseconds. Default: `250`.
    *
@@ -253,24 +257,19 @@ export interface LineSeriesOptions {
    * // Override for one series:
    * <LineSeries options={{ entryMs: 600 }} data={data} />
    *
-   * // Or set the default for every series at once:
-   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   * // Or set the default for every line series at once:
+   * <ChartContainer animations={{ series: { line: { entry: 600 } } }}>
    *   <LineSeries data={data} />
    * </ChartContainer>
    * ```
    *
-   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
-   * animation, two names for historical reasons.
-   *
    * `false` or `0` disables the entrance (equivalent to
-   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
-   * hard disable that wins over this field.
+   * `entryAnimation: 'none'`). A chart-level `animations.series.line: false`
+   * is a hard disable that wins over this field.
    *
    * @see LineSeriesOptions.entryAnimation
    */
   entryMs?: number | false;
-  /** @deprecated Use {@link entryMs} instead. */
-  enterMs?: number | false;
   /**
    * How long the displayed last value takes to catch up to the actual one
    * on every `updateLastPoint`. Default: `250` ms.
@@ -280,13 +279,13 @@ export interface LineSeriesOptions {
    * <LineSeries options={{ smoothMs: 100 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   * <ChartContainer animations={{ series: { line: { smooth: 100 } } }}>
    *   <LineSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `0` or `false` snaps the displayed value to the target on every tick
-   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * (no smoothing). A chart-level `animations.series.line: false` is a hard
    * disable that wins over this field.
    */
   smoothMs?: number | false;
@@ -294,9 +293,6 @@ export interface LineSeriesOptions {
 
 /** Stacking mode for bar/line series: off (overlap), normal (stacked), percent (100% stacked). */
 export type StackingMode = 'off' | 'normal' | 'percent';
-
-/** @deprecated Use {@link StackingMode} instead. */
-export type BarStacking = StackingMode;
 
 /**
  * Entrance animation styles for bars.
@@ -307,9 +303,6 @@ export type BarStacking = StackingMode;
  * - `'fade-grow'` *(default)* — fade + grow combined.
  */
 export type BarEntryAnimation = 'none' | 'fade' | 'grow' | 'slide' | 'fade-grow';
-
-/** @deprecated Use {@link BarEntryAnimation} instead. */
-export type BarEnterAnimation = BarEntryAnimation;
 
 /** Visual options for a bar series. */
 export interface BarSeriesOptions {
@@ -329,8 +322,6 @@ export interface BarSeriesOptions {
    * @see entryMs — cross-linked duration for this animation.
    */
   entryAnimation?: BarEntryAnimation;
-  /** @deprecated Use {@link entryAnimation} instead. */
-  enterAnimation?: BarEntryAnimation;
   /**
    * Per-bar entrance duration in milliseconds. Default: `250`.
    *
@@ -338,24 +329,19 @@ export interface BarSeriesOptions {
    * // Override for one series:
    * <BarSeries options={{ entryMs: 600 }} data={data} />
    *
-   * // Or set the default for every series at once:
-   * <ChartContainer animations={{ points: { enterMs: 600 } }}>
+   * // Or set the default for every bar series at once:
+   * <ChartContainer animations={{ series: { bar: { entry: 600 } } }}>
    *   <BarSeries data={data} />
    * </ChartContainer>
    * ```
    *
-   * Note: chart-level uses `enterMs`, per-series uses `entryMs` — same
-   * animation, two names for historical reasons.
-   *
    * `false` or `0` disables the entrance (equivalent to
-   * `entryAnimation: 'none'`). A chart-level `animations.points: false` is a
-   * hard disable that wins over this field.
+   * `entryAnimation: 'none'`). A chart-level `animations.series.bar: false`
+   * is a hard disable that wins over this field.
    *
    * @see BarSeriesOptions.entryAnimation
    */
   entryMs?: number | false;
-  /** @deprecated Use {@link entryMs} instead. */
-  enterMs?: number | false;
   /**
    * How long the displayed bar value takes to catch up to the actual one
    * on every `updateLastPoint`. Default: `250` ms.
@@ -365,13 +351,13 @@ export interface BarSeriesOptions {
    * <BarSeries options={{ smoothMs: 100 }} data={data} />
    *
    * // Chart-level default:
-   * <ChartContainer animations={{ points: { smoothMs: 100 } }}>
+   * <ChartContainer animations={{ series: { bar: { smooth: 100 } } }}>
    *   <BarSeries data={data} />
    * </ChartContainer>
    * ```
    *
    * `0` or `false` snaps the displayed value to the target on every tick
-   * (no smoothing). A chart-level `animations.points: false` is a hard
+   * (no smoothing). A chart-level `animations.series.bar: false` is a hard
    * disable that wins over this field.
    */
   smoothMs?: number | false;
@@ -441,13 +427,6 @@ export interface PieLabelsOptions {
    * expressed as a multiplier of {@link fontSize}. Default: 1.8.
    */
   labelGap?: number;
-  /**
-   * @deprecated No effect in the radial per-slice layout. A label's X is
-   * pinned to its slice midangle, so forcing the "other" side would flip
-   * text direction without moving the label and push text across the pie.
-   * Kept in the option surface for backwards compatibility.
-   */
-  balanceSides?: boolean;
 }
 
 /** Visual options for a pie/donut series. `innerRadiusRatio > 0` makes it a donut. */

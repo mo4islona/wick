@@ -1,23 +1,32 @@
-import { ANIM, Animator, easeOutCubic } from './animation';
-import {
-  DEFAULT_ENTER_MS,
-  DEFAULT_INPUT_RESPONSE_MS,
-  DEFAULT_PULSE_MS,
-  DEFAULT_REBOUND_MS,
-  DEFAULT_SMOOTH_MS,
-  DEFAULT_Y_AXIS_MS,
-  INTERACT_Y_AXIS_MS,
-} from './animation-constants';
+import { AnimationConfig } from './animation/config';
+import { type AnimationState, type ViewportEngine, createViewportEngine } from './animation/viewport-engine';
 import { CanvasManager } from './canvas-manager';
+import { drawEdgeIndicators, resolveEdgeBoundary } from './chart/edge-indicators';
+import { computeFitToData } from './chart/fit-to-data';
+import { getLastValue, getPreviousClose, getStackedLastValue } from './chart/last-value';
+import {
+  type ChartOptions,
+  type EdgeReachedInfo,
+  type EdgeSide,
+  type EdgeState,
+  type ResolvedPadding,
+  isSameHorizontalPadding,
+  resolveMaxVisibleBars,
+  resolvePadding,
+  resolvePerfOptions,
+} from './chart/options';
+import { computePan, computeZoom } from './chart/pan-zoom-math';
+import { StreamingCadence } from './chart/streaming-cadence';
+import { computeStreamingTarget } from './chart/streaming-target';
+import { resolvePaddingTime } from './chart/viewport-padding';
+import { computeTargetYRange, resolveBound } from './chart/y-target';
 import { renderCrosshair } from './components/crosshair';
-import { renderEdgeIndicator } from './components/edge-indicator';
 import { renderGrid } from './components/grid';
 import { TimeSeriesStore } from './data/store';
 import { EventEmitter } from './events';
 import { InteractionHandler } from './interactions/handler';
-import { registerChartViewport } from './internal/test-handles';
-import { PerfHud } from './perf/perf-hud';
-import { PerfMonitor, type PerfMonitorOptions } from './perf/perf-monitor';
+import type { PanZoomTarget } from './interactions/pan-zoom-target';
+import { PerfHud, type PerfMonitor } from './perf';
 import { RenderScheduler } from './render-scheduler';
 import { TimeScale } from './scales/time-scale';
 import { YScale } from './scales/y-scale';
@@ -42,29 +51,12 @@ import type {
   TimePoint,
   TimePointInput,
   VisibleRange,
+  VisibleRangeSpec,
+  YRange,
 } from './types';
-import { detectInterval } from './utils/time';
-import { type HorizontalPadding, Viewport } from './viewport';
+import { detectInterval, normalizeTime } from './utils/time';
 
-/** Which data side the user pulled past during a gesture. */
-export type EdgeSide = 'left' | 'right';
-/**
- * Host-controlled visual state for a chart edge:
- * - `idle`: nothing rendered (default).
- * - `loading`: a subtle spinner appears in the overshoot area.
- * - `no-data`: a dashed boundary line + "No more data" label appears at the data edge.
- * - `has-more`: reserved — currently behaves like `idle`. Use when more data exists but is not being fetched.
- */
-export type EdgeState = 'idle' | 'loading' | 'no-data' | 'has-more';
-
-/** Payload for {@link ChartOptions.onEdgeReached}. */
-export interface EdgeReachedInfo {
-  side: EdgeSide;
-  /** Time units the user pulled past the soft bound. */
-  overshoot: number;
-  /** Soft-bound timestamp that was crossed (dataStart - leftPad or dataEnd + rightPad). */
-  boundaryTime: number;
-}
+export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart/options';
 
 /** Events emitted by {@link ChartInstance}. */
 interface ChartEvents {
@@ -80,281 +72,15 @@ interface ChartEvents {
    * subscribe to this instead of stacking multiple listeners.
    */
   overlayChange: () => void;
-}
-
-/** Options passed when creating a new {@link ChartInstance}. */
-/**
- * Time-value or boolean used throughout the animation API. `false` disables
- * the category; a number configures its duration/time-constant in milliseconds
- * (`0` also disables, useful when the caller wants a number shape).
- */
-export type AnimationTime = number | false;
-
-/**
- * Chart-level animation configuration. Two independent domains so per-series
- * defaults can't bleed into viewport-interaction timings.
- *
- * **Two layers — chart-level vs per-series.** The same data-animation knobs
- * live on both layers; remember which is which:
- *
- * | Field | Chart-level (here) | Per-series option |
- * | ----- | ------------------ | ----------------- |
- * | Entry duration | {@link AnimationsConfig.points}`.enterMs` | `<XSeries options={{ entryMs }}>` (canonical name; `enterMs` is a `@deprecated` alias) |
- * | Live smoothing | `points.smoothMs` | `options={{ smoothMs }}` |
- * | Line pulse period | `points.pulseMs` | `<LineSeries options={{ pulseMs }}>` |
- *
- * Resolution: per-series option **wins** (it's the override). The chart-
- * level field acts as the default for every series that didn't set its own
- * override — *except* when the chart-level category is explicitly `false`,
- * which is a hard disable that overrides per-series too.
- *
- * - `points` — applied to data: entrance tween, live-tracking smoothing of
- *   the last candle/bar/line value, line pulse cadence.
- * - `viewport` — applied to viewport interactions: post-gesture rebound,
- *   Y-axis range chase, optional per-event ease for pan/zoom. Has no
- *   per-series equivalent — these are chart-level only.
- *
- * All settling animations share a 250 ms default so the X re-fit, Y range
- * update, and last-bar live-track all settle on the same frame on a
- * streaming tick. Pulse cycle period (600 ms) and `inputResponseMs` (0,
- * opt-in) keep their own values.
- */
-export interface AnimationsConfig {
   /**
-   * Data-series animations. `false` disables every point animation (entrance,
-   * live-smoothing, pulse) across every series — overrides any per-series
-   * option set on the same fields. An object overrides individual categories;
-   * omitted fields fall back to the built-in defaults.
-   *
-   * Per-series options (`<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`)
-   * win over chart-level numeric values. The chart-level field becomes the
-   * default for series that don't set their own.
+   * Fired once per main-layer frame *while* an axis tick is still in the
+   * middle of its fade-in/out animation. DOM axis components (`<TimeAxis>`,
+   * `<YAxis>`) listen to this to re-read the per-tick opacity from
+   * `timeScale.tickTracker` / `yScale.tickTracker` so the DOM labels and
+   * canvas grid lines fade in lockstep. Stops firing as soon as every
+   * tracked tick has reached its target opacity.
    */
-  points?:
-    | false
-    | {
-        /**
-         * Per-point entrance duration (ms). Default: 250.
-         * Per-series equivalent: `<XSeries options={{ entryMs }}>` (note the
-         * `y` — chart-level uses `enterMs`, per-series uses `entryMs` for
-         * historical reasons; both refer to the same animation). `false` /
-         * `0` disables.
-         */
-        enterMs?: AnimationTime;
-        /**
-         * Live-value chase duration (ms) for the displayed last point on
-         * `updateData` ticks. Animator-driven cubic ease — after this many ms
-         * with no new updates, the displayed value reaches exactly the
-         * actual last value. Default: 250. Per-series equivalent:
-         * `options={{ smoothMs }}`. `false` / `0` snaps.
-         */
-        smoothMs?: AnimationTime;
-        /**
-         * Pulse cycle period (ms) for the line last-point halo — periodic,
-         * not a one-shot transition. Default: 600. Per-series equivalent:
-         * `<LineSeries options={{ pulseMs }}>`. `false` / `0` disables.
-         */
-        pulseMs?: AnimationTime;
-      };
-  /**
-   * Viewport interaction animations. `false` disables both rebound and Y-axis
-   * smoothing — viewport changes snap instantly.
-   */
-  viewport?:
-    | false
-    | {
-        /** Rebound (snap-back) duration after pan/zoom overshoot (ms). Default: 350. */
-        reboundMs?: AnimationTime;
-        /**
-         * Y-axis range transition duration in wall-clock milliseconds. The Y
-         * min and max each ride their own {@link Animator} that retargets on
-         * data updates and eases toward the new bound over this many ms.
-         * Default `250` (shares the lockstep-arrival budget with viewport and
-         * live-track). Inward contraction always eases. Outward expansion
-         * eases when the per-point entrance is enabled (the entering candle's
-         * fade masks the brief overshoot); when entrance is hard-disabled
-         * (`points.enterMs === 0`), Y bounds snap outward to keep new
-         * highs/lows from clipping at the canvas edge. `false` / `0` snaps
-         * the Y range instantly on every update.
-         */
-        yAxisMs?: AnimationTime;
-        /**
-         * Per-event ease applied to user pan/zoom commits. Logical state
-         * advances synchronously (gesture math, edge detection, autoscroll
-         * all read the committed target); the visual range eases over this
-         * duration so back-to-back wheel/trackpad events interpolate
-         * smoothly through the same animator.
-         *
-         * Default `0` (instant-apply, matches the long-standing pre-Phase-5
-         * behaviour). Opt in via `inputResponseMs: 60` for an eased pan/zoom
-         * feel — the default is conservative because the animated visual
-         * range diverges from the committed target until the ease completes,
-         * and existing consumers reading `chart.getVisibleRange()`
-         * synchronously after a wheel/pan expect the new value.
-         */
-        inputResponseMs?: AnimationTime;
-      };
-}
-
-/**
- * Resolved, flat view of {@link AnimationsConfig} — every field concrete.
- * `0` in any numeric field means "disabled" (matches {@link AnimationTime}).
- *
- * @internal
- */
-export interface ResolvedAnimationsConfig {
-  points: {
-    enterMs: number;
-    smoothMs: number;
-    pulseMs: number;
-  };
-  viewport: {
-    reboundMs: number;
-    yAxisMs: number;
-    inputResponseMs: number;
-  };
-}
-
-export interface ChartOptions {
-  theme?: ChartTheme;
-  axis?: AxisConfig;
-  /**
-   * Viewport padding. `top`/`bottom` are in pixels. `left`/`right` accept either pixels (`50`)
-   * or data intervals (`{ intervals: 3 }`). Defaults: `{ top: 20, bottom: 20, right: { intervals: 3 }, left: { intervals: 0 } }`.
-   */
-  padding?: {
-    top?: number;
-    bottom?: number;
-    right?: number | { intervals: number };
-    left?: number | { intervals: number };
-  };
-  /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
-  interactive?: boolean;
-  /** Background grid configuration. Default: `{ visible: true }`. */
-  grid?: { visible: boolean };
-  /**
-   * Animation control. Split into `points` (data-series animations) and
-   * `viewport` (pan/zoom rebound + Y-axis smoothing). See
-   * {@link AnimationsConfig} for the full shape and defaults.
-   *
-   * Shorthands:
-   * - `animations: true` (or omitted) uses built-in defaults.
-   * - `animations: false` disables every animation category.
-   * - `animations: { points: false }` disables all data-series animations.
-   * - `animations: { viewport: false }` disables rebound + Y-axis smoothing.
-   *
-   * Per-series options (`enterMs`, `smoothMs`, etc.) override chart-level
-   * defaults unless the category is explicitly `false` — then the chart-
-   * level gate wins.
-   */
-  animations?: boolean | AnimationsConfig;
-  /**
-   * Invoked after the user releases a pan/zoom gesture that pulled the
-   * viewport past a data edge by more than 10% of the visible range. Hosts
-   * typically respond by prefetching more history and calling
-   * {@link ChartInstance.setEdgeState} to show a spinner or "no more data"
-   * indicator at the corresponding edge.
-   */
-  onEdgeReached?: (info: EdgeReachedInfo) => void;
-  /**
-   * Runtime performance instrumentation. Opt-in — absent by default so the
-   * hot render path stays free of timing/counting overhead.
-   *
-   * - `false` / omitted — no instrumentation, no HUD, byte-identical to a perf-free build.
-   * - `true` — create an internal {@link PerfMonitor} and mount a visible HUD overlay.
-   * - `{ hud: true, ...options }` — same, with monitor options forwarded.
-   * - `{ hud: false, ...options }` — instrument but do not render a HUD (useful when
-   *   the host app consumes stats via `monitor.onFrame` and renders its own UI).
-   * - `PerfMonitor` instance — attach to a pre-constructed monitor. Useful when several
-   *   charts share one telemetry sink. HUD defaults to off in this mode.
-   */
-  perf?: boolean | PerfMonitor | (PerfMonitorOptions & { hud?: boolean; monitor?: PerfMonitor });
-}
-
-/**
- * Normalize an {@link AnimationTime} against a default. `false` or `0`
- * collapses to `0` (the "disabled" marker in the resolved config); any
- * other number flows through untouched; `undefined` falls back to the
- * built-in default.
- */
-function resolveTime(value: AnimationTime | undefined, fallback: number): number {
-  if (value === false || value === 0) return 0;
-  if (value === undefined) return fallback;
-
-  return value;
-}
-
-/**
- * Collapse the public `animations` surface into a flat resolved config.
- * `animations: false` disables everything; category-level `false` disables
- * every field in that category; otherwise missing fields inherit built-in
- * defaults.
- *
- * @internal
- */
-export function resolveAnimationsConfig(input: ChartOptions['animations']): ResolvedAnimationsConfig {
-  if (input === false) {
-    return {
-      points: { enterMs: 0, smoothMs: 0, pulseMs: 0 },
-      viewport: { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 },
-    };
-  }
-
-  // `true` (or undefined) means "all defaults on" — fall through to the
-  // default-resolution path with no overrides.
-  const cfg = input === true || input === undefined ? undefined : input;
-  const rawPoints = cfg?.points;
-  const rawViewport = cfg?.viewport;
-
-  const points =
-    rawPoints === false
-      ? { enterMs: 0, smoothMs: 0, pulseMs: 0 }
-      : {
-          enterMs: resolveTime(rawPoints?.enterMs, DEFAULT_ENTER_MS),
-          smoothMs: resolveTime(rawPoints?.smoothMs, DEFAULT_SMOOTH_MS),
-          pulseMs: resolveTime(rawPoints?.pulseMs, DEFAULT_PULSE_MS),
-        };
-
-  const viewport =
-    rawViewport === false
-      ? { reboundMs: 0, yAxisMs: 0, inputResponseMs: 0 }
-      : {
-          reboundMs: resolveTime(rawViewport?.reboundMs, DEFAULT_REBOUND_MS),
-          yAxisMs: resolveTime(rawViewport?.yAxisMs, DEFAULT_Y_AXIS_MS),
-          inputResponseMs: resolveTime(rawViewport?.inputResponseMs, DEFAULT_INPUT_RESPONSE_MS),
-        };
-
-  return { points, viewport };
-}
-
-interface ResolvedPerfOptions {
-  monitor: PerfMonitor | null;
-  /** True when the monitor was constructed by `resolvePerfOptions`; false for caller-supplied monitors we must not destroy. */
-  ownsMonitor: boolean;
-  showHud: boolean;
-}
-
-/**
- * Collapse the polymorphic `perf` option into a concrete monitor + HUD
- * decision. Returning `{ monitor: null }` preserves the zero-instrumentation
- * path — no Proxy, no timing, no HUD.
- */
-function resolvePerfOptions(input: ChartOptions['perf']): ResolvedPerfOptions {
-  if (!input) return { monitor: null, ownsMonitor: false, showHud: false };
-
-  if (input === true) return { monitor: new PerfMonitor(), ownsMonitor: true, showHud: true };
-
-  if (input instanceof PerfMonitor) return { monitor: input, ownsMonitor: false, showHud: false };
-
-  // Object form: may carry an external monitor or construction options, plus a HUD flag.
-  const { hud, monitor, ...monitorOptions } = input;
-  const external = monitor !== undefined;
-
-  return {
-    monitor: monitor ?? new PerfMonitor(monitorOptions),
-    ownsMonitor: !external,
-    showHud: hud ?? !external,
-  };
+  tickFrame: () => void;
 }
 
 /** Internal bookkeeping for a registered series. */
@@ -363,7 +89,7 @@ interface SeriesEntry {
   label?: string;
   renderer: SeriesRenderer;
   /** Null for non-time-series types like Pie. */
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous storage — the concrete item type (TimePoint / OHLCData / LineData) depends on the series and is narrowed at the use site.
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous storage — the concrete item type (TimePoint / OHLCData / TimePoint) depends on the series and is narrowed at the use site.
   store: TimeSeriesStore<any> | null;
   visible: boolean;
 }
@@ -374,11 +100,9 @@ let seriesIdCounter = 0;
  * Core chart controller. Manages series, viewport, scales, and rendering.
  * Create one per chart container and call {@link destroy} on unmount.
  */
-export class ChartInstance extends EventEmitter<ChartEvents> {
+export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomTarget {
   /** Canvas lifecycle and DPR-aware sizing. */
   #canvasManager: CanvasManager;
-  /** Manages visible range, Y range, panning, zooming, and animated transitions. */
-  readonly #viewport: Viewport;
   /** Schedules main-layer redraws (background, grid, series). */
   #mainScheduler: RenderScheduler;
   /** Schedules overlay redraws (crosshair). */
@@ -403,9 +127,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   #yBounds: { min?: AxisBound; max?: AxisBound } = {};
   /** Cached series ID list — invalidated on add/remove. */
   #seriesIdCache: string[] | null = null;
-  /** Whether a YLabel overlay is active (used for right-padding calculation). */
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: written via setYLabel, reserved for the right-padding reflow that accommodates the badge — kept so the flag stays consistent with the public API while the reflow logic is in progress.
-  #hasYLabel = false;
   /** Axis visibility and sizing configuration. */
   #axis: AxisConfig = {};
   /** Host-declared state per edge — drives the edge-indicator overlay. */
@@ -427,7 +148,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   /**
    * Monotonic counter bumped on any mutation that affects overlay output —
    * data, visibility, series options, theme. Used by snapshot helpers in
-   * `@wick-charts/core` as a cache key so `buildHoverSnapshots` /
+   * `@wick-charts/core` as a cache key, so `buildHoverSnapshots` /
    * `buildLastSnapshots` return the same reference between ticks when
    * nothing observable has changed.
    *
@@ -446,7 +167,80 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
   }
 
   /** Resolved animation config derived from `options.animations` at construction. */
-  #animationsConfig: ResolvedAnimationsConfig;
+  #animationsConfig: AnimationConfig;
+
+  /**
+   * Single source of truth for the chart's X / Y viewport animation.
+   * Push-model API: chart emits intent signals (`onPointAppended`,
+   * `onSeriesVisibilityChanged`, `onPanZoom`, `onProgrammaticZoom`,
+   * `onAxisReconfig`, `onDataReplaced`, `snap`); the engine pulls the
+   * matching targets back through `computeXTarget` / `computeYTarget`
+   * closures supplied at construction.
+   */
+  readonly #engine: ViewportEngine;
+  /** EMA-smoothed real-wall-clock cadence between streaming appends. The
+   *  X spring's `setSettleMs` is fed from this so the settle time stays just
+   *  longer than the producer's tick interval — the spring never quite
+   *  settles between ticks, so velocity carries continuously and the slide
+   *  doesn't pulse. */
+  readonly #cadence: StreamingCadence;
+  /**
+   * Mirrors `#dataReplaceSnapPending` for the engine signal that follows
+   * inside the same `onDataChanged` call. `#dataReplaceSnapPending` is
+   * consumed at the top of `onDataChanged` (so a stray streaming append
+   * couldn't re-trigger the snap), but the `computeXTarget` closure runs
+   * later and still needs to know whether to refit the X window. This
+   * field carries the decision across that gap. The closure also reads
+   * `#dataStart` / `#dataEnd` directly for the timestamps.
+   */
+  #pendingFitToData = false;
+
+  /** Earliest data timestamp registered across all series, `null` before any data has arrived. */
+  #dataStart: number | null = null;
+  /** Latest data timestamp registered across all series, `null` before any data has arrived. */
+  #dataEnd: number | null = null;
+  /**
+   * Previous {@link #dataEnd} value. Streaming-target math reads it to
+   * preserve any pan offset across ticks: a user who panned a few bars
+   * left of the tail keeps that offset as new bars arrive, instead of
+   * snapping back to the natural-pin position every frame.
+   */
+  #prevDataEnd: number | null = null;
+  /**
+   * Warm-up window flag — `setVisibleRange({ from, bars })` arms it and
+   * the streaming-target math suppresses pan ticks while the data hasn't
+   * reached the right edge yet. Cleared by user interaction or once the
+   * data fills the window.
+   */
+  #holdUntilFilled = false;
+  /**
+   * Cap for fit-to-data. When the data span exceeds this, the fit anchors
+   * the right edge and trims the left. Resolved once at construction from
+   * `options.viewport.maxVisibleBars`.
+   */
+  readonly #maxVisibleBars: number;
+
+  /**
+   * Committed logical X range — the "where X should be" target. Engine
+   * eases its visual toward this. Pan / zoom / setRange / fitContent /
+   * streaming-target writes go here. Initialized to `{0,0}` and treated
+   * as "uninitialized" by `#computeXTarget` until first paint.
+   */
+  #logical: VisibleRange = { from: 0, to: 0 };
+  /** Padded Y range — engine's raw Y target plus pixel padding from `#padding`. */
+  #yRange: YRange = { min: 0, max: 0 };
+  /**
+   * Auto-scroll flag — when `true`, streaming ticks slide X to track the
+   * data tail. Pan flips this off when the gesture pushes the tail off
+   * screen; chart's per-frame autoscroll check re-engages it when a
+   * follow-up pan brings the tail back into view.
+   */
+  #autoScroll = true;
+  /** Resolved viewport padding (top/bottom px + left/right pixels-or-intervals). */
+  #padding: ResolvedPadding;
+  /** Cached chart width — passed by interactions on every call; kept for the rare
+   *  call that omits it (e.g. programmatic `chart.pan(...)` without explicit width). */
+  #lastChartWidth = 0;
 
   /** Active performance monitor, or `null` when instrumentation is disabled (the default). */
   #perfMonitor: PerfMonitor | null;
@@ -464,21 +258,50 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     }
     this.#theme = options?.theme ?? catppuccin.theme;
     this.#grid = options?.grid?.visible !== false;
-    this.#animationsConfig = resolveAnimationsConfig(options?.animations);
+    this.#animationsConfig = AnimationConfig.resolve(options?.animations);
+    this.#maxVisibleBars = resolveMaxVisibleBars(options?.viewport?.maxVisibleBars);
+    this.#padding = resolvePadding(options?.padding);
+
+    // Viewport state machine — owns X / Y animation. Other animation
+    // timelines (per-series alpha, pulse, axis tick fade, per-point entry,
+    // last-value smoothing) live on the renderers / series / scale trackers
+    // and tick independently.
+    this.#cadence = new StreamingCadence();
+    const animY = this.#animationsConfig.axis.y;
+    const animX = this.#animationsConfig.axis.x;
+    this.#engine = createViewportEngine({
+      initial: { yRange: { min: 0, max: 0 }, xRange: { from: 0, to: 0 } },
+      y: {
+        curve: animY.curve,
+        settleMs: animY.settleMs,
+        stickyMs: animY.stickyMs,
+        gestureMs: animY.gestureMs,
+        toggleMs: this.#animationsConfig.toggleMs,
+      },
+      x: {
+        curve: animX.curve,
+        settleMs: animX.settleMs,
+        gestureMs: animX.gestureMs,
+      },
+      computeXTarget: () => this.#computeXTarget(),
+      computeYTarget: ({ xTarget }) => this.#computeYTarget(xTarget),
+      onWake: () => this.#mainScheduler?.markDirty(),
+    });
+
     this.#onEdgeReached = options?.onEdgeReached;
+    this.#initialVisibleRange = options?.viewport?.initialRange;
 
     const resolvedPerf = resolvePerfOptions(options?.perf);
     this.#perfMonitor = resolvedPerf.monitor;
     this.#ownsPerfMonitor = resolvedPerf.ownsMonitor;
 
     this.#canvasManager = new CanvasManager(container, this.#perfMonitor ?? undefined);
-    this.#viewport = new Viewport({
-      padding: options?.padding,
-      reboundMs: this.#animationsConfig.viewport.reboundMs,
-    });
-    registerChartViewport(this, this.#viewport);
     this.timeScale = new TimeScale();
     this.yScale = new YScale();
+
+    const ticksMs = this.#animationsConfig.axis.ticksMs;
+    this.timeScale.tickTracker.setFadeMs(ticksMs);
+    this.yScale.tickTracker.setFadeMs(ticksMs);
 
     const monitor = this.#perfMonitor;
     if (monitor) {
@@ -504,51 +327,31 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
 
     const interactive = options?.interactive !== false;
     this.#interactions = interactive
-      ? new InteractionHandler(
-          this.#canvasManager.canvas,
-          this.#viewport,
-          this.timeScale,
-          this.yScale,
-          this.#animationsConfig.viewport.inputResponseMs,
-        )
+      ? new InteractionHandler(this.#canvasManager.canvas, this, this.timeScale, this.yScale)
       : null;
-
-    this.#viewport.on('change', () => {
-      // Sync scales immediately so DOM axis components (TimeAxis, YAxis) read
-      // fresh coordinates when viewportChange triggers their re-render.
-      // Does NOT advance Y smoothing — that only happens inside renderMain().
-      this.syncScales();
-      this.#mainScheduler.markDirty();
-      this.emit('viewportChange');
-    });
-
-    this.#viewport.on('edgeReached', (info: EdgeReachedInfo) => {
-      // Remember the boundary so the edge-indicator overlay can anchor to it
-      // even after subsequent pan/zoom that may shift soft bounds.
-      this.#edgeBoundaries[info.side] = info.boundaryTime;
-      this.#onEdgeReached?.(info);
-    });
-
-    // While the user is actively panning/zooming, the Y-range chase uses a
-    // shorter ease (see INTERACT_Y_AXIS_MS) so it converges within ~1 frame
-    // per wheel tick instead of trailing the gesture through the full 250 ms
-    // ease. The flag is read-and-cleared by updateYRange on the next frame —
-    // no time window needed: after the last wheel tick, current ≈ target, so
-    // switching back to the long ease produces no visible motion.
-    this.#viewport.on('interact', () => {
-      this.#interactPending = true;
-    });
 
     this.#canvasManager.on('resize', () => {
       // Render synchronously — canvas.width/height assignment clears the canvas,
       // so we must redraw immediately in the same frame to avoid a black flash.
-      // Snap Y range: canvas dimensions changed structurally.
-      this.updateScales(true);
+      // Resize doesn't change the data-driven Y target, but the chart-area
+      // height changed: the next setYRange call inside renderMain picks up
+      // the new pixel padding so labels reposition without an explicit emit.
+      this.syncScales();
       this.renderMain();
       // Notify React components — yScale changed due to new canvas dimensions
       // (e.g. Legend appeared and shrank the chart area).
       this.emit('viewportChange');
     });
+
+    // Bootstrap the scales with the size CanvasManager measured synchronously
+    // in its constructor. Without this, `yScale.height` stays at its default
+    // `1` until the first ResizeObserver delivery (or first `onDataChanged`)
+    // — and anything that calls `yScale.valueToY()` before then (YLabel,
+    // YAxis labels, series draws on the first paint) computes positions
+    // against a 1-pixel coordinate space, producing a visible "rescale"
+    // jump once the real height lands. `syncScales` is cheap and safely
+    // no-ops when the container hasn't been laid out yet (size still 0).
+    this.syncScales();
 
     this.#interactions?.on('crosshairMove', (pos) => {
       this.#crosshairPos = pos;
@@ -612,37 +415,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     return candidate;
   }
 
-  /**
-   * Option overrides derived from the chart-level `animations.points` config.
-   * Merged BEFORE user-supplied series options so explicit series options
-   * always win — except when a chart-level category resolved to `0`
-   * (disabled), in which case the category is forced off here and the
-   * per-series option cannot re-enable it. Enforcement of the "chart-level
-   * false wins" contract lives in the `addXSeries` wrappers below: they call
-   * `#seriesAnimationDefaults(kind, options)` so the result merges *after*
-   * the user's options for the disable paths.
-   */
-  #seriesAnimationDefaults(kind: 'candle' | 'bar' | 'line'): Record<string, unknown> {
-    const { enterMs, smoothMs, pulseMs } = this.#animationsConfig.points;
-    // `enterAnimation` style stays per-series — chart-level config only
-    // influences durations. `pulseMs` is line-only; bars/candles ignore it.
-    return kind === 'line' ? { enterMs, smoothMs, pulseMs } : { enterMs, smoothMs };
-  }
+  /** Map a renderer instance to its `series.<kind>` config bucket. Pie has
+   *  no per-series animation wiring yet (Phase 3), so we return null. */
+  #rendererKind(renderer: SeriesRenderer): 'candle' | 'bar' | 'line' | null {
+    if (renderer instanceof CandlestickRenderer) return 'candle';
+    if (renderer instanceof BarRenderer) return 'bar';
+    if (renderer instanceof LineRenderer) return 'line';
 
-  /**
-   * Chart-level animation overrides — these *win over* any per-series value
-   * because `animations.points: false` (or any category set to `false`) is
-   * documented as a hard disable. Merged AFTER user options in the
-   * `addXSeries` wrappers.
-   */
-  #seriesAnimationForceOff(): Record<string, unknown> {
-    const { enterMs, smoothMs, pulseMs } = this.#animationsConfig.points;
-    const out: Record<string, unknown> = {};
-    if (enterMs === 0) out.enterMs = 0;
-    if (smoothMs === 0) out.smoothMs = 0;
-    if (pulseMs === 0) out.pulseMs = 0;
-
-    return out;
+    return null;
   }
 
   /** Add a candlestick (OHLC) series and return its unique ID. */
@@ -652,9 +432,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       up: { ...this.#theme.candlestick.up },
       down: { ...this.#theme.candlestick.down },
       bodyWidthRatio: 0.6,
-      ...this.#seriesAnimationDefaults('candle'),
+      ...this.#animationsConfig.defaults('candle'),
       ...options,
-      ...this.#seriesAnimationForceOff(),
+      ...this.#animationsConfig.overrides('candle'),
     });
 
     return this.#registerSeries(renderer, renderer.store, options ?? {});
@@ -669,9 +449,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       colors: layerCount === 1 ? [this.#theme.line.color] : this.#theme.seriesColors.slice(0, layerCount),
       strokeWidth: this.#theme.line.width,
       area: { visible: true },
-      ...this.#seriesAnimationDefaults('line'),
+      ...this.#animationsConfig.defaults('line'),
       ...rest,
-      ...this.#seriesAnimationForceOff(),
+      ...this.#animationsConfig.overrides('line'),
     });
 
     return this.#registerSeries(renderer, renderer.store, rest);
@@ -685,9 +465,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const renderer = new BarRenderer(layerCount, {
       colors: this.#theme.seriesColors.slice(0, layerCount),
       barWidthRatio: 0.6,
-      ...this.#seriesAnimationDefaults('bar'),
+      ...this.#animationsConfig.defaults('bar'),
       ...rest,
-      ...this.#seriesAnimationForceOff(),
+      ...this.#animationsConfig.overrides('bar'),
     });
 
     return this.#registerSeries(renderer, renderer.store, rest);
@@ -708,7 +488,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     renderer.onDataChanged?.(() => this.onDataChanged());
     this.#series.push({ id, label: opts.label, renderer, store, visible: true });
     this.#seriesIdCache = null;
-    this.updateViewportPadding();
     this.emit('seriesChange');
     this.#bumpOverlayVersion();
 
@@ -731,11 +510,20 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       this.#series[idx].renderer.dispose();
       this.#series.splice(idx, 1);
       this.#seriesIdCache = null;
-      this.updateViewportPadding();
       this.#mainScheduler.markDirty();
       this.emit('seriesChange');
       this.#bumpOverlayVersion();
     }
+  }
+
+  /**
+   * Read-only snapshot of the chart's X / Y viewport animation. The same
+   * shape (`xRange`, `yRange`, `animating`) every frame — call this inside
+   * the current render pass rather than caching the reference, as the
+   * underlying animator mutates between frames.
+   */
+  getAnimationState(): AnimationState {
+    return this.#engine.getAnimationState();
   }
 
   /**
@@ -755,19 +543,44 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // by chart-scales-sync.test). Streaming `appendData` ticks don't set
     // this flag, so per-tick Y can ease both directions for a smooth axis.
     this.#dataReplaceSnapPending = true;
+
     entry.renderer.setData(data, layerIndex);
   }
 
   /** Append a new data point to the end of a series (real-time tick). */
   appendData(id: string, point: OHLCInput | TimePointInput, layerIndex?: number): void {
     const entry = this.#series.find((s) => s.id === id);
-    entry?.renderer.appendPoint?.(point, layerIndex);
+    if (entry === undefined || entry.renderer.appendPoint === undefined) return;
+
+    // Entrance + live-value chase are renderer-owned: the renderer's
+    // `appendPoint` registers an entry animator keyed by `time` and seeds
+    // the live-track so the new point fades in and the trailing-Y starts
+    // smoothing on the next render frame.
+    entry.renderer.appendPoint(point, layerIndex);
   }
 
   /** Update the last data point of a series in place (e.g. live candle update). */
   updateData(id: string, point: OHLCInput | TimePointInput, layerIndex?: number): void {
     const entry = this.#series.find((s) => s.id === id);
     entry?.renderer.updateLastPoint?.(point, layerIndex);
+  }
+
+  /**
+   * Keep only the most recent `count` points of a series — drop the oldest
+   * tail when the series exceeds the cap. Smooth Y-range chase (no snap):
+   * unlike {@link setSeriesData}, this does NOT set the bulk-replace snap
+   * flag, so streaming windows can roll without per-tick Y jitter.
+   *
+   * Idempotent: a no-op when the series is already at or below `count`.
+   * Use after {@link appendData} in a rolling-window stream:
+   * ```ts
+   * chart.appendData('feed', point);
+   * chart.keepLast('feed', 100);
+   * ```
+   */
+  keepLast(id: string, count: number, layerIndex?: number): void {
+    const entry = this.#series.find((s) => s.id === id);
+    entry?.renderer.keepLast?.(count, layerIndex);
   }
 
   /** Update visual options (color, width, etc.) for an existing series. */
@@ -793,11 +606,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const prevColors = entry.renderer.getLayerColors().slice();
 
     // React / Vue / Svelte wrappers replay the user's options on every
-    // render via this path. If the chart-level `animations.points` category
-    // is disabled, the per-series force-off must be re-applied here —
-    // otherwise a simple parent re-render silently re-enables animations
-    // the chart asked to hold off.
-    entry.renderer.updateOptions({ ...options, ...this.#seriesAnimationForceOff() });
+    // render via this path. If the chart-level `animations.series.<type>`
+    // category is disabled, the per-series force-off must be re-applied
+    // here — otherwise a simple parent re-render silently re-enables
+    // animations the chart asked to hold off.
+    const kind = this.#rendererKind(entry.renderer);
+    const forceOff = kind === null ? {} : this.#animationsConfig.overrides(kind);
+    entry.renderer.updateOptions({ ...options, ...forceOff });
     // Keep stored label in sync with options (affects tooltip/legend)
     if ('label' in options && typeof options.label === 'string') {
       entry.label = options.label;
@@ -829,7 +644,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           this.onDataChanged();
         } else if (this.#batchVisualDirty) {
           this.#batchVisualDirty = false;
-          this.updateYRange(true);
+          this.#yInited = true;
+          const now = performance.now();
+          this.#engine.onAxisReconfig(now);
+          this.#applyEngineState(now);
           this.#mainScheduler.markDirty();
         }
         if (this.#batchOverlayDirty) {
@@ -840,47 +658,95 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     }
   }
 
-  /** Show or hide a series. Hidden series are not rendered and excluded from Y-range. */
+  /** Show or hide a series. The series cross-fades over
+   *  `animations.toggle`; the Y range re-fits on the same schedule
+   *  (one-shot duration override) so the fade and the axis adjustment
+   *  finish on the same frame. Hidden series are excluded from Y-range
+   *  computation immediately so the axis can start moving while the line
+   *  fades out in parallel.
+   */
   setSeriesVisible(seriesId: string, visible: boolean): void {
     const entry = this.#series.find((s) => s.id === seriesId);
     if (!entry || entry.visible === visible) return;
 
     entry.visible = visible;
     this.#bumpOverlayVersion();
+
+    // Renderer-owned alpha fade — kicks off independently of the engine's
+    // Y retarget below so the cross-fade lives next to the geometry that
+    // draws it. Pie and other renderers without `setAlpha` ride the binary
+    // `entry.visible` flag and skip the fade entirely.
+    const toggleMs = this.#animationsConfig.toggleMs;
+    entry.renderer.setAlpha?.(visible ? 1 : 0, toggleMs);
+    this.#mainScheduler.markDirty();
+
     if (this.#batchDepth > 0) {
       this.#batchVisualDirty = true;
 
       return;
     }
 
-    this.updateYRange(true);
-    this.#mainScheduler.markDirty();
+    // Y reflow still flows through the engine; renderer owns the alpha fade.
+    this.#yInited = true;
+    const now = performance.now();
+    this.#engine.onSeriesVisibilityChanged(now);
+    this.#applyEngineState(now);
+  }
+
+  /**
+   * Whether streaming ticks slide the visible range to track the data tail.
+   * Flipped off by a pan that pushes the tail off screen; re-engaged when
+   * a follow-up pan brings the tail back into the destination window or
+   * when {@link fitContent} / {@link setVisibleRange} commits a range
+   * containing the tail.
+   */
+  getAutoScroll(): boolean {
+    return this.#autoScroll;
   }
 
   isSeriesVisible(seriesId: string): boolean {
     return this.#series.find((s) => s.id === seriesId)?.visible ?? true;
   }
 
-  /** Show or hide a specific layer within a multi-layer series. */
+  /**
+   * Show or hide a specific layer within a multi-layer series.
+   *
+   * Symmetric with {@link setSeriesVisible}: drives both the renderer's
+   * per-layer alpha fade and the engine's Y re-fit through `toggleMs` so the
+   * line fade and the axis adjustment finish on the same frame. Hidden layers
+   * are excluded from Y-range computation immediately (via the renderer's
+   * `getValueRange` reading `store.isVisible()`); the alpha fade keeps the
+   * layer's geometry on screen until the engine's Y ease settles.
+   */
   setLayerVisible(seriesId: string, layerIndex: number, visible: boolean): void {
     const entry = this.#series.find((s) => s.id === seriesId);
     if (!entry) return;
 
     // Single-layer renderers (candlestick, pie, single-layer line/bar) can't toggle;
-    // use setSeriesVisible() instead. Skip to avoid a pointless updateYRange/redraw.
+    // use setSeriesVisible() instead. Skip to avoid a pointless re-fit/redraw.
     if (entry.renderer.getLayerCount() <= 1) return;
     if (entry.renderer.isLayerVisible(layerIndex) === visible) return;
 
     entry.renderer.setLayerVisible(layerIndex, visible);
     this.#bumpOverlayVersion();
+
+    // Per-layer alpha fade rides alongside the engine's Y ease. Renderers
+    // without per-layer alpha (candlestick, pie) are already excluded above
+    // by the layer-count guard, so the optional call is just type-level safety.
+    const toggleMs = this.#animationsConfig.toggleMs;
+    entry.renderer.setLayerAlpha?.(layerIndex, visible ? 1 : 0, toggleMs);
+    this.#mainScheduler.markDirty();
+
     if (this.#batchDepth > 0) {
       this.#batchVisualDirty = true;
 
       return;
     }
 
-    this.updateYRange(true);
-    this.#mainScheduler.markDirty();
+    this.#yInited = true;
+    const now = performance.now();
+    this.#engine.onSeriesVisibilityChanged(now);
+    this.#applyEngineState(now);
   }
 
   isLayerVisible(seriesId: string, layerIndex: number): boolean {
@@ -893,62 +759,102 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const { first, last } = this.getDataBounds();
     if (first === undefined || last === undefined) return;
     const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
-    this.#viewport.fitToData(first, last, chartWidth, true);
+    this.#fitVisibleToData(first, last, chartWidth);
+    // Y and X both ease through the engine — Y rides the sticky-Y baseline,
+    // X rides the spring's settle time, so the axis and viewport converge on
+    // the same frame.
+    this.#commitProgrammaticZoom({ xEase: true });
   }
 
   getVisibleRange() {
-    return this.#viewport.visibleRange;
+    // Return the committed logical target rather than the engine's eased
+    // visual: external consumers (React `useVisibleRange`, multi-chart sync)
+    // read this synchronously right after `setVisibleRange` / `pan` /
+    // `zoomAt` and expect to see what they just set, not the mid-tween
+    // value the engine is animating toward. Falls back to engine state
+    // before any commit (initial `{0,0}` state).
+    if (this.#logical.from === 0 && this.#logical.to === 0) {
+      return this.#engine.getAnimationState().xRange;
+    }
+
+    return this.#logical;
   }
 
   /**
    * Return the full span of registered data, or `null` before any data has
-   * arrived. `{ from: dataStart, to: dataEnd }` mirrors the viewport's own
+   * arrived. `{ from: dataStart, to: dataEnd }` mirrors the chart's own
    * tracking and is cheaper than recomputing from series stores.
    */
   getDataRange(): VisibleRange | null {
-    const from = this.#viewport.dataStart;
-    const to = this.#viewport.dataEnd;
-    if (from === null || to === null) return null;
+    if (this.#dataStart === null || this.#dataEnd === null) return null;
 
-    return { from, to };
+    return { from: this.#dataStart, to: this.#dataEnd };
   }
 
   /**
-   * Imperatively set the visible time range.
+   * Imperatively set the visible time range. Three forms:
    *
-   * Two forms:
-   * - `{ from, to }` — explicit millisecond range. Cancels any in-flight
-   *   animation and applies immediately. Auto-scroll stays on only if the
-   *   tail is inside the new range (mirrors pan semantics).
-   * - `number N` — shorthand for "show the last N bars from the tail".
-   *   Resolved against the current data bounds and data interval; keeps
-   *   auto-scroll on so streaming ticks continue to track the tail.
-   *   No-op if data hasn't loaded yet.
+   * - `number N` — show the last N bars from the data tail (anchor right).
+   *   Resolved against current data bounds and data interval; keeps
+   *   auto-scroll on. No-op if data hasn't loaded yet.
+   * - `{ from, to }` — explicit time range. `from`/`to` accept either
+   *   epoch milliseconds or `Date`. Cancels any in-flight animation and
+   *   applies immediately. Auto-scroll stays on only if the tail is
+   *   inside the new range (mirrors pan semantics).
+   * - `{ from, bars }` — anchor the visible window at `from` and extend
+   *   right by `bars` data intervals. Useful for warm-up windows where
+   *   seed points sit on the left and a stream fills the gap on the
+   *   right. `from` accepts a `Date` too.
    *
    * Typical use: on mount, zoom to the last N bars while keeping the full
    * buffer available for pan-back history inspection.
    */
-  setVisibleRange(range: VisibleRange | number): void {
-    if (typeof range === 'number') {
+  setVisibleRange(spec: VisibleRangeSpec): void {
+    if (typeof spec === 'number') {
       // Integer check rejects NaN, Infinity, and non-integers in one call;
       // the floor of 2 matches Viewport's applyRange minimum-span contract.
-      if (!Number.isInteger(range) || range < 2) return;
+      if (!Number.isInteger(spec) || spec < 2) return;
 
       const { first, last } = this.getDataBounds();
       if (first === undefined || last === undefined) return;
 
-      const trimmedFirst = Math.max(first, last - (range - 1) * this.#dataInterval);
+      const trimmedFirst = Math.max(first, last - (spec - 1) * this.#dataInterval);
       const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
-      this.#viewport.fitToData(trimmedFirst, last, chartWidth, false);
+      this.#fitVisibleToData(trimmedFirst, last, chartWidth);
+      // Programmatic zoom — X snaps to the new window (matches the legacy
+      // `setRange` semantics every consumer reads `chart.getVisibleRange()`
+      // synchronously after), Y eases via the sticky-Y baseline so the
+      // axis re-fit isn't a jarring jump.
+      this.#commitProgrammaticZoom();
 
       return;
     }
 
-    this.#viewport.setRange(range);
+    if ('bars' in spec) {
+      if (!Number.isInteger(spec.bars) || spec.bars < 2) return;
+
+      const from = normalizeTime(spec.from);
+      const to = from + spec.bars * this.#dataInterval;
+      this.#autoScroll = this.#dataEnd !== null && this.#dataEnd >= from && this.#dataEnd <= to;
+      this.#commitLogical({ from, to }, { emitChange: true });
+      // Hold the viewport until the data fills the gap on the right —
+      // standard streaming warm-up window.
+      this.#holdUntilFilled = true;
+      this.#commitProgrammaticZoom();
+
+      return;
+    }
+
+    const from = normalizeTime(spec.from);
+    const to = normalizeTime(spec.to);
+    this.#autoScroll = this.#dataEnd !== null && this.#dataEnd >= from && this.#dataEnd <= to;
+    this.#holdUntilFilled = false;
+    this.#commitLogical({ from, to }, { emitChange: true });
+    this.#commitProgrammaticZoom();
   }
 
   getYRange() {
-    return this.#viewport.yRange;
+    return this.#yRange;
   }
 
   getCrosshairPosition(): CrosshairPosition | null {
@@ -1000,7 +906,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     } else if (current !== null) {
       y = current.y;
     } else {
-      const yRange = this.#viewport.yRange;
+      const yRange = this.#yRange;
       y = (yRange.min + yRange.max) / 2;
     }
 
@@ -1020,35 +926,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
 
   /** Get the last visible value and whether the absolute last point is on screen. */
   getLastValue(seriesId: string): { value: number; isLive: boolean } | null {
-    const entry = this.#series.find((s) => s.id === seriesId);
-    if (!entry?.store) return null;
-
-    const last = entry.store.last();
-    if (!last) return null;
-
-    const extractValue = (p: OHLCData | TimePoint): number => ('close' in p ? p.close : p.value);
-
-    const { from, to } = this.#viewport.visibleRange;
-
-    // Absolute last is on screen
-    if (last.time >= from && last.time <= to) {
-      return { value: extractValue(last), isLive: true };
-    }
-
-    // Find the last visible point
-    const visible = entry.store.getVisibleData(from, to);
-    if (visible.length === 0) return null;
-    return { value: extractValue(visible[visible.length - 1]), isLive: false };
+    return getLastValue(seriesId, this.#series, this.#engine.getAnimationState().xRange);
   }
 
   /** Get the second-to-last value, useful for computing change. */
   getPreviousClose(seriesId: string): number | null {
-    const entry = this.#series.find((s) => s.id === seriesId);
-    if (!entry?.store) return null;
-    const all = entry.store.getAll();
-    if (all.length < 2) return null;
-    const prev = all[all.length - 2];
-    return 'close' in prev ? (prev as OHLCData).close : (prev as TimePoint).value;
+    return getPreviousClose(seriesId, this.#series);
   }
 
   getLastData(seriesId: string): OHLCData | TimePoint | null {
@@ -1161,15 +1044,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * Returns `null` for unknown ids or empty series.
    */
   getStackedLastValue(seriesId: string): { value: number; isLive: boolean } | null {
-    const entry = this.#series.find((s) => s.id === seriesId);
-    if (!entry) return null;
-
-    const stacked = entry.renderer.getStackedLastValue?.();
-    if (stacked) return stacked;
-
-    const raw = this.getLastValue(seriesId);
-
-    return raw;
+    return getStackedLastValue(seriesId, this.#series, this.#engine.getAnimationState().xRange);
   }
 
   /**
@@ -1252,10 +1127,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.#axis = config;
     // Sync Y bounds from axis config
     this.#yBounds = { min: config.y?.min, max: config.y?.max };
-    this.#yInited = false;
-    this.updateYRange(true);
+    this.#yInited = true;
+    const now = performance.now();
+    this.#engine.onAxisReconfig(now);
+    this.#applyEngineState(now);
     if (this.yAxisWidth !== prevYW || this.xAxisHeight !== prevXH) {
-      this.updateScales(true);
+      this.syncScales();
     }
     this.#mainScheduler.markDirty();
   }
@@ -1329,52 +1206,10 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    * a wrapper re-applies padding reactively (e.g. in response to a Title /
    * InfoBar ResizeObserver).
    */
-  /**
-   * Replace the chart-level animation configuration at runtime. Updates the
-   * resolved durations and propagates them to every dependent subsystem:
-   *
-   * - viewport: reboundMs (next rebound), inputResponseMs (next pan/zoom).
-   * - per-frame: yAxisMs (next render).
-   * - existing series: only the **hard-disable** signal (0 / false) is pushed
-   *   into renderers — that's the documented contract on
-   *   {@link AnimationsConfig.points}, "chart-level `false` wins over per-
-   *   series". Numeric chart-level changes update the default for *new*
-   *   series but leave existing per-series overrides intact, which avoids
-   *   silently clobbering custom values on every prop update from a React
-   *   wrapper.
-   *
-   * In-flight animations are NOT cancelled — the new durations apply to the
-   * next animation that fires. To force-snap the current animation, call
-   * the relevant API explicitly (e.g. `setRange`) afterwards.
-   */
-  setAnimations(animations: ChartOptions['animations']): void {
-    const next = resolveAnimationsConfig(animations);
-    this.#animationsConfig = next;
-    this.#viewport.setReboundMs(next.viewport.reboundMs);
-    this.#interactions?.setInputResponseMs(next.viewport.inputResponseMs);
-
-    // Hard-disable signal only. Numeric updates flow through to new series
-    // via `#seriesAnimationDefaults` at addSeries time; existing series keep
-    // whatever they were configured with.
-    const force: Record<string, 0> = {};
-    if (next.points.enterMs === 0) force.entryMs = 0;
-    if (next.points.smoothMs === 0) force.smoothMs = 0;
-    if (next.points.pulseMs === 0) force.pulseMs = 0;
-    if (Object.keys(force).length > 0) {
-      for (const entry of this.#series) {
-        entry.renderer.updateOptions?.(force);
-      }
-    }
-
-    // Y-range smoothing reads `yAxisMs` from `#animationsConfig` on each
-    // frame, so the next render picks up the new duration without a poke.
-    this.#mainScheduler.markDirty();
-  }
-
   setPadding(padding: ChartOptions['padding']): void {
-    const prev = this.#viewport.getPadding();
-    this.#viewport.setPadding(padding);
-    const next = this.#viewport.getPadding();
+    const prev = this.#padding;
+    this.#padding = resolvePadding(padding);
+    const next = this.#padding;
     const horizontalChanged =
       !isSameHorizontalPadding(prev.left, next.left) || !isSameHorizontalPadding(prev.right, next.right);
     const verticalChanged = prev.top !== next.top || prev.bottom !== next.bottom;
@@ -1382,20 +1217,24 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       const { first, last } = this.getDataBounds();
       if (first !== undefined && last !== undefined) {
         const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
-        this.#viewport.fitToData(first, last, chartWidth, false);
+        this.#fitVisibleToData(first, last, chartWidth);
       }
     }
-    if (verticalChanged) {
-      // Refit yRange against the new padding — otherwise valueToY keeps
-      // mapping with the old top/bottom gutters until the next full render.
-      this.updateYRange(true);
+    if (horizontalChanged || verticalChanged) {
+      // Horizontal change shifts logicalRange → Y target moves with the new
+      // window; vertical change shifts the pixel-padded yRange → renderers
+      // need the next setYRange call to pick up the new top/bottom gutters.
+      this.#yInited = true;
+      const now = performance.now();
+      this.#engine.onAxisReconfig(now);
+      this.#applyEngineState(now);
     }
     this.syncScales();
     this.#mainScheduler.markDirty();
     // Vertical changes need their own emit: fitToData's viewport 'change'
-    // fires *before* updateYRange runs, so subscribers that land on it see
-    // a stale yScale. Re-emit after syncScales pushes the new yRange so
-    // React components (YLabel, YAxis) pick up the final scale. Covers both
+    // fired before the Y re-fit, so subscribers that landed on it saw a stale
+    // yScale. Re-emit after syncScales pushes the new yRange so React
+    // components (YLabel, YAxis) pick up the final scale. Covers both
     // vertical-only (no prior emit) and combined changes (first emit stale).
     if (verticalChanged) {
       this.emit('viewportChange');
@@ -1428,10 +1267,14 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     return this.#edgeStates[side];
   }
 
-  /** Notify chart that a YLabel is present (affects right padding). */
-  setYLabel(has: boolean): void {
-    this.#hasYLabel = has;
-    this.updateViewportPadding();
+  /**
+   * Notify chart that a YLabel overlay is mounted / unmounted. Currently a
+   * no-op — placeholder for the right-padding reflow that will adjust the
+   * chart area to make room for the badge.
+   * TODO: implement reflow.
+   */
+  setYLabel(_has: boolean): void {
+    // intentionally empty
   }
 
   /**
@@ -1440,7 +1283,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
    */
   #updateHover(pos: CrosshairPosition | null): void {
     const size = this.#canvasManager.size;
-    const vpad = this.#viewport.getPadding();
+    const vpad = this.#padding;
     const padding = {
       top: vpad.top * size.verticalPixelRatio,
       bottom: vpad.bottom * size.verticalPixelRatio,
@@ -1461,16 +1304,11 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     if (changed) this.#mainScheduler.markDirty();
   }
 
-  private updateViewportPadding(): void {
-    // TODO: auto-detect padding from series types
-  }
-
   /** Tear down the chart: cancel animations, remove listeners, and detach the canvas. */
   destroy(): void {
     for (const entry of this.#series) entry.renderer.dispose();
     this.#series = [];
     this.#seriesIdCache = null;
-    this.#viewport.destroy();
     this.#mainScheduler.destroy();
     this.#overlayScheduler.destroy();
     this.#interactions?.destroy();
@@ -1505,9 +1343,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     return { first, last };
   }
 
-  /** Total data points across all series at last onDataChanged — used to detect batch vs tick. */
-  #prevDataLength = 0;
-
   /** Set by `setSeriesData`/bulk-replace paths so the next `onDataChanged`
    * snaps the Y range (instead of easing) and `yScale.getRange()` reflects
    * the new domain synchronously. Cleared by `onDataChanged` after each run. */
@@ -1522,71 +1357,77 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     this.updateDataInterval();
 
     const { first, last } = this.getDataBounds();
-    if (first !== undefined) this.#viewport.setDataStart(first);
-    if (last !== undefined) this.#viewport.setDataEnd(last);
-
-    // Detect how much data changed — batch load vs single tick
-    let totalLength = 0;
-    for (const entry of this.#series) {
-      // Multi-layer renderers expose getTotalLength(); single-layer uses entry.store.
-      if (entry.renderer.getTotalLength) {
-        totalLength += entry.renderer.getTotalLength();
-      } else if (entry.store) {
-        totalLength += entry.store.length;
-      }
-    }
-    const added = totalLength - this.#prevDataLength;
-    const isBatchLoad = added > 5;
-    this.#prevDataLength = totalLength;
-
-    if (first !== undefined && last !== undefined) {
-      // Logical, not visual — "has the viewport ever been committed?" is a
-      // logical state question. Mid-tween visual could still read {0,0} as
-      // it lerps off the initial state, but logical flips on first commit.
-      const { from, to } = this.#viewport.logicalRange;
-      const uninitialized = from === 0 && to === 0;
-      const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
-
-      if (uninitialized) {
-        // First data load — fit immediately
-        this.#viewport.fitToData(first, last, chartWidth, false);
-      } else if (isBatchLoad && this.#viewport.autoScroll) {
-        this.#viewport.fitToData(first, last, chartWidth, true);
-      } else if (!isBatchLoad && this.#viewport.autoScroll) {
-        // Realtime tick: scroll as long as auto-scroll is active. We used to
-        // gate on isLastPointVisible() — but during a synchronous burst of
-        // appendData calls the visible range hasn't advanced yet (no RAF tick
-        // between appends), so from the 4th bar on last.time > visibleRange.to
-        // and the gate would falsify, dropping updates for the rest of the
-        // burst. Pan disables autoScroll explicitly; zoom leaves it alone.
-        //
-        // Warm-up exception: while the data still fits inside the natural
-        // fit-to-data viewport (typical at stream start when only a handful
-        // of points have arrived), re-fit on each tick so the right edge
-        // grows with the data — otherwise scrollToEnd preserves the initial
-        // narrow window and slides existing points off the left edge. The
-        // re-fit animates over `ANIM.streamTick` so the chart visibly zooms
-        // out instead of jumping.
-        if (this.#viewport.dataFitsCurrentViewport(chartWidth)) {
-          this.#viewport.fitToData(first, last, chartWidth, true, ANIM.streamTick);
-        } else {
-          this.#viewport.scrollToEnd(last, chartWidth);
-        }
-      }
+    if (first !== undefined) this.#dataStart = first;
+    if (last !== undefined) {
+      this.#prevDataEnd = this.#dataEnd;
+      this.#dataEnd = last;
     }
 
-    // Snap Y range on batch loads, on first init (handled inside updateYRange),
-    // or when the caller signalled a bulk replace via `#dataReplaceSnapPending`.
-    // Smooth on streaming ticks otherwise.
+    // Snap Y/X only on a true bulk replace (`chart.setSeriesData` flipped
+    // `#dataReplaceSnapPending`) or on the first paint with data. Streaming
+    // appends and React-batched bursts all flow through the streaming retarget
+    // so the engine's X spring rides its baseline settle into the new tail —
+    // snapping here would produce a jump-per-commit pattern visible as
+    // "X teleports between batches".
     const replaceSnap = this.#dataReplaceSnapPending;
     this.#dataReplaceSnapPending = false;
-    this.updateYRange(isBatchLoad || replaceSnap);
+
+    // Capture "was this the first onDataChanged call that actually had
+    // data" *before* the engine signal flips `#yInited`. Initial mounts
+    // where data flows in asynchronously (e.g. `useOHLCStream` first emits
+    // `[]` then later `setData(history)`) hit this path on the second call;
+    // the first (empty) call returns early from `#computeYTarget` without
+    // setting `#yInited`.
+    const isFirstDataPaint = !this.#yInited && first !== undefined;
+
+    // A bulk replace swaps in an entirely new tick set. If the tick trackers
+    // stay armed with the previous dataset they'd fade the old labels out and
+    // the new ones in over the next 250 ms, briefly showing "ghost" grid
+    // lines from the prior range. Reset so the dataset swap snaps the same
+    // way the Y emit below is about to snap the Y bound.
+    if (replaceSnap) {
+      this.yScale.tickTracker.reset();
+      this.timeScale.tickTracker.reset();
+    }
+
+    // Engine pulls the X target by calling `#computeXTarget`
+    // through the `computeXTarget` closure — the closure runs viewport
+    // fit / streaming-target math on demand and reads `#dataStart` /
+    // `#dataEnd` (for the timestamps) plus `#pendingFitToData` (mirrors
+    // `replaceSnap`) to pick the right path. Y is pulled separately via the
+    // `computeYTarget` closure against the new X window.
+    // `#yInited` flips optimistically — `#computeYTarget` self-clears
+    // it when no series has data in the window, so the next paint with
+    // values lands as a first-paint snap.
+    this.#pendingFitToData = replaceSnap;
+    const now = performance.now();
+    if (replaceSnap || isFirstDataPaint) {
+      this.#engine.onDataReplaced(now);
+    } else {
+      this.#engine.onPointAppended(now);
+    }
+
+    if (this.#engine.lastXTarget !== null) {
+      this.#xInited = true;
+    }
+    if (first !== undefined) {
+      this.#yInited = true;
+    }
+
+    this.#applyEngineState(now);
     // Re-sync scales so React components read correct yScale values.
-    // The earlier viewport 'change' (from fitToData) fired before updateYRange,
-    // so yScale was stale at that point.
     this.syncScales();
 
-    this.#mainScheduler.markDirty();
+    // On the very first paint with data, render synchronously so the
+    // canvas comes up alongside the DOM (YLabel, axis labels) in the
+    // same browser paint. Subsequent updates go through `markDirty` so
+    // streaming ticks coalesce per RAF and Y-range easing gets at least
+    // one frame to advance before painting.
+    if (isFirstDataPaint) {
+      this.renderMain();
+    } else {
+      this.#mainScheduler.markDirty();
+    }
     this.emit('dataUpdate');
     this.#bumpOverlayVersion();
   }
@@ -1598,239 +1439,370 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       if (all.length >= 2) {
         const times = all.slice(0, 20).map((d) => d.time);
         this.#dataInterval = detectInterval(times);
-        this.#viewport.setDataInterval(this.#dataInterval);
         break;
       }
     }
   }
 
-  /** Animates the Y-axis lower bound. Streaming `appendData` ticks retarget
-   * this animator so the bound eases toward the latest data extreme over
-   * `viewport.yAxisMs`. Inward contraction (chart settling tighter as old
-   * extremes leave the window) always eases. Outward expansion (new low)
-   * eases when the per-point entrance is enabled — the entering candle's
-   * fade masks the brief overshoot; when entrance is hard-disabled
-   * (`points.enterMs === 0`), the new extreme would render at full alpha
-   * and clip at the canvas edge for the duration of the ease, so
-   * {@link updateYRange} snaps the bound outward in that case.
-   *
-   * Bulk replaces (`setSeriesData`) flow through the snap branch in
-   * {@link updateYRange} via `#dataReplaceSnapPending`, so `yScale.getRange()`
-   * reflects the new domain on the same frame — the long-standing public-API
-   * contract pinned by `chart-scales-sync.test`. */
-  readonly #yMinAnimator = new Animator<number>({
-    initial: 0,
-    duration: DEFAULT_Y_AXIS_MS,
-    easing: easeOutCubic,
-    lerp: (a, b, t) => a + (b - a) * t,
-  });
-  /** Animates the Y-axis upper bound — mirror of {@link #yMinAnimator}. */
-  readonly #yMaxAnimator = new Animator<number>({
-    initial: 0,
-    duration: DEFAULT_Y_AXIS_MS,
-    easing: easeOutCubic,
-    lerp: (a, b, t) => a + (b - a) * t,
-  });
-  /** Whether the Y range has been initialized (first snap vs smooth lerp). */
+  /** Whether the Y range has been initialized (first snap vs smooth lerp).
+   *  Pre-init Y emits are forced to `instant` so the first paint snaps to
+   *  data regardless of the caller's requested kind. Also reset by paths
+   *  that intentionally invalidate the current Y baseline (axis bound
+   *  change, empty viewport). */
   #yInited = false;
+  /** Whether the engine's X slot has received its first emit. Pre-init X
+   *  emits are forced to `instant` so first paint snaps to the fitted
+   *  range — without this guard the engine would ease from `{0,0}` into
+   *  the new target and the very first frame would render with a
+   *  zero-width X domain. */
+  #xInited = false;
 
   /**
-   * Set by the viewport `interact` listener on every user pan/zoom event;
-   * read-and-cleared by `updateYRange` on the next frame to apply the short
-   * gesture-time Y chase ({@link INTERACT_Y_AXIS_MS}).
+   * One-shot `setVisibleRange` argument applied on the first data arrival.
+   * Captured at chart construction from {@link ChartOptions.viewport.initialRange};
+   * cleared the moment it's consumed so subsequent data swaps don't snap
+   * back to the initial window.
    */
-  #interactPending = false;
+  #initialVisibleRange: VisibleRangeSpec | undefined;
+
+  /** Last Y bounds the engine resolved into {@link AnimationState.yRange}.
+   *  Used by {@link renderMain} to detect Y movement frame-to-frame so
+   *  `viewportChange` only emits when the Y range actually shifted — DOM
+   *  axis labels subscribe to that event and re-renders on every tick are
+   *  expensive. Initialised to NaN so the first real Y emit always passes
+   *  the change check. */
+  #prevYMin = Number.NaN;
+  #prevYMax = Number.NaN;
 
   /**
-   * Sample data inside `targetVisible` and return the unbounded [min, max] of
-   * the visible series, or `null` when nothing is in view. Bounds are NOT
-   * applied here — the caller composes them via {@link resolveBound}.
-   *
-   * `targetVisible` is the X *destination* (logicalRange), not the animating
-   * current. Sampling against a moving X would make Y chase a definition of
-   * "in view" that shifts every frame; passing the destination explicitly
-   * keeps Y on a stable target so X and Y converge together.
+   * Sample the visible data window and return the resolved Y bounds, or
+   * `null` when no series has data inside the X destination range.
+   * Sampling runs against `logicalRange` (the X target, not the animating
+   * current) so Y stays on a stable target while X eases — both dimensions
+   * converge together. Clears {@link #yInited} on empty so the next emit
+   * with valid data lands as an instant snap.
    */
-  private computeTargetYRange(
-    targetVisible: VisibleRange,
-    allValues: number[] | null,
-  ): { min: number; max: number } | null {
-    let min = Infinity;
-    let max = -Infinity;
+  #computeYTarget(xTarget?: VisibleRange): { min: number; max: number } | null {
+    const targetVisible = xTarget ?? this.#logical;
 
-    for (const entry of this.#series) {
-      if (!entry.visible) continue;
-
-      // If the renderer provides a custom value range (e.g. stacked totals), use it
-      if (entry.renderer.getValueRange) {
-        const r = entry.renderer.getValueRange(targetVisible.from, targetVisible.to);
-        if (r) {
-          if (r.max > max) max = r.max;
-          if (r.min < min) min = r.min;
-          allValues?.push(r.min, r.max);
-          continue;
-        }
-      }
-      if (!entry.store) continue;
-      const visible = entry.store.getVisibleData(targetVisible.from, targetVisible.to);
-      for (const point of visible) {
-        if ('high' in point) {
-          const ohlc = point as OHLCData;
-          // Skip non-finite values (null / undefined / NaN / ±Infinity). Without
-          // the guard, `Infinity` poisons max, `-Infinity` poisons min, and
-          // `null` coerces to 0, collapsing the range to a single flat line.
-          if (Number.isFinite(ohlc.high)) {
-            if (ohlc.high > max) max = ohlc.high;
-            allValues?.push(ohlc.high);
-          }
-          if (Number.isFinite(ohlc.low)) {
-            if (ohlc.low < min) min = ohlc.low;
-            allValues?.push(ohlc.low);
-          }
-        } else {
-          const line = point as TimePoint;
-          if (Number.isFinite(line.value)) {
-            if (line.value > max) max = line.value;
-            if (line.value < min) min = line.value;
-            allValues?.push(line.value);
-          }
-        }
-      }
-    }
-
-    if (min === Infinity || max === -Infinity) return null;
-
-    return { min, max };
-  }
-
-  private updateYRange(snap = false, now?: number): void {
-    // Y target is sampled against the X *destination* (logicalRange) so Y
-    // stays stable while X animates — otherwise Y chases a moving definition
-    // of "in view" and never converges with X.
-    const targetVisible = this.#viewport.logicalRange;
-
-    // Only collect individual values when bounds use a function/percentage (rare)
+    // Only collect individual values when bounds use a function/percentage (rare).
     const needsAllValues =
       (this.#yBounds.min !== undefined && this.#yBounds.min !== 'auto' && typeof this.#yBounds.min !== 'number') ||
       (this.#yBounds.max !== undefined && this.#yBounds.max !== 'auto' && typeof this.#yBounds.max !== 'number');
     const allValues: number[] | null = needsAllValues ? [] : null;
 
-    const raw = this.computeTargetYRange(targetVisible, allValues);
+    const raw = computeTargetYRange(targetVisible, this.#series, allValues);
     if (raw === null) {
-      // No visible data — force a snap on next data appearance so stale range isn't reused
       this.#yInited = false;
-      return;
+      return null;
     }
 
-    // Apply Y bounds
-    const targetMin = this.resolveBound(this.#yBounds.min, raw.min, raw.max, allValues ?? [], 'min');
-    const targetMax = this.resolveBound(this.#yBounds.max, raw.max, raw.min, allValues ?? [], 'max');
+    const min = resolveBound(this.#yBounds.min, raw.min, raw.max, allValues ?? [], 'min');
+    const max = resolveBound(this.#yBounds.max, raw.max, raw.min, allValues ?? [], 'max');
 
-    const baseYAxisMs = this.#animationsConfig.viewport.yAxisMs;
-    // During an active user pan/zoom, shorten the Y chase so it converges
-    // within ~1 frame per wheel tick — the full 250 ms ease feels rubbery
-    // because every retarget restarts from a position still trailing the
-    // previous one. We don't outright snap (which would jitter labels) — a
-    // short ease keeps the motion smooth without lagging the gesture. Skip
-    // the override when the user has already disabled animation
-    // (yAxisMs ≤ 0) or asked for an even shorter chase.
-    const interacting = this.#interactPending;
-    this.#interactPending = false;
-    const yAxisMs = interacting && baseYAxisMs > INTERACT_Y_AXIS_MS ? INTERACT_Y_AXIS_MS : baseYAxisMs;
-    const useSnap = !this.#yInited || snap || yAxisMs <= 0;
-
-    if (useSnap) {
-      this.#yMinAnimator.snap(targetMin);
-      this.#yMaxAnimator.snap(targetMax);
-      this.#yInited = true;
-    } else {
-      // Streaming path. Inward contraction is always eased — the data has
-      // already been drawn at its position, the bound just shrinks toward
-      // it, no clipping risk.
-      //
-      // Outward expansion is conditional. Easing the bound toward a new
-      // high/low leaves the new extreme rendered above (or below) the
-      // current bound for the duration of the ease. That's invisible only
-      // while the entering candle/bar fades in over an `entryMs` window
-      // longer than `yAxisMs`. If the user disabled the per-point entrance
-      // (`animations.points: false`, or per-series `entryMs: 0` /
-      // `entryAnimation: 'none'`), the new extreme renders at full alpha
-      // from frame 0 — easing the bound would clip the wick at the canvas
-      // edge for ~yAxisMs. We snap outward in that case.
-      //
-      // Bulk replaces flow through the `useSnap` branch above via the
-      // `#dataReplaceSnapPending` flag, so `yScale.getRange()` still
-      // reflects new data synchronously after `setSeriesData`.
-      // Use chart-level entrance gate: hard-disabled (0 / false) at the
-      // chart level forces entrance off for every series, so expansion
-      // would clip — snap outward. Numeric chart-level lets per-series
-      // entrance defaults flow through; the common "default everything on"
-      // case eases outward smoothly.
-      const easeOutward = this.#animationsConfig.points.enterMs > 0;
-
-      if (targetMin < this.#yMinAnimator.current && !easeOutward) {
-        this.#yMinAnimator.snap(targetMin);
-      } else {
-        this.#yMinAnimator.setTarget(targetMin, { duration: yAxisMs, now });
-      }
-      if (targetMax > this.#yMaxAnimator.current && !easeOutward) {
-        this.#yMaxAnimator.snap(targetMax);
-      } else {
-        this.#yMaxAnimator.setTarget(targetMax, { duration: yAxisMs, now });
-      }
-    }
-
-    // Advance the animators to the current frame timestamp. `setTarget` already
-    // moved `current` to `now` internally, so the tick on the same frame is a
-    // no-op for newly-retargeted animators; on subsequent frames it advances
-    // toward the target. `tick` is the only place the animator's `current`
-    // changes, so we must call it before reading values out below.
-    const tickNow = now ?? performance.now();
-    const minAnimating = this.#yMinAnimator.tick(tickNow);
-    const maxAnimating = this.#yMaxAnimator.tick(tickNow);
-    if (minAnimating || maxAnimating) {
-      this.#mainScheduler.markDirty();
-    }
-
-    // Only add padding for sides without explicit bounds
-    const hasMinBound = this.#yBounds.min !== undefined && this.#yBounds.min !== 'auto';
-    const hasMaxBound = this.#yBounds.max !== undefined && this.#yBounds.max !== 'auto';
-    const chartHeight = this.#canvasManager.size.media.height - this.xAxisHeight;
-    this.#viewport.setYRange(
-      this.#yMinAnimator.current,
-      this.#yMaxAnimator.current,
-      chartHeight,
-      hasMinBound,
-      hasMaxBound,
-    );
+    return { min, max };
   }
 
-  /** Resolve an {@link AxisBound} to a concrete numeric value. */
-  private resolveBound(
-    bound: AxisBound | undefined,
-    autoValue: number,
-    otherValue: number,
-    values: number[],
-    side: 'min' | 'max',
-  ): number {
-    if (bound === undefined || bound === 'auto') return autoValue;
-    if (typeof bound === 'number') return bound;
-    if (typeof bound === 'function') return bound(values);
-    // Parse percentage string like "+10%", "-5%"
-    const match = String(bound).match(/^([+-]?)\s*(\d+(?:\.\d+)?)\s*%$/);
-    if (match) {
-      const sign = match[1] === '-' ? -1 : 1;
-      const pct = parseFloat(match[2]) / 100;
-      const dataRange = Math.abs(otherValue - autoValue) || Math.abs(autoValue) || 1;
-      return autoValue + sign * pct * dataRange * (side === 'max' ? 1 : -1);
+  /**
+   * Engine pull-on-demand X target. Called by the engine's `computeXTarget`
+   * closure during `engine.onPointAppended` / `engine.onDataReplaced`.
+   * Reads `#dataStart` / `#dataEnd` (refreshed by `onDataChanged` just
+   * before the engine signal) plus `#pendingFitToData` flag, then dispatches:
+   *
+   * - **uninit (viewport never committed)** → fit to data, apply any
+   *   one-shot `initialVisibleRange`, return the new logical range.
+   *   First-paint fit.
+   * - **bulk replace + autoscroll** (`#pendingFitToData`) → fit to data,
+   *   return logical. `chart.setSeriesData(...)` lands here.
+   * - **streaming append + autoscroll** → `computeStreamingTarget` (preserves
+   *   any pan offset across ticks via `#prevDataEnd`). The engine's X spring
+   *   absorbs the new target — velocity carries across retargets so a burst
+   *   of ticks doesn't restart easing on each one.
+   * - **autoscroll off** → `null` (no X retarget; user has panned away
+   *   from the tail).
+   */
+  #computeXTarget(): VisibleRange | null {
+    if (this.#dataStart === null || this.#dataEnd === null) return null;
+
+    const { from, to } = this.#logical;
+    const uninitialized = from === 0 && to === 0;
+    const chartWidth = this.#canvasManager.size.media.width - this.yAxisWidth;
+
+    if (uninitialized) {
+      this.#fitVisibleToData(this.#dataStart, this.#dataEnd, chartWidth);
+      // One-shot `initialVisibleRange` (e.g. "last 35 bars") — applied
+      // inside the closure so the Y target the engine pulls next reflects
+      // the *initial-window* data rather than the full dataset. Folds
+      // post-mount `setVisibleRange` calls into the first paint.
+      if (this.#initialVisibleRange !== undefined) {
+        this.setVisibleRange(this.#initialVisibleRange);
+        this.#initialVisibleRange = undefined;
+      }
+
+      return this.#logical;
     }
-    return autoValue;
+
+    if (!this.#autoScroll) return null;
+
+    if (this.#pendingFitToData) {
+      this.#fitVisibleToData(this.#dataStart, this.#dataEnd, chartWidth);
+
+      return this.#logical;
+    }
+
+    const result = computeStreamingTarget({
+      currentLogical: this.#logical,
+      lastTime: this.#dataEnd,
+      prevDataEnd: this.#prevDataEnd,
+      dataInterval: this.#dataInterval,
+      paddingRight: this.#padding.right,
+      chartWidth,
+      holdUntilFilled: this.#holdUntilFilled,
+    });
+
+    if (result.releaseHold) this.#holdUntilFilled = false;
+    if (result.reengageAutoScroll) this.#autoScroll = true;
+    if (result.newLogical === null) return null;
+
+    // Observe cadence only when X actually advances. Sub-tick / intra-bar
+    // emissions that don't move `lastTime` would otherwise poison the EMA
+    // with their wall-clock spacing. The spring's baseline settle time is
+    // then nudged so it stays slightly longer than the measured tick — the
+    // spring keeps velocity instead of decaying to rest between ticks.
+    this.#cadence.observe(performance.now());
+    this.#engine.setXSettleMs(this.#cadence.pickSettleMs(this.#animationsConfig.axis.x.settleMs));
+
+    this.#commitLogical(result.newLogical, { emitChange: false, skipValidation: true });
+    this.#prevDataEnd = this.#dataEnd;
+
+    return result.newLogical;
+  }
+
+  /**
+   * Fit the viewport's logical X range around a data span. Mirrors the
+   * old `viewport.fitToData` side effects: clears the warm-up hold,
+   * forces autoscroll on (data tail is in the new window by construction),
+   * commits the new range via `viewport.setRange` (which emits `change`).
+   */
+  #fitVisibleToData(firstTime: number, lastTime: number, chartWidth: number): void {
+    const padding = this.#padding;
+    const range = computeFitToData({
+      firstTime,
+      lastTime,
+      dataInterval: this.#dataInterval,
+      maxVisibleBars: this.#maxVisibleBars,
+      chartWidth,
+      padding: { left: padding.left, right: padding.right },
+    });
+    this.#holdUntilFilled = false;
+    this.#autoScroll = true;
+    this.#commitLogical(range, { emitChange: true });
+  }
+
+  /**
+   * Commit a programmatic zoom — `fitContent` or `setVisibleRange`. Reads
+   * the viewport's just-committed logical range as the X target; pulls
+   * the matching Y target via the engine's `computeYTarget` callback so
+   * the axis re-fits to the new window without the chart having to wire
+   * Y separately.
+   *
+   * - First paint (`#xInited` or `#yInited` not yet set) → both axes snap
+   *   so consumers reading `chart.getYRange()` / `chart.getVisibleRange()`
+   *   synchronously after mount see the final values.
+   * - Otherwise X snaps and Y eases on the sticky baseline. `fitContent`
+   *   passes `xEase: true` so X eases instead — viewport and axis converge
+   *   on the same frame.
+   */
+  #commitProgrammaticZoom(opts?: { xEase?: boolean }): void {
+    const target = this.#logical;
+    if (target.to <= target.from) return;
+
+    const now = performance.now();
+    if (!this.#xInited || !this.#yInited) {
+      const yTarget = this.#computeYTarget(target);
+      this.#xInited = true;
+      if (yTarget !== null) this.#yInited = true;
+      this.#engine.snap({ x: target, y: yTarget ?? undefined }, now);
+    } else {
+      this.#engine.onProgrammaticZoom({ xTarget: target, xEase: opts?.xEase }, now);
+    }
+    this.#applyEngineState(now);
+  }
+
+  /**
+   * Validate and commit a new logical X range. Mirrors the old
+   * `Viewport.applyLogical` contract: silently no-ops on invalid input
+   * (`to <= from`, fewer than 2 bars), then writes `#logical` and (if
+   * `opts.emitChange` is true) wakes the render loop + emits
+   * `viewportChange` for DOM subscribers.
+   *
+   * Streaming-target writes pass `emitChange: false` because the engine
+   * drives the animation: `engine.onWake` already markedDirty, and the
+   * follow-up `renderMain` syncs scales — a redundant `viewportChange`
+   * emit here would just trigger a wasted React re-render per stream tick.
+   */
+  #commitLogical(range: VisibleRange, opts: { emitChange: boolean; skipValidation?: boolean }): void {
+    const { from, to } = range;
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return;
+    if (to <= from) return;
+    // Streaming-target paths preserve the current visible range width verbatim;
+    // skip the 2-bar minimum guard (it's user-input validation, not an
+    // internal invariant). User-driven setRange / setVisibleRange leave it on.
+    if (!opts.skipValidation && (to - from) / this.#dataInterval < 2) return;
+
+    if (this.#logical.from === from && this.#logical.to === to) return;
+
+    this.#logical = { from, to };
+    if (opts.emitChange) {
+      this.syncScales();
+      this.#mainScheduler?.markDirty();
+      this.emit('viewportChange');
+    }
+  }
+
+  /**
+   * Apply pixel-padding to the engine's raw Y target and store the
+   * result in `#yRange`. Mirrors the old `Viewport.setYRange` contract:
+   * symmetric pad top / bottom from `#padding`, suppressed on the side
+   * that has an explicit (fixed) axis bound.
+   */
+  #applyPaddedYRange(min: number, max: number, chartHeight: number, fixedMin: boolean, fixedMax: boolean): void {
+    const dataRange = max - min;
+    const padTop = chartHeight > 0 ? (this.#padding.top / chartHeight) * dataRange : 0;
+    const padBottom = chartHeight > 0 ? (this.#padding.bottom / chartHeight) * dataRange : 0;
+    this.#yRange = {
+      min: fixedMin ? min : min - padBottom,
+      max: fixedMax ? max : max + padTop,
+    };
+  }
+
+  /**
+   * Shift the visible time range by `timeDelta` ms. Rubber-band resistance
+   * applies once the gesture overshoots a soft data bound; a pan that
+   * pushes the data tail off screen flips autoscroll off. Fires
+   * `edgeReached` if the gesture overshot past the 10%-of-range threshold.
+   * Forwards the committed target to the engine as a gesture for visual
+   * easing. Public so consumers can drive pan programmatically.
+   */
+  pan(timeDelta: number, chartWidth = this.#lastChartWidth): void {
+    if (chartWidth > 0) this.#lastChartWidth = chartWidth;
+    this.#holdUntilFilled = false;
+
+    const result = computePan({
+      currentLogical: this.#logical,
+      timeDelta,
+      chartWidth,
+      dataInterval: this.#dataInterval,
+      padding: { left: this.#padding.left, right: this.#padding.right },
+      dataStart: this.#dataStart,
+      dataEnd: this.#dataEnd,
+    });
+    if (result.newLogical === null) return;
+
+    this.#autoScroll = !result.autoScrollOff;
+    this.#commitLogical(result.newLogical, { emitChange: true });
+
+    if (result.edgeReached !== null) {
+      this.#edgeBoundaries[result.edgeReached.side] = result.edgeReached.boundaryTime;
+      this.#onEdgeReached?.(result.edgeReached);
+    }
+
+    this.#cadence.pause();
+    this.#emitGestureToEngine();
+  }
+
+  /**
+   * Zoom around a time anchor. `factor < 1` zooms in, `> 1` zooms out.
+   * Zoom-in pins the right edge; zoom-out is hard-capped at the padded
+   * data span. Forwards the committed target to the engine as a gesture
+   * for visual easing. Public so consumers can drive zoom programmatically.
+   *
+   * Sticky-follow: while `#autoScroll` is on, the new window is repositioned
+   * so its right edge sits at `dataEnd + paddingRight` (follow position).
+   * Span (zoom level) from `computeZoom` is preserved; only the position
+   * is locked to the tail. This avoids the next-tick `computeStreamingTarget`
+   * offset clamp (which would otherwise slide X left to the follow position
+   * and produce a visible jump). Cursor-anchored zoom is intentionally
+   * sacrificed in follow-live mode — pan first to inspect history.
+   */
+  zoomAt(centerTime: number, factor: number, chartWidth = this.#lastChartWidth): void {
+    if (chartWidth > 0) this.#lastChartWidth = chartWidth;
+    this.#holdUntilFilled = false;
+
+    const result = computeZoom({
+      currentLogical: this.#logical,
+      centerTime,
+      factor,
+      chartWidth,
+      dataInterval: this.#dataInterval,
+      padding: { left: this.#padding.left, right: this.#padding.right },
+      dataStart: this.#dataStart,
+      dataEnd: this.#dataEnd,
+    });
+    if (result.newLogical === null) return;
+
+    let newLogical = result.newLogical;
+
+    if (this.#autoScroll && this.#dataEnd !== null) {
+      const span = newLogical.to - newLogical.from;
+      const prTime = resolvePaddingTime(this.#padding.right, span, this.#dataInterval, chartWidth);
+      const desiredTo = this.#dataEnd + prTime;
+      newLogical = { from: desiredTo - span, to: desiredTo };
+      this.#prevDataEnd = this.#dataEnd;
+    }
+
+    this.#commitLogical(newLogical, { emitChange: true });
+    this.#cadence.pause();
+    this.#emitGestureToEngine();
+  }
+
+  /**
+   * Common tail for `pan` / `zoomAt`: routes the just-committed `#logical`
+   * to the engine as a gesture so the X spring retargets and the Y spring
+   * eases over `animations.axis.y.gesture`.
+   */
+  #emitGestureToEngine(): void {
+    const target = this.#logical;
+    if (target.to <= target.from) return;
+
+    this.#xInited = true;
+    this.#yInited = true;
+    const now = performance.now();
+    this.#engine.onPanZoom({ xTarget: target, yAuto: true }, now);
+    this.#applyEngineState(now);
+  }
+
+  /**
+   * Tick the engine at the given wall clock and push the resolved X / Y
+   * ranges into the viewport + scales. Called from every emit path so that
+   * synchronous readers (`chart.getYRange()`, `chart.getVisibleRange()`
+   * immediately after `setSeriesData` / `setSeriesVisible`) see the new
+   * values without waiting for the next RAF — matches the legacy contract
+   * pinned by `data-update-sync`, `visibility-batch`, and the `y-label`
+   * repositioning tests.
+   *
+   * The caller passes the same wall it used as the event's `startWall` so
+   * `effectiveNow === startWall` and the prune step keeps zero-duration
+   * events long enough for the slot processor to snap them.
+   */
+  #applyEngineState(now: number): void {
+    const state = this.#engine.tick(now);
+    const size = this.#canvasManager.size;
+    if (size.media.width === 0 || size.media.height === 0) return;
+
+    const hasMinBound = this.#yBounds.min !== undefined && this.#yBounds.min !== 'auto';
+    const hasMaxBound = this.#yBounds.max !== undefined && this.#yBounds.max !== 'auto';
+    const chartHeight = size.media.height - this.xAxisHeight;
+    this.#applyPaddedYRange(state.yRange.min, state.yRange.max, chartHeight, hasMinBound, hasMaxBound);
+    this.#prevYMin = state.yRange.min;
+    this.#prevYMax = state.yRange.max;
+    this.syncScales();
   }
 
   /**
    * Lightweight scale sync: updates timeScale/yScale from current viewport state
    * without advancing the Y smoothing animation. Called from the viewport 'change'
-   * handler so DOM axis components always read fresh coordinates on re-render.
+   * handler, so DOM axis components always read fresh coordinates on re-render.
    */
   private syncScales(): void {
     const size = this.#canvasManager.size;
@@ -1839,21 +1811,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const chartWidth = size.media.width - this.yAxisWidth;
     const chartHeight = size.media.height - this.xAxisHeight;
 
-    this.timeScale.update(this.#viewport.visibleRange, chartWidth, size.horizontalPixelRatio, this.#dataInterval);
-    this.yScale.update(this.#viewport.yRange, chartHeight, size.verticalPixelRatio);
-  }
-
-  private updateScales(snap = false, now?: number): void {
-    const size = this.#canvasManager.size;
-    if (size.media.width === 0 || size.media.height === 0) return;
-
-    const chartWidth = size.media.width - this.yAxisWidth; // Y axis
-    const chartHeight = size.media.height - this.xAxisHeight; // time axis
-
-    this.timeScale.update(this.#viewport.visibleRange, chartWidth, size.horizontalPixelRatio, this.#dataInterval);
-    this.yScale.update(this.#viewport.yRange, chartHeight, size.verticalPixelRatio);
-    this.updateYRange(snap, now);
-    this.yScale.update(this.#viewport.yRange, chartHeight, size.verticalPixelRatio);
+    this.timeScale.update(
+      this.#engine.getAnimationState().xRange,
+      chartWidth,
+      size.horizontalPixelRatio,
+      this.#dataInterval,
+    );
+    this.yScale.update(this.#yRange, chartHeight, size.verticalPixelRatio);
   }
 
   /** Expensive: background, grid, all series. Only on data/viewport/resize change. */
@@ -1861,16 +1825,56 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     const size = this.#canvasManager.size;
     if (size.media.width === 0 || size.media.height === 0) return;
 
-    // Advance viewport animation in the same frame as render. Prefer the RAF-
-    // provided timestamp so deterministic test harnesses (installRaf) drive
-    // smoothing dt from synthetic frame time instead of the real wall clock.
+    // Engine owns both X and Y animation. Prefer the RAF-provided timestamp
+    // so deterministic test harnesses (installRaf) drive the engine's dt
+    // from synthetic frame time instead of the real wall clock.
     const now = typeof timestamp === 'number' ? timestamp : performance.now();
-    const stillAnimating = this.#viewport.tick(now);
-    if (stillAnimating) {
+
+    const animationState = this.#engine.tick(now);
+    if (animationState.animating) {
       this.#mainScheduler.markDirty();
     }
 
-    this.updateScales(false, now);
+    // Engine state is the source of truth for X visual (read directly via
+    // engine.getAnimationState().xRange in syncScales / getVisibleRange).
+    // Y needs pixel padding applied before scales / renderers read it;
+    // detect movement frame-to-frame so `viewportChange` only emits when
+    // the axis shifted — DOM axis labels subscribe to that event and
+    // re-renders aren't free.
+    const yMin = animationState.yRange.min;
+    const yMax = animationState.yRange.max;
+    const yChanged = yMin !== this.#prevYMin || yMax !== this.#prevYMax;
+    if (yChanged) {
+      const hasMinBound = this.#yBounds.min !== undefined && this.#yBounds.min !== 'auto';
+      const hasMaxBound = this.#yBounds.max !== undefined && this.#yBounds.max !== 'auto';
+      const chartHeight = size.media.height - this.xAxisHeight;
+      this.#applyPaddedYRange(yMin, yMax, chartHeight, hasMinBound, hasMaxBound);
+      this.#prevYMin = yMin;
+      this.#prevYMax = yMax;
+    }
+
+    this.syncScales();
+
+    // Re-engage tail-following when a user pan brings the destination back
+    // into the data zone. Reads the *logical* X target so the flip happens
+    // at the destination, not one or two frames earlier when the eased
+    // visual dips through.
+    if (this.#dataEnd !== null && !this.#autoScroll) {
+      const logical = this.#engine.lastXTarget ?? this.#logical;
+      if (logical.from <= this.#dataEnd && this.#dataEnd <= logical.to) {
+        this.#autoScroll = true;
+      }
+    }
+
+    if (yChanged) {
+      this.emit('viewportChange');
+    }
+
+    // Tick-tracker animation state — set inside the useMainLayer callback,
+    // read by the settled-check below. Declared here so both blocks share
+    // the same lexical scope.
+    let yTickAnimating = false;
+    let timeTickAnimating = false;
 
     this.#canvasManager.useMainLayer((scope) => {
       const { context, bitmapSize } = scope;
@@ -1885,15 +1889,58 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       context.rect(0, 0, chartBitmapWidth, chartBitmapHeight);
       context.clip();
 
-      if (this.#grid) {
-        renderGrid(scope, this.timeScale, this.yScale, this.#theme, this.#dataInterval);
+      // Diff current tick sets against the previous frame's and route the
+      // entering / exiting tick values through the engine. The engine's
+      // tickFade slot owns the 0→1 / 1→0 opacity ease; the tracker is now
+      // a passive holder of the current set (plus the previous, for the
+      // diff). Each surface that reads ticks (canvas grid, DOM axis
+      // labels) sources opacity from `state.tickOpacity` via the same
+      // snapshot helper so they animate in lockstep frame-for-frame.
+      // Tick trackers diff internally against the next tick set and start the
+      // appropriate fade animators; `renderMain` advances them once per frame
+      // via the `.tick(now)` calls below so they tween in lockstep with the rest
+      // of the chart's animation.
+      this.yScale.tickTracker.setCurrentTicks(this.yScale.niceTickValues());
+      this.timeScale.tickTracker.setCurrentTicks(this.timeScale.niceTickValues(this.#dataInterval).ticks);
+      this.yScale.tickTracker.tick(now);
+      this.timeScale.tickTracker.tick(now);
+      const yTickSnap = this.yScale.tickTracker.snapshot();
+      const timeTickSnap = this.timeScale.tickTracker.snapshot();
+      yTickAnimating = yTickSnap.isAnimating;
+      timeTickAnimating = timeTickSnap.isAnimating;
+      // DOM axis components (TimeAxis, YAxis) re-render off `tickFrame`.
+      // Emit on every animating frame — both tick-tracker fades and the
+      // engine's X / Y slides count. Without the engine clause, an X-only
+      // streaming slide between tick boundaries would emit nothing and
+      // labels would hold the slide-start `timeToX(time)` value while the
+      // canvas glides past them, then snap forward on the next event.
+      if (yTickSnap.isAnimating || timeTickSnap.isAnimating || animationState.animating) {
+        this.emit('tickFrame');
       }
 
-      const vpad = this.#viewport.getPadding();
+      if (this.#grid) {
+        renderGrid({
+          scope,
+          timeScale: this.timeScale,
+          yScale: this.yScale,
+          theme: this.#theme,
+          yTicks: yTickSnap,
+          timeTicks: timeTickSnap,
+        });
+      }
+
+      const vpad = this.#padding;
       const padding = { top: vpad.top, bottom: vpad.bottom };
       const perfMon = this.#perfMonitor;
       for (const entry of this.#series) {
-        if (!entry.visible) continue;
+        // Renderer-owned per-series alpha drives the show/hide fade. A
+        // hidden series with alpha at 0 is fully gone — skip. A hidden
+        // series mid-fade still renders at its fading alpha; the
+        // `entry.visible` flag exists only to gate Y-range inclusion, not
+        // rendering. Renderers without `getAlpha` (pie) fall back to the
+        // binary visible flag.
+        const alpha = entry.renderer.getAlpha?.() ?? (entry.visible ? 1 : 0);
+        if (alpha <= 0) continue;
 
         const renderArgs = {
           scope,
@@ -1902,7 +1949,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           theme: this.#theme,
           dataInterval: this.#dataInterval,
           padding,
+          state: animationState,
+          seriesId: entry.id,
         };
+
+        const prevAlpha = context.globalAlpha;
+        if (alpha < 1) context.globalAlpha = prevAlpha * alpha;
 
         if (perfMon) {
           const s0 = performance.now();
@@ -1914,17 +1966,41 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
         } else {
           entry.renderer.render(renderArgs);
         }
+
+        if (alpha < 1) context.globalAlpha = prevAlpha;
       }
 
       context.restore();
     });
 
     // Generic animation poll — any renderer that still needs a frame keeps us going.
+    let seriesNeedsAnim = false;
     for (const entry of this.#series) {
       if (entry.renderer.needsAnimation) {
+        seriesNeedsAnim = true;
         this.#mainScheduler.markDirty();
         break;
       }
+    }
+
+    // Arm the tick fade trackers only once the entire chart has reached a
+    // settled state — viewport animation done, no series entrance animation,
+    // and no tracker fades in flight. Until then, tick churn from the initial
+    // mount (fitToData, `setVisibleRange` deep-link, streaming pre-roll) all
+    // snaps so the user doesn't see a long opening fade.
+    // Arm the tick fade trackers the first time the entire chart reaches a
+    // settled state — viewport animation done, no series entrance, no
+    // tracker fades in flight. Initial mount snaps every transient tick
+    // set; from the first quiescent frame on, set changes fade in/out.
+    // We never disarm: `niceTickValues` typically returns the same set
+    // across consecutive frames once the tick interval is resolved, so
+    // streaming + zoom don't churn the tracker — only real set changes do.
+    const trackersStillFading = yTickAnimating || timeTickAnimating;
+    // Engine `animating` covers both X (engine X slot) and Y (transition);
+    // viewport no longer has its own X animator since Phase 2 step 2.
+    if (!animationState.animating && !seriesNeedsAnim && !trackersStillFading) {
+      this.yScale.tickTracker.markArmed();
+      this.timeScale.tickTracker.markArmed();
     }
 
     // Main layer changed — overlay needs to redraw on top
@@ -1974,8 +2050,9 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
       }
 
       // Dispatch to each renderer's overlay hook — crosshair dots, pulses, etc.
-      const ovpad = this.#viewport.getPadding();
+      const ovpad = this.#padding;
       const overlayPadding = { top: ovpad.top, bottom: ovpad.bottom };
+      const overlayState = this.#engine.getAnimationState();
       for (const entry of this.#series) {
         if (!entry.visible) continue;
         entry.renderer.drawOverlay?.({
@@ -1986,13 +2063,22 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
           dataInterval: this.#dataInterval,
           padding: overlayPadding,
           crosshair: this.#crosshairPos,
+          state: overlayState,
+          seriesId: entry.id,
         });
       }
 
       // Edge indicators last — they paint over any series overlay that happened
       // to land in the overshoot area.
       if (edgeVisible) {
-        this.drawEdgeIndicators(scope, size.media.height - this.xAxisHeight);
+        drawEdgeIndicators({
+          scope,
+          chartMediaHeight: size.media.height - this.xAxisHeight,
+          timeScale: this.timeScale,
+          theme: this.#theme,
+          edgeStates: this.#edgeStates,
+          resolveBoundary: (side) => resolveEdgeBoundary(side, this.#edgeBoundaries[side], this.getDataBounds()),
+        });
       }
 
       scope.context.restore();
@@ -2017,51 +2103,4 @@ export class ChartInstance extends EventEmitter<ChartEvents> {
     // Spinner needs a frame cadence of its own, independent of series overlays.
     if (edgeAnimates) this.#overlayScheduler.markDirty();
   }
-
-  private drawEdgeIndicators(
-    scope: Parameters<Parameters<CanvasManager['useOverlayLayer']>[0]>[0],
-    chartMediaHeight: number,
-  ): void {
-    const now = performance.now();
-    for (const side of ['left', 'right'] as const) {
-      const state = this.#edgeStates[side];
-      if (state === 'idle' || state === 'has-more') continue;
-      const boundaryTime = this.resolveEdgeBoundary(side);
-      if (boundaryTime === null) continue;
-      renderEdgeIndicator({
-        scope,
-        timeScale: this.timeScale,
-        theme: this.#theme,
-        chartMediaHeight,
-        boundaryTime,
-        side,
-        state,
-        now,
-      });
-    }
-  }
-
-  /**
-   * Pick the boundary time to anchor the edge indicator at. Prefer the
-   * cached value emitted by the most recent `edgeReached` — that's the
-   * *exact* point the user overshot. Fall back to the current data edge
-   * when no gesture has fired yet (host might invoke `setEdgeState`
-   * directly on mount to show a "no-data" marker from the start).
-   */
-  private resolveEdgeBoundary(side: EdgeSide): number | null {
-    const cached = this.#edgeBoundaries[side];
-    if (cached !== null) return cached;
-    const { first, last } = this.getDataBounds();
-    return side === 'left' ? (first ?? null) : (last ?? null);
-  }
-}
-
-/**
- * Shallow-compare two horizontal padding values (pixels or `{ intervals }`).
- * Used by `setPadding` to decide whether a viewport refit is needed.
- */
-function isSameHorizontalPadding(a: HorizontalPadding, b: HorizontalPadding): boolean {
-  if (typeof a === 'number' && typeof b === 'number') return a === b;
-  if (typeof a === 'object' && typeof b === 'object') return a.intervals === b.intervals;
-  return false;
 }

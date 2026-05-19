@@ -9,12 +9,12 @@
  */
 
 export type {
+  AnimationTime,
   AnimationsConfig,
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
   /** @deprecated Use {@link StackingMode} instead. */
-  BarStacking,
   BuildHoverSnapshotsArgs,
   BuildLastSnapshotsArgs,
   CandlestickSeriesOptions,
@@ -28,7 +28,6 @@ export type {
   HoverInfo,
   LegendItem,
   /** @deprecated Use {@link TimePoint} instead. */
-  LineData,
   LineSeriesOptions,
   NavigatorCandlePoint,
   NavigatorControllerParams,
@@ -54,6 +53,9 @@ export type {
   TooltipFormatter,
   TooltipPosition,
   TooltipPositionArgs,
+  Transition,
+  TransitionContext,
+  TransitionFactory,
   Typography,
   ValueFormatter,
   VisibleRange,
@@ -72,7 +74,6 @@ export {
   catppuccin,
   computeTooltipPosition,
   createTheme,
-  darkTheme,
   detectInterval,
   dracula,
   formatCompact,
@@ -82,11 +83,11 @@ export {
   githubLight,
   gruvbox,
   handwritten,
+  hermite,
   highContrast,
   isDarkBg,
   lavenderMist,
   lightPink,
-  lightTheme,
   materialPalenight,
   minimalLight,
   mintBreeze,
@@ -95,6 +96,7 @@ export {
   normalizeTime,
   oneDarkPro,
   panda,
+  parseAnimationTime,
   peachCream,
   quietLight,
   resolveAxisFontSize,
@@ -102,7 +104,9 @@ export {
   resolveCandlestickBodyColor,
   rosePineDawn,
   sandDune,
+  snap,
   solarizedLight,
+  spring,
 } from '@wick-charts/core';
 
 export { BarSeries } from './BarSeries';

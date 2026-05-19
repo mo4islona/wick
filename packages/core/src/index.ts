@@ -1,6 +1,32 @@
 // Chart
 
-export type { AnimationsConfig, ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
+export type { AnimationsConfig } from './animation/config';
+// Built-in transitions. Each factory lives in its own module so unused
+// curves tree-shake out — import only the ones you need. `spring` is the
+// universal critically-damped spring; pass `<YRange>` to plug it into the
+// Y axis or `<VisibleRange>` for X.
+export { spring } from './animation/spring';
+export type { AnimationTime, Milliseconds } from './animation/time';
+export { parseAnimationTime } from './animation/time';
+// Y-bound transition contract.
+export type { RetargetOptions, Transition, TransitionContext, TransitionFactory } from './animation/transition';
+// Push-model viewport state machine — owns X / Y range animation and exposes
+// `getAnimationState` / `getTarget` to renderers and scales.
+export {
+  type AnimationState,
+  type PanZoomOptions,
+  type ProgrammaticZoomOptions,
+  type SnapTarget,
+  type ViewportEngine,
+  type ViewportEngineOptions,
+  createViewportEngine,
+} from './animation/viewport-engine';
+export { hermite } from './animation/y-range-hermite';
+export { snap } from './animation/y-range-snap';
+// Axis helpers
+export type { MountAxisLabelsOptions } from './axis/dom-labels';
+export { mountAxisLabels } from './axis/dom-labels';
+export type { ChartOptions, EdgeReachedInfo, EdgeSide, EdgeState } from './chart';
 export { ChartInstance } from './chart';
 // Overlay primitives — helpers, types, and positioning used by framework overlays
 export type { LegendItem } from './legend';
@@ -17,6 +43,9 @@ export { NavigatorController } from './navigator';
 // Performance instrumentation
 export type { FrameKind, PercentileSample, PerfMonitorOptions, PerfStats } from './perf';
 export { PerfMonitor } from './perf';
+// Tick fade tracker (read-only types — instances live on chart.timeScale/yScale)
+export type { TickEntry, TickTrackerSnapshot } from './scales/tick-tracker';
+export { AxisTickTracker, computeTickFadeDiff } from './scales/tick-tracker';
 export type { HoverInfo, SliceInfo } from './series/types';
 export type {
   BuildHoverSnapshotsArgs,
@@ -26,8 +55,6 @@ export type {
 } from './snapshots';
 export { buildHoverSnapshots, buildLastSnapshots } from './snapshots';
 // Data
-export { darkTheme } from './theme/dark';
-export { lightTheme } from './theme/light';
 export type { ThemeConfig, ThemePreset } from './theme/palettes';
 export { autoGradient, createTheme, isDarkBg } from './theme/palettes';
 export { resolveAxisFontSize, resolveAxisTextColor, resolveCandlestickBodyColor } from './theme/resolve';
@@ -64,13 +91,10 @@ export type {
   AxisBound,
   AxisConfig,
   BarSeriesOptions,
-  /** @deprecated Use {@link StackingMode} instead. */
-  BarStacking,
   CandlestickSeriesOptions,
   ChartLayout,
   CrosshairPosition,
-  /** @deprecated Use {@link TimePoint} instead. */
-  LineData,
+  HorizontalPadding,
   LineSeriesOptions,
   OHLCData,
   OHLCInput,
@@ -83,6 +107,7 @@ export type {
   TimePointInput,
   TimeValue,
   VisibleRange,
+  VisibleRangeSpec,
   XAxisConfig,
   YAxisConfig,
   YRange,
@@ -91,4 +116,3 @@ export type {
 export type { TooltipField, TooltipFormatter, ValueFormatter } from './utils/format';
 export { formatCompact, formatPriceAdaptive } from './utils/format';
 export { detectInterval, formatDate, formatTime, normalizeTime } from './utils/time';
-export type { HorizontalPadding } from './viewport';

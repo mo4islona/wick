@@ -1,16 +1,9 @@
 import { useLayoutEffect, useRef } from 'react';
 
-import { resolveAxisFontSize, resolveAxisTextColor, type ValueFormatter } from '@wick-charts/core';
+import { type ValueFormatter, mountAxisLabels } from '@wick-charts/core';
 
 import { useChartInstance } from '../context';
 import { useYRange } from '../store-bridge';
-import { AXIS_LABEL_CLEANUP_MS, AXIS_LABEL_FADE_CSS } from './axisFade';
-
-interface TrackedTick {
-  opacity: number;
-  addedAt: number;
-  fadedAt?: number;
-}
 
 export interface YAxisProps {
   /**
@@ -29,7 +22,9 @@ export interface YAxisProps {
 
 export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) {
   const chart = useChartInstance();
-  useYRange(chart); // subscribe to viewport changes so ticks re-render
+  useYRange(chart);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Route the prop through yScale so the *same* formatter drives every
   // surface that reads `yScale.formatY()` (Crosshair, YLabel fallback).
@@ -50,42 +45,16 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
     };
   }, [chart, labelCount, minLabelSpacing]);
 
-  const theme = chart.getTheme();
-  const currentTicks = chart.yScale.niceTickValues();
-  const currentSet = new Set(currentTicks);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (container === null) return;
 
-  const mapRef = useRef<Map<number, TrackedTick>>(new Map());
-  const map = mapRef.current;
-  const now = performance.now();
-
-  for (const p of currentTicks) {
-    if (!map.has(p)) {
-      map.set(p, { opacity: 1, addedAt: now });
-    } else {
-      map.get(p)!.opacity = 1;
-    }
-  }
-
-  for (const [p, entry] of map) {
-    if (!currentSet.has(p)) {
-      if (entry.opacity !== 0) {
-        entry.opacity = 0;
-        entry.fadedAt = now;
-      }
-    }
-  }
-
-  // Cleanup buffer matches the shared AXIS_LABEL_CLEANUP_MS — see axisFade.ts.
-  for (const [p, entry] of map) {
-    if (entry.opacity === 0 && entry.fadedAt !== undefined && now - entry.fadedAt > AXIS_LABEL_CLEANUP_MS) {
-      map.delete(p);
-    }
-  }
-
-  const allTicks = Array.from(map.entries());
+    return mountAxisLabels({ chart, container, axis: 'y' });
+  }, [chart]);
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: 'absolute',
         right: 0,
@@ -94,31 +63,6 @@ export function YAxis({ format, labelCount, minLabelSpacing }: YAxisProps = {}) 
         width: chart.yAxisWidth,
         pointerEvents: 'none',
       }}
-    >
-      {allTicks.map(([price, entry]) => {
-        const y = chart.yScale.valueToY(price);
-        return (
-          <span
-            key={price}
-            style={{
-              position: 'absolute',
-              right: 8,
-              top: y,
-              transform: 'translateY(-50%)',
-              color: resolveAxisTextColor(theme, 'y'),
-              fontSize: resolveAxisFontSize(theme, 'y'),
-              fontFamily: theme.typography.fontFamily,
-              fontVariantNumeric: 'tabular-nums',
-              userSelect: 'none',
-              opacity: entry.opacity,
-              transition: AXIS_LABEL_FADE_CSS,
-              willChange: 'opacity',
-            }}
-          >
-            {chart.yScale.formatY(price)}
-          </span>
-        );
-      })}
-    </div>
+    />
   );
 }

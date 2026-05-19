@@ -12,6 +12,7 @@ import { Panel } from './Panel';
 import { BoundInput, Select, Slider, Toggle, ToggleGroup } from './primitives';
 import {
   type AnimationKind,
+  type AxisCurve,
   type BarEntryAnim,
   COMMON_DEFAULTS,
   type CandleEntryAnim,
@@ -38,15 +39,31 @@ export interface PlaygroundChartProps {
   perfHudVisible: boolean;
   gradient: boolean;
   grid: { visible: boolean };
+  // Per-series-type entry style
   candleEntryAnimation: CandleEntryAnim;
   barEntryAnimation: BarEntryAnim;
   lineEntryAnimation: LineEntryAnim;
-  entryMs: number;
-  smoothMs: number;
-  pulseMs: number;
-  reboundMs: number;
-  yAxisMs: number;
-  inputResponseMs: number;
+  // Per-series-type durations (ms) — fed into `animations.series.{kind}.*`
+  candleEntryMs: number;
+  candleSmoothMs: number;
+  barEntryMs: number;
+  barSmoothMs: number;
+  lineEntryMs: number;
+  lineSmoothMs: number;
+  linePulseMs: number;
+  pieEntryMs: number;
+  pieUpdateMs: number;
+  // Axis transitions — fed into `animations.axis.{x,y}.*`
+  xCurve: 'spring' | 'snap';
+  xSettleMs: number;
+  xGestureMs: number;
+  yCurve: AxisCurve;
+  ySettleMs: number;
+  yStickyMs: number;
+  yGestureMs: number;
+  // Cross-cutting — fed into `animations.{axis.ticks, toggle}`
+  ticksMs: number;
+  toggleMs: number;
   headerLayout: HeaderLayout;
   navigatorVisible: boolean;
   navigatorHeight: number;
@@ -55,6 +72,7 @@ export interface PlaygroundChartProps {
 // Re-export types for consumer pages
 export type {
   AnimationKind,
+  AxisCurve,
   BarEntryAnim,
   CandleEntryAnim,
   GridStyle,
@@ -126,12 +144,24 @@ function stateToChartProps<TExtra extends object>(
     candleEntryAnimation: state.candleEntryAnimation,
     barEntryAnimation: state.barEntryAnimation,
     lineEntryAnimation: state.lineEntryAnimation,
-    entryMs: state.entryMs,
-    smoothMs: state.smoothMs,
-    pulseMs: state.pulseMs,
-    reboundMs: state.reboundMs,
-    yAxisMs: state.yAxisMs,
-    inputResponseMs: state.inputResponseMs,
+    candleEntryMs: state.candleEntryMs,
+    candleSmoothMs: state.candleSmoothMs,
+    barEntryMs: state.barEntryMs,
+    barSmoothMs: state.barSmoothMs,
+    lineEntryMs: state.lineEntryMs,
+    lineSmoothMs: state.lineSmoothMs,
+    linePulseMs: state.linePulseMs,
+    pieEntryMs: state.pieEntryMs,
+    pieUpdateMs: state.pieUpdateMs,
+    xCurve: state.xCurve,
+    xSettleMs: state.xSettleMs,
+    xGestureMs: state.xGestureMs,
+    yCurve: state.yCurve,
+    ySettleMs: state.ySettleMs,
+    yStickyMs: state.yStickyMs,
+    yGestureMs: state.yGestureMs,
+    ticksMs: state.ticksMs,
+    toggleMs: state.toggleMs,
     headerLayout: state.headerLayout,
     navigatorVisible: state.navigatorVisible,
     navigatorHeight: state.navigatorHeight,
@@ -139,6 +169,41 @@ function stateToChartProps<TExtra extends object>(
 }
 
 // ── Built-in sections ────────────────────────────────────────
+
+/** Compact factory for the recurring "ms slider" pattern used throughout the
+ *  Animations panel. Keeps row specs readable when 15+ of them stack up. */
+function msSliderRow({
+  key,
+  label,
+  hint,
+  group,
+  max,
+  step,
+}: {
+  key: string;
+  label: string;
+  hint: string;
+  group: string;
+  max: number;
+  step: number;
+}): RowSpec {
+  return {
+    key,
+    label,
+    hint,
+    group,
+    render: (v, onChange) => (
+      <Slider
+        value={v as number}
+        min={0}
+        max={max}
+        step={step}
+        suffix="ms"
+        onChange={onChange as (v: number) => void}
+      />
+    ),
+  } as RowSpec;
+}
 
 function buildBuiltinSections({
   hideCartesian,
@@ -152,6 +217,11 @@ function buildBuiltinSections({
   const showCandle = animationKinds.includes('candle');
   const showBar = animationKinds.includes('bar');
   const showLine = animationKinds.includes('line');
+  const showPie = animationKinds.includes('pie');
+  // X/Y axis transitions don't apply to pie (radial) — hide their sub-groups
+  // when pie is the only active kind. Cartesian kinds keep the full panel.
+  const showAxisAnim = showCandle || showBar || showLine;
+  const showCrossCutting = animationKinds.length > 0;
 
   const sections: SectionSpec[] = [];
 
@@ -338,158 +408,258 @@ function buildBuiltinSections({
     rows: backgroundRows,
   });
 
-  if (!hideCartesian) {
+  if (showCrossCutting) {
     const animRows: RowSpec[] = [];
+
+    // ── Series group: per-kind entry style + durations ──
     if (showCandle) {
-      animRows.push({
-        key: 'candleEntryAnimation',
-        label: 'Candle entry',
-        render: (v, onChange) => (
-          <Select<CandleEntryAnim>
-            value={v as CandleEntryAnim}
-            options={[
-              { value: 'none', label: 'None' },
-              { value: 'fade', label: 'Fade' },
-              { value: 'unfold', label: 'Unfold' },
-              { value: 'slide', label: 'Slide' },
-              { value: 'fade-unfold', label: 'Fade + Unfold' },
-            ]}
-            onChange={onChange as (v: CandleEntryAnim) => void}
-          />
-        ),
-      } as RowSpec);
+      animRows.push(
+        {
+          key: 'candleEntryAnimation',
+          label: 'Candle entry style',
+          group: 'Series',
+          render: (v, onChange) => (
+            <Select<CandleEntryAnim>
+              value={v as CandleEntryAnim}
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'fade', label: 'Fade' },
+                { value: 'unfold', label: 'Unfold' },
+                { value: 'slide', label: 'Slide' },
+                { value: 'fade-unfold', label: 'Fade + Unfold' },
+              ]}
+              onChange={onChange as (v: CandleEntryAnim) => void}
+            />
+          ),
+        } as RowSpec,
+        msSliderRow({
+          key: 'candleEntryMs',
+          label: 'Candle entry',
+          hint: 'Per-candle entrance duration. 0 disables.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+        msSliderRow({
+          key: 'candleSmoothMs',
+          label: 'Candle smooth',
+          hint: 'OHLC chase duration on data updates. 0 snaps.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+      );
     }
     if (showBar) {
-      animRows.push({
-        key: 'barEntryAnimation',
-        label: 'Bar entry',
-        render: (v, onChange) => (
-          <Select<BarEntryAnim>
-            value={v as BarEntryAnim}
-            options={[
-              { value: 'none', label: 'None' },
-              { value: 'fade', label: 'Fade' },
-              { value: 'grow', label: 'Grow' },
-              { value: 'fade-grow', label: 'Fade + Grow' },
-              { value: 'slide', label: 'Slide' },
-            ]}
-            onChange={onChange as (v: BarEntryAnim) => void}
-          />
-        ),
-      } as RowSpec);
+      animRows.push(
+        {
+          key: 'barEntryAnimation',
+          label: 'Bar entry style',
+          group: 'Series',
+          render: (v, onChange) => (
+            <Select<BarEntryAnim>
+              value={v as BarEntryAnim}
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'fade', label: 'Fade' },
+                { value: 'grow', label: 'Grow' },
+                { value: 'fade-grow', label: 'Fade + Grow' },
+                { value: 'slide', label: 'Slide' },
+              ]}
+              onChange={onChange as (v: BarEntryAnim) => void}
+            />
+          ),
+        } as RowSpec,
+        msSliderRow({
+          key: 'barEntryMs',
+          label: 'Bar entry',
+          hint: 'Per-bar entrance duration. 0 disables.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+        msSliderRow({
+          key: 'barSmoothMs',
+          label: 'Bar smooth',
+          hint: 'Value chase duration on data updates. 0 snaps.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+      );
     }
     if (showLine) {
-      animRows.push({
-        key: 'lineEntryAnimation',
-        label: 'Line entry',
-        render: (v, onChange) => (
-          <Select<LineEntryAnim>
-            value={v as LineEntryAnim}
-            options={[
-              { value: 'none', label: 'None' },
-              { value: 'fade', label: 'Fade' },
-              { value: 'grow', label: 'Grow' },
-            ]}
-            onChange={onChange as (v: LineEntryAnim) => void}
-          />
-        ),
-      } as RowSpec);
+      animRows.push(
+        {
+          key: 'lineEntryAnimation',
+          label: 'Line entry style',
+          group: 'Series',
+          render: (v, onChange) => (
+            <Select<LineEntryAnim>
+              value={v as LineEntryAnim}
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'fade', label: 'Fade' },
+                { value: 'grow', label: 'Grow' },
+              ]}
+              onChange={onChange as (v: LineEntryAnim) => void}
+            />
+          ),
+        } as RowSpec,
+        msSliderRow({
+          key: 'lineEntryMs',
+          label: 'Line entry',
+          hint: 'Per-point entrance duration. 0 disables.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+        msSliderRow({
+          key: 'lineSmoothMs',
+          label: 'Line smooth',
+          hint: 'Last-value chase time-constant. 0 snaps.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+        msSliderRow({
+          key: 'linePulseMs',
+          label: 'Line pulse',
+          hint: 'Halo cycle period at the line tail. 0 disables.',
+          group: 'Series',
+          max: 3000,
+          step: 50,
+        }),
+      );
+    }
+    if (showPie) {
+      animRows.push(
+        msSliderRow({
+          key: 'pieEntryMs',
+          label: 'Pie entry',
+          hint: 'Slice grow-in duration on first paint.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+        msSliderRow({
+          key: 'pieUpdateMs',
+          label: 'Pie update',
+          hint: 'Slice resize duration when data changes.',
+          group: 'Series',
+          max: 2000,
+          step: 50,
+        }),
+      );
+    }
+
+    // ── X axis group — cartesian only ──
+    if (showAxisAnim) {
+      animRows.push(
+        {
+          key: 'xCurve',
+          label: 'X curve',
+          group: 'X axis',
+          hint: 'Spring carries velocity across streaming ticks; Snap disables easing.',
+          render: (v, onChange) => (
+            <ToggleGroup<'spring' | 'snap'>
+              value={v as 'spring' | 'snap'}
+              options={[
+                { value: 'spring', label: 'Spring' },
+                { value: 'snap', label: 'Snap' },
+              ]}
+              onChange={onChange as (v: 'spring' | 'snap') => void}
+            />
+          ),
+        } as RowSpec,
+        msSliderRow({
+          key: 'xSettleMs',
+          label: 'X settle',
+          hint: 'Streaming retarget baseline. Cadence EMA tunes this at runtime.',
+          group: 'X axis',
+          max: 1000,
+          step: 25,
+        }),
+        msSliderRow({
+          key: 'xGestureMs',
+          label: 'X gesture',
+          hint: 'Pan / zoom commit easing. 0 = instant apply.',
+          group: 'X axis',
+          max: 1000,
+          step: 25,
+        }),
+      );
+    }
+
+    // ── Y axis group — cartesian only ──
+    if (showAxisAnim) {
+      animRows.push(
+        {
+          key: 'yCurve',
+          label: 'Y curve',
+          group: 'Y axis',
+          hint: 'Hermite: fixed-duration cubic. Spring: critically-damped physics. Snap: no animation.',
+          render: (v, onChange) => (
+            <ToggleGroup<AxisCurve>
+              value={v as AxisCurve}
+              options={[
+                { value: 'hermite', label: 'Hermite' },
+                { value: 'spring', label: 'Spring' },
+                { value: 'snap', label: 'Snap' },
+              ]}
+              onChange={onChange as (v: AxisCurve) => void}
+            />
+          ),
+        } as RowSpec,
+        msSliderRow({
+          key: 'ySettleMs',
+          label: 'Y settle',
+          hint: 'Outward chase to a new extreme. Faster = punchier reaction to spikes.',
+          group: 'Y axis',
+          max: 2000,
+          step: 50,
+        }),
+        msSliderRow({
+          key: 'yStickyMs',
+          label: 'Y sticky',
+          hint: 'Inward contraction after an extreme leaves. Larger = stickier auto-fit.',
+          group: 'Y axis',
+          max: 10000,
+          step: 100,
+        }),
+        msSliderRow({
+          key: 'yGestureMs',
+          label: 'Y gesture',
+          hint: 'Y override during gestures. Short = frame-per-tick interactive feel.',
+          group: 'Y axis',
+          max: 1000,
+          step: 25,
+        }),
+      );
+    }
+
+    // ── Other ──
+    if (showAxisAnim) {
+      animRows.push(
+        msSliderRow({
+          key: 'ticksMs',
+          label: 'Tick fade',
+          hint: 'Cross-fade duration for axis tick labels.',
+          group: 'Other',
+          max: 1000,
+          step: 50,
+        }),
+      );
     }
     animRows.push(
-      {
-        key: 'entryMs',
-        label: 'Entry duration',
-        hint: 'Per-point entrance. 0 disables.',
-        render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={2000}
-            step={50}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
-          />
-        ),
-      } as RowSpec,
-      {
-        key: 'smoothMs',
-        label: 'Live updates',
-        hint: 'Eases the displayed last value on updateData ticks. 0 snaps.',
-        render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={500}
-            step={10}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
-          />
-        ),
-      } as RowSpec,
-    );
-    if (showLine) {
-      animRows.push({
-        key: 'pulseMs',
-        label: 'Line pulse',
-        hint: 'Halo cycle period at the line tail. 0 disables.',
-        render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={2000}
-            step={50}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
-          />
-        ),
-      } as RowSpec);
-    }
-    animRows.push(
-      {
-        key: 'yAxisMs',
-        label: 'Y axis ease',
-        hint: 'Y range chase on data updates. 0 snaps every frame.',
-        render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={400}
-            step={10}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
-          />
-        ),
-      } as RowSpec,
-      {
-        key: 'reboundMs',
-        label: 'Rebound',
-        hint: 'Post-gesture snap-back duration. 0 snaps.',
-        render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={1000}
-            step={50}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
-          />
-        ),
-      } as RowSpec,
-      {
-        key: 'inputResponseMs',
-        label: 'Input ease',
-        hint: 'Per-event ease applied to pan/zoom. 0 = instant.',
-        render: (v, onChange) => (
-          <Slider
-            value={v as number}
-            min={0}
-            max={200}
-            step={10}
-            suffix="ms"
-            onChange={onChange as (v: number) => void}
-          />
-        ),
-      } as RowSpec,
+      msSliderRow({
+        key: 'toggleMs',
+        label: 'Visibility toggle',
+        hint: 'Series-visibility fade plus Y re-fit duration.',
+        group: 'Other',
+        max: 1000,
+        step: 50,
+      }),
     );
 
     sections.push({

@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { type CSSProperties, type ReactNode, memo } from 'react';
 
 import { useTheme } from '../ThemeContext';
 
@@ -32,31 +32,35 @@ export interface TitleProps {
  * </ChartContainer>
  * ```
  */
-export function Title({ children, sub, style }: TitleProps) {
-  const theme = useTheme();
-  return (
-    <div
-      data-chart-title=""
-      style={{
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 6,
-        padding: '6px 8px 0',
-        flexShrink: 0,
-        fontFamily: theme.typography.fontFamily,
-        fontSize: theme.typography.fontSize,
-        fontWeight: 600,
-        color: theme.tooltip.textColor,
-        pointerEvents: 'none',
-        ...style,
-      }}
-    >
-      {children != null && children !== false && <span>{children}</span>}
-      {sub != null && sub !== false && (
-        <span style={{ fontWeight: 400, color: theme.axis.textColor, fontSize: theme.axis.fontSize }}>
-          {sub}
-        </span>
-      )}
-    </div>
-  );
-}
+export const Title = memo(
+  function Title({ children, sub, style }: TitleProps) {
+    const theme = useTheme();
+    return (
+      <div
+        data-chart-title=""
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
+          padding: '6px 8px 0',
+          flexShrink: 0,
+          fontFamily: theme.typography.fontFamily,
+          fontSize: theme.typography.fontSize,
+          fontWeight: 600,
+          color: theme.tooltip.textColor,
+          pointerEvents: 'none',
+          ...style,
+        }}
+      >
+        {children != null && children !== false && <span>{children}</span>}
+        {sub != null && sub !== false && (
+          <span style={{ fontWeight: 400, color: theme.axis.textColor, fontSize: theme.axis.fontSize }}>{sub}</span>
+        )}
+      </div>
+    );
+  },
+  // Explicit comparator: equivalent to default shallow-compare, but avoids the
+  // dev-only Profiler/highlight noise observed with bare `memo` (see
+  // facebook/react#19778).
+  (prev, next) => prev.children === next.children && prev.sub === next.sub && prev.style === next.style,
+);

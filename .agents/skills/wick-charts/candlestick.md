@@ -33,13 +33,15 @@ interface CandlestickSeriesOptions {
   up:   CandlestickDirectionColors;  // bullish (close >= open). Default: { body: '#26a69a', wick: '#26a69a' }
   down: CandlestickDirectionColors;  // bearish (close < open).  Default: { body: '#ef5350', wick: '#ef5350' }
   bodyWidthRatio: number;          // 0–1, candle body width — default: 0.6
-  entryAnimation?: 'none' | 'fade' | 'unfold' | 'slide' | 'fade-unfold'; // default: 'fade-unfold'
-  entryMs?: number | false;        // entrance duration; false disables — default: 400
-  smoothMs?: number | false;       // live-tracking smoothing for updateLastPoint — default: 70
+  entryAnimation?: 'none' | 'fade' | 'unfold' | 'slide' | 'fade-unfold'; // default: 'unfold'
+  entryMs?: number | false;        // entrance duration; false disables — default: 250
+  smoothMs?: number | false;       // live-tracking smoothing for updateLastPoint — default: 250
 }
 ```
 
 All options are optional — pass `Partial<CandlestickSeriesOptions>`.
+
+> Prefer the chart-level animations API (`<ChartContainer animations={{ series: { candlestick: { entry, smooth } } }}>`) for new code — it's the canonical surface and groups durations alongside axis / toggle timings. The per-series `entryMs` / `smoothMs` options still work and are the only place to set them per-series-instance. See [SKILL.md → Animations](SKILL.md).
 
 ### Flat vs gradient body
 

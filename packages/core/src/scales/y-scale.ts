@@ -1,5 +1,6 @@
 import type { YRange } from '../types';
 import { type ValueFormatter, formatCompact } from '../utils/format';
+import { AxisTickTracker } from './tick-tracker';
 
 /**
  * Smallest {1,2,5}×10^k tick interval that is >= `minSpacing`. Ceiling snap
@@ -37,6 +38,9 @@ const DEFAULT_MIN_LABEL_SPACING = 50;
  * Also provides tick generation and value formatting for the Y axis.
  */
 export class YScale {
+  /** Shared fade state for Y ticks; see {@link TimeScale.tickTracker}. */
+  readonly tickTracker = new AxisTickTracker();
+
   private min = 0;
   private max = 0;
   private height = 1;

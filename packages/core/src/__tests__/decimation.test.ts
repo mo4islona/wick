@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { decimateLineData, decimateOHLCData } from '../data/decimation';
-import type { LineData, OHLCData } from '../types';
+import type { OHLCData, TimePoint } from '../types';
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
-function makeLine(count: number, valueFn: (i: number) => number = (i) => i): LineData[] {
+function makeLine(count: number, valueFn: (i: number) => number = (i) => i): TimePoint[] {
   return Array.from({ length: count }, (_, i) => ({ time: i, value: valueFn(i) }));
 }
 
@@ -73,7 +73,7 @@ describe('decimateLineData', () => {
   });
 
   it('single point returns as-is', () => {
-    const data: LineData[] = [{ time: 1, value: 42 }];
+    const data: TimePoint[] = [{ time: 1, value: 42 }];
     const result = decimateLineData(data, 10);
     expect(result).toBe(data);
   });

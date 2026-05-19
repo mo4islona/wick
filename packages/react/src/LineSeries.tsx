@@ -66,11 +66,12 @@ export function LineSeries({ data, options, id: idProp }: LineSeriesProps) {
         const hasNewLast = prevLast !== null && prevLast !== lastTime;
 
         // Rolling-window slide (maxPoints cap): drop oldest, append newest,
-        // length unchanged. Sync prefix then appendData the new tail so the
-        // entrance animation fires instead of getting wiped by setSeriesData.
+        // length unchanged. Append the new tail then trim the head — this
+        // path goes through `keepLast` (no Y snap) instead of `setSeriesData`
+        // (which would force a per-tick Y snap, visible on wild-value feeds).
         if (shifted && added === 0 && hasNewLast) {
-          chart.setSeriesData(id, layer.slice(0, -1), i);
           chart.appendData(id, layer[layer.length - 1], i);
+          chart.keepLast(id, layer.length, i);
         } else if (prevLen === 0 || layer.length < prevLen || added > BULK_THRESHOLD || shifted) {
           chart.setSeriesData(id, layer, i);
         } else if (layer.length === prevLen) {
@@ -101,9 +102,7 @@ export function LineSeries({ data, options, id: idProp }: LineSeriesProps) {
     options?.pulse,
     options?.stacking,
     options?.entryAnimation,
-    options?.enterAnimation,
     options?.entryMs,
-    options?.enterMs,
     options?.smoothMs,
   ]);
 

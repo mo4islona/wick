@@ -1,4 +1,4 @@
-import type { LineData, OHLCData } from '@wick-charts/react';
+import type { OHLCData, TimePoint } from '@wick-charts/react';
 
 // ── Sampler protocol ─────────────────────────────────────────
 //
@@ -17,7 +17,7 @@ export interface SamplerCtx<T> {
   prev: T | null;
 }
 
-export type LineSampler = (ctx: SamplerCtx<LineData>) => LineData;
+export type LineSampler = (ctx: SamplerCtx<TimePoint>) => TimePoint;
 export type OHLCSampler = (ctx: SamplerCtx<OHLCData>) => OHLCData;
 
 export interface LineStrategy {
@@ -62,6 +62,25 @@ export function ohlcStrategy(startPrice: number): OHLCStrategy {
         close,
         volume: (prev.volume ?? 0) + Math.round(Math.random() * 100),
       };
+    },
+  };
+}
+
+// ── Monotonic ramp strategy ─────────────────────────────────
+//
+// Each tick adds `step + small noise` to the previous value. Used as a
+// Y-axis stability test fixture: with strictly growing values, Y MAX
+// extends on every tick while Y MIN stays put. Even a perfectly smooth
+// auto-Y chase visibly slides all already-drawn points downward — the
+// monotonic case is the cleanest way to see the default auto-Y behaviour
+// before any sticky-bound fix.
+
+export function monotonicStrategy(step: number, noise = 0.2): LineStrategy {
+  return {
+    boundary: ({ time, prev }) => {
+      const jitter = (Math.random() - 0.5) * 2 * step * noise;
+      const value = (prev?.value ?? 0) + step + jitter;
+      return { time, value: round(value) };
     },
   };
 }
@@ -146,11 +165,11 @@ export function bandStrategy(ohlc: OHLCData[], offset: number, noiseScale = 0.00
 
 // ── Historical generators (walk the sampler N times) ──────
 
-function walkLine(count: number, interval: number, strategy: LineStrategy): LineData[] {
+function walkLine(count: number, interval: number, strategy: LineStrategy): TimePoint[] {
   const now = Math.floor(Date.now() / interval) * interval;
   const startTime = now - count * interval;
-  const out: LineData[] = [];
-  let prev: LineData | null = null;
+  const out: TimePoint[] = [];
+  let prev: TimePoint | null = null;
   for (let i = 0; i < count; i++) {
     const next = strategy.boundary({ index: i, time: startTime + i * interval, prev });
     out.push(next);
@@ -182,24 +201,41 @@ export function generateOHLCData(count: number, startPrice = 100, interval = DEM
   return walkOHLC(count, interval, ohlcStrategy(startPrice));
 }
 
-export function generateLineData(count: number, startValue = 100, interval = DEMO_INTERVAL): LineData[] {
+export function generateLineData(count: number, startValue = 100, interval = DEMO_INTERVAL): TimePoint[] {
   return walkLine(count, interval, lineDriftStrategy(startValue));
 }
 
-export function generateBarData(count: number, interval = DEMO_INTERVAL): LineData[] {
+export function generateBarData(count: number, interval = DEMO_INTERVAL): TimePoint[] {
   return walkLine(count, interval, barStrategy(100));
 }
 
-export function generateLayerData(count: number, base: number, interval = DEMO_INTERVAL): LineData[] {
+export function generateLayerData(count: number, base: number, interval = DEMO_INTERVAL): TimePoint[] {
   return walkLine(count, interval, layerStrategy(base));
 }
 
-export function generateWaveData(count: number, opts: WaveOpts & { interval?: number } = {}): LineData[] {
+export function generateWaveData(count: number, opts: WaveOpts & { interval?: number } = {}): TimePoint[] {
   const { interval = DEMO_INTERVAL, ...rest } = opts;
   return walkLine(count, interval, waveStrategy({ ...rest, totalHint: rest.totalHint ?? count }));
 }
 
-export function generateBandLine(ohlc: OHLCData[], offset: number, noiseScale = 0.003): LineData[] {
+export function generateMonotonicData(
+  count: number,
+  startValue: number,
+  step: number,
+  interval = DEMO_INTERVAL,
+): TimePoint[] {
+  const out = walkLine(count, interval, monotonicStrategy(step));
+
+  // walkLine starts from `prev = null` → first point is just step+noise. Shift
+  // everything up by `startValue` so the seed sits at a recognisable base.
+  for (const p of out) {
+    p.value = round(p.value + startValue);
+  }
+
+  return out;
+}
+
+export function generateBandLine(ohlc: OHLCData[], offset: number, noiseScale = 0.003): TimePoint[] {
   const interval = ohlc.length > 1 ? (ohlc[1].time as number) - (ohlc[0].time as number) : 60_000;
   return walkLine(ohlc.length, interval, bandStrategy(ohlc, offset, noiseScale));
 }
@@ -251,27 +287,18 @@ class BaseStream<T extends { time: number }, S extends AnyStrategy<T>> {
    * promptly on every new bar. */
   protected lastIntraEmit = 0;
   protected static readonly INTRA_EMIT_MS = 500;
-  /** Virtual-time head start granted to the first boundary so streaming
-   * demos don't sit silent for a full `interval` after the user enables
-   * live mode. 500ms feels snappy without creating a visible "jump". */
-  protected static readonly INITIAL_LEAD_MS = 500;
-
   constructor(cfg: StreamConfig<T, S>) {
     this.last = { ...cfg.last };
     this.index = cfg.startIndex;
     this.interval = cfg.interval;
     this.strategy = cfg.strategy;
     this.speed = cfg.speed ?? (() => 1);
-    // Seed virtualNow `INITIAL_LEAD_MS` below the next boundary so the first
-    // live bar shows up ~500ms after stream start instead of after a full
-    // `interval` (5s at the canonical demo pace — too long to feel alive).
-    // Subsequent bars arrive at the natural `interval / speed` cadence. The
-    // small virtual/wall-clock offset this introduces is invisible on the
-    // chart because the time axis is data-relative. Anchoring at Date.now()
-    // instead would force the first tick to catch up across whatever gap
-    // accumulated during history rendering, producing a visible burst of bars.
-    const lead = Math.min(BaseStream.INITIAL_LEAD_MS, cfg.interval - 1);
-    this.virtualNow = cfg.last.time + cfg.interval - lead;
+    // First bar fires after a full `interval / speed` wait. Previous versions
+    // granted a 500ms virtual-time head start to make the first bar appear
+    // ~immediately, but that produced a visible "fast first tick → 1s pause
+    // → steady cadence" rhythm. Equal spacing across every bar reads as
+    // smoother panning, even at the cost of a one-interval cold start.
+    this.virtualNow = cfg.last.time;
   }
 
   onTick(listener: (point: T) => void): () => void {
@@ -317,11 +344,7 @@ class BaseStream<T extends { time: number }, S extends AnyStrategy<T>> {
       this.lastIntraEmit = realNow;
     }
 
-    if (
-      this.boundaryCrossed &&
-      this.strategy.intra &&
-      realNow - this.lastIntraEmit >= BaseStream.INTRA_EMIT_MS
-    ) {
+    if (this.boundaryCrossed && this.strategy.intra && realNow - this.lastIntraEmit >= BaseStream.INTRA_EMIT_MS) {
       this.last = this.strategy.intra({ index: this.index, time: this.last.time, prev: this.last });
       this.emit(this.last);
       this.lastIntraEmit = realNow;
@@ -329,7 +352,7 @@ class BaseStream<T extends { time: number }, S extends AnyStrategy<T>> {
   }
 }
 
-export class LineStream extends BaseStream<LineData, LineStrategy> {}
+export class LineStream extends BaseStream<TimePoint, LineStrategy> {}
 export class OHLCStream extends BaseStream<OHLCData, OHLCStrategy> {}
 
 // ── Legacy aliases ────────────────────────────────────────

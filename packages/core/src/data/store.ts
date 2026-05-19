@@ -22,7 +22,10 @@ export class TimeSeriesStore<T extends { time: number }> extends EventEmitter<St
   setData(data: T[]): void {
     let sorted = true;
     for (let i = 1; i < data.length; i++) {
-      if (data[i].time < data[i - 1].time) { sorted = false; break; }
+      if (data[i].time < data[i - 1].time) {
+        sorted = false;
+        break;
+      }
     }
     this.data = sorted ? data.slice() : [...data].sort((a, b) => a.time - b.time);
     this.cachedRange = null;
@@ -42,6 +45,19 @@ export class TimeSeriesStore<T extends { time: number }> extends EventEmitter<St
   updateLast(point: T): void {
     if (this.data.length === 0) return;
     this.data[this.data.length - 1] = point;
+    this.cachedRange = null;
+    this.emit('update');
+  }
+
+  trimStart(count: number): void {
+    if (count <= 0 || this.data.length === 0) return;
+    if (count >= this.data.length) {
+      this.data = [];
+      this.cachedRange = null;
+      this.emit('update');
+      return;
+    }
+    this.data = this.data.slice(count);
     this.cachedRange = null;
     this.emit('update');
   }

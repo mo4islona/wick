@@ -474,6 +474,7 @@ export function PiePage({ theme }: { theme: ChartTheme }) {
       gridTemplate="1fr 1fr"
       gridColumns="1fr 1fr"
       hideCartesian
+      animationKinds={['pie']}
       sections={[DISPLAY_EXTRA, GEOMETRY_SECTION, SHADOW_SECTION, LABELS_SECTION, STRESS_SECTION, LEGEND_SECTION]}
       charts={(props) => (
         <>

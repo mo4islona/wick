@@ -12,6 +12,14 @@ export type SparklineValuePosition = 'left' | 'right' | 'none';
 export interface SparklineProps {
   /** Data points plotted by the sparkline. A flat `TimePoint[]` — the sparkline only ever shows one tiny line/bar. */
   data: TimePoint[];
+  /**
+   * Streaming-window mode: viewport is fixed at `capacity` bars wide and
+   * stays anchored at the time of the first data point until the window
+   * fills. New ticks flow into the empty right side instead of expanding
+   * the visible range. Pass at least one seed point in `data` so the
+   * initial window has a time anchor.
+   */
+  flow?: { capacity: number };
   /** Visual theme. Drives series colour, background gradient, and the change-direction colours used in the value block. */
   theme: ChartTheme;
   /** 'line' (default) or 'bar' */
@@ -77,6 +85,7 @@ export function Sparkline({
   negativeColor,
   area,
   areaFill,
+  flow,
   width = 140,
   height = 48,
   strokeWidth = 1.5,
@@ -94,6 +103,42 @@ export function Sparkline({
   const changeColor = resolveCandlestickBodyColor(
     change.positive ? theme.candlestick.up.body : theme.candlestick.down.body,
   );
+
+  // Previously Sparkline kept its own running min/max in a useRef and handed
+  // a padded Y range to ChartContainer via `axis.y.{min,max}`. That worked
+  // around the chart's default auto-Y "jumps" on streamed wild values, but
+  // it had a hidden cost: every new data prop made the memo emit a fresh
+  // `{min, max}` object, which ChartContainer fed into `chart.setAxis`, and
+  // setAxis SNAPS Y (sets `#yInited = false` and calls `updateYRange(true)`).
+  // Result: every streaming tick snapped Y without animation, which is the
+  // jerky behaviour you saw. The chart core now has sticky-Y bounds + a
+  // `viewportChange` emit on Y advance, so the chart handles streaming
+  // stability itself — Sparkline can drop its local fix.
+
+  // Captured-at-mount viewport for flow mode. Pins the latest seed point near
+  // the RIGHT edge of the visible window (3-interval right pad, matching the
+  // viewport default) with empty space stretching to the LEFT. New ticks
+  // arrive at the right side and existing points slide LEFT — the "drive-in"
+  // effect. Requires at least 2 seed points so `interval` can be inferred;
+  // falls back to undefined otherwise (chart fits to data normally).
+  // Subsequent renders don't recompute because ChartContainer ignores viewport
+  // prop changes after mount.
+  const viewport = useMemo(() => {
+    if (!flow || data.length < 2) return undefined;
+
+    const interval = data[1].time - data[0].time;
+    if (interval <= 0) return undefined;
+
+    const last = data[data.length - 1].time;
+    const rightPad = 3 * interval;
+    const to = last + rightPad;
+    const from = to - flow.capacity * interval;
+
+    return {
+      maxVisibleBars: flow.capacity,
+      initialRange: { from, to } as const,
+    };
+  }, []);
 
   const valueBlock = valuePosition !== 'none' && (
     <div
@@ -173,6 +218,7 @@ export function Sparkline({
         gradient={gradient}
         interactive={false}
         grid={{ visible: false }}
+        viewport={viewport}
       >
         {variant === 'line' ? (
           <LineSeries

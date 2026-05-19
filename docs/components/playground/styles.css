@@ -318,6 +318,19 @@
   grid-template-columns: 1fr 1fr;
   column-gap: 0;
 }
+.wick-playground .sec-group {
+  grid-column: 1 / -1;
+  font-size: 0.7em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-3);
+  padding: 14px 14px 4px 32px;
+  user-select: none;
+}
+.wick-playground .sec-body > .sec-group:first-child {
+  padding-top: 6px;
+}
 
 /* ---------- Rows ---------- */
 .wick-playground .row {

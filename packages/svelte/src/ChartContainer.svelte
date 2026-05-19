@@ -6,6 +6,7 @@ import {
   type ChartOptions,
   type ChartTheme,
   type EdgeReachedInfo,
+  type VisibleRangeSpec,
   catppuccin,
 } from '@wick-charts/core';
 import { onDestroy, onMount, tick } from 'svelte';
@@ -32,6 +33,11 @@ export let axis: AxisConfig | undefined = undefined;
  */
 // biome-ignore format: keep the inline shape so the parity checker matches React's type string verbatim
 export let padding: { top?: number; bottom?: number; right?: number | { intervals: number }; left?: number | { intervals: number }; } | undefined = undefined;
+/**
+ * Viewport-level streaming behavior. Captured at mount only — changing
+ * this prop after the chart is created is ignored.
+ */
+export let viewport: { maxVisibleBars?: number; initialRange?: VisibleRangeSpec } | undefined = undefined;
 /** Show the chart background gradient. Defaults to true. */
 export let gradient: boolean = true;
 /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
@@ -45,16 +51,15 @@ export let grid: { visible: boolean } | undefined = undefined;
  */
 export let headerLayout: 'overlay' | 'inline' = 'overlay';
 /**
- * Chart-level animation configuration. See `AnimationsConfig` for the full shape.
+ * Animation control. `true` / omitted uses built-in defaults; `false`
+ * disables every category. Per-series options on `<LineSeries>` /
+ * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
+ * defaults unless the category here is explicitly `false`.
  *
- * Two layers — chart-level (this prop) sets defaults for every series; per-series
- * options on `<LineSeries>`/`<CandlestickSeries>`/`<BarSeries>` override that
- * default for that one series.
- *
- * Shorthands: `true` / omitted — built-in defaults; `false` — disables every
- * animation category; `{ points: false }` / `{ viewport: false }` disables a
- * category. Updating this prop calls `chart.setAnimations(...)` so the new
- * durations take effect on the next animation / render.
+ * **Init-only by reference identity.** A new `animations` reference
+ * recreates the underlying `ChartInstance`. Hoist it to a stable
+ * binding (e.g. `const animations = {...}`) — passing inline literals
+ * tears the chart down on every re-render.
  */
 export let animations: boolean | AnimationsConfig | undefined = undefined;
 /**
@@ -145,6 +150,7 @@ onMount(() => {
   if (axis) options.axis = axis;
   if (theme) options.theme = theme;
   if (padding) options.padding = padding;
+  if (viewport) options.viewport = viewport;
   if (interactive !== undefined) options.interactive = interactive;
   if (grid !== undefined) options.grid = grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;
@@ -197,12 +203,40 @@ $: if (instance && grid !== undefined) {
   instance.setGrid(grid);
 }
 
-// Stringify the animations config so consumers can pass a fresh object identity
-// without thrashing animator state when nothing has actually changed.
-$: animationsKey = JSON.stringify(animations);
-$: if (instance && animations !== undefined) {
-  void animationsKey;
-  instance.setAnimations(animations);
+// Init-only: post-mount `animations` identity changes tear down the
+// instance and rebuild with the new config. Reference equality matters
+// — callers that pass an inline literal will recreate on every render.
+//
+// Children inside the `{#if $chartStore}` block grab the chart store
+// snapshot in their own setup. To force them to re-mount against the
+// new ChartInstance, push `null` through the store first — the
+// `{#if}` guard tears down the slot — then `await tick()` so Svelte
+// commits the unmount before the new instance is constructed. Setting
+// the store to the new instance re-mounts children, who re-read the
+// current chart in their fresh setup.
+let lastAnimations = animations;
+async function rebuildChartFromAnimations() {
+  if (!instance || !containerEl) return;
+  instance.destroy();
+  instance = null;
+  chartStore.set(null);
+  await tick();
+  const opts: ChartOptions = {};
+  if (axis) opts.axis = axis;
+  if (theme) opts.theme = theme;
+  if (padding) opts.padding = padding;
+  if (viewport) opts.viewport = viewport;
+  if (interactive !== undefined) opts.interactive = interactive;
+  if (grid !== undefined) opts.grid = grid;
+  if (perfAtMount !== undefined) opts.perf = perfAtMount;
+  if (onEdgeReachedAtMount) opts.onEdgeReached = onEdgeReachedAtMount;
+  if (animations !== undefined) opts.animations = animations;
+  instance = new ChartInstance(containerEl, opts);
+  chartStore.set(instance);
+}
+$: if (instance && animations !== lastAnimations) {
+  lastAnimations = animations;
+  rebuildChartFromAnimations();
 }
 
 // Re-apply padding on any input that affects it — including `headerExtra`,

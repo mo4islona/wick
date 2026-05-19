@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { type ChartTheme, ThemeProvider, createTheme } from '@wick-charts/react';
+import { type ChartTheme, type ThemePreset, ThemeProvider, createTheme } from '@wick-charts/react';
 
 import { Sidebar } from './components/Sidebar';
 import { ThemeSelect } from './components/ThemeSelect';
@@ -157,13 +157,20 @@ export default function App() {
   }, [editorJson]);
 
   const theme = override ?? baseTheme;
-  const isCustom = editorJson !== null;
   const isDarkActive = useMemo(() => luminance(theme.background) < 0.5, [theme.background]);
 
-  const pickTheme = (name: string) => {
-    setThemeName(name);
+  // The preset handed to <ThemeSelect>. For the custom case we spread the base
+  // and swap `theme`, so `value.name` keeps pointing at the base preset and
+  // ThemeSelect can derive `isCustom` via a reference check.
+  const currentPreset = useMemo<ThemePreset>(
+    () => (override ? { ...preset, theme: override } : preset),
+    [preset, override],
+  );
+
+  const pickPreset = useCallback((next: ThemePreset) => {
+    setThemeName(next.name);
     setEditorJson(null);
-  };
+  }, []);
 
   const onEditorChange = (next: JsonValue) => {
     // Clear the override when edits round-trip back to the preset baseline.
@@ -380,7 +387,7 @@ export default function App() {
                     </a>
                   </>
                 )}
-                <ThemeSelect value={themeName} onChange={pickTheme} theme={theme} mobile={mobile} custom={isCustom} />
+                <ThemeSelect value={currentPreset} onChange={pickPreset} />
               </div>
             </div>
 

@@ -91,7 +91,7 @@
                 "optional": true,
                 "defaultValue": "600",
                 "deprecated": null,
-                "description": "Period of one halo pulse cycle in milliseconds. Continuous loop, not a\none-shot — short values pulse fast, long values pulse slowly. Default:\n`600` (≈ 1.7 Hz, a calm \"breathing\" rhythm).\n\n```\n// Per-series override:\n<LineSeries options={{ pulseMs: 1200 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ points: { pulseMs: 1200 } }}>\n  <LineSeries data={data} />\n</ChartContainer>\n```\n\n`false` or `0` turns the halo off entirely (drawing and animation loop).\nA chart-level `animations.points: false` is a hard disable that wins\nover this field.",
+                "description": "Period of one halo pulse cycle in milliseconds. Continuous loop, not a\none-shot — short values pulse fast, long values pulse slowly. Default:\n`600` (≈ 1.7 Hz, a calm \"breathing\" rhythm).\n\n```\n// Per-series override:\n<LineSeries options={{ pulseMs: 1200 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ series: { line: { pulse: 1200 } } }}>\n  <LineSeries data={data} />\n</ChartContainer>\n```\n\n`false` or `0` turns the halo off entirely (drawing and animation loop).\nA chart-level `animations.series.line: false` is a hard disable that\nwins over this field.",
                 "see": []
               },
               {
@@ -115,33 +115,15 @@
                 ]
               },
               {
-                "name": "enterAnimation",
-                "type": "LineEntryAnimation",
-                "optional": true,
-                "defaultValue": null,
-                "deprecated": "Use {@link entryAnimation} instead.",
-                "description": "",
-                "see": []
-              },
-              {
                 "name": "entryMs",
                 "type": "number | false",
                 "optional": true,
                 "defaultValue": "250",
                 "deprecated": null,
-                "description": "Per-point entrance duration in milliseconds. Default: `250`.\n\n```\n// Override for one series:\n<LineSeries options={{ entryMs: 600 }} data={data} />\n\n// Or set the default for every series at once:\n<ChartContainer animations={{ points: { enterMs: 600 } }}>\n  <LineSeries data={data} />\n</ChartContainer>\n```\n\nNote: chart-level uses `enterMs`, per-series uses `entryMs` — same\nanimation, two names for historical reasons.\n\n`false` or `0` disables the entrance (equivalent to\n`entryAnimation: 'none'`). A chart-level `animations.points: false` is a\nhard disable that wins over this field.",
+                "description": "Per-point entrance duration in milliseconds. Default: `250`.\n\n```\n// Override for one series:\n<LineSeries options={{ entryMs: 600 }} data={data} />\n\n// Or set the default for every line series at once:\n<ChartContainer animations={{ series: { line: { entry: 600 } } }}>\n  <LineSeries data={data} />\n</ChartContainer>\n```\n\n`false` or `0` disables the entrance (equivalent to\n`entryAnimation: 'none'`). A chart-level `animations.series.line: false`\nis a hard disable that wins over this field.",
                 "see": [
                   "LineSeriesOptions.entryAnimation"
                 ]
-              },
-              {
-                "name": "enterMs",
-                "type": "number | false",
-                "optional": true,
-                "defaultValue": null,
-                "deprecated": "Use {@link entryMs} instead.",
-                "description": "",
-                "see": []
               },
               {
                 "name": "smoothMs",
@@ -149,7 +131,7 @@
                 "optional": true,
                 "defaultValue": "250",
                 "deprecated": null,
-                "description": "How long the displayed last value takes to catch up to the actual one\non every `updateLastPoint`. Default: `250` ms.\n\n```\n// Per-series override:\n<LineSeries options={{ smoothMs: 100 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ points: { smoothMs: 100 } }}>\n  <LineSeries data={data} />\n</ChartContainer>\n```\n\n`0` or `false` snaps the displayed value to the target on every tick\n(no smoothing). A chart-level `animations.points: false` is a hard\ndisable that wins over this field.",
+                "description": "How long the displayed last value takes to catch up to the actual one\non every `updateLastPoint`. Default: `250` ms.\n\n```\n// Per-series override:\n<LineSeries options={{ smoothMs: 100 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ series: { line: { smooth: 100 } } }}>\n  <LineSeries data={data} />\n</ChartContainer>\n```\n\n`0` or `false` snaps the displayed value to the target on every tick\n(no smoothing). A chart-level `animations.series.line: false` is a hard\ndisable that wins over this field.",
                 "see": []
               }
             ]
@@ -240,33 +222,15 @@
                 ]
               },
               {
-                "name": "enterAnimation",
-                "type": "BarEntryAnimation",
-                "optional": true,
-                "defaultValue": null,
-                "deprecated": "Use {@link entryAnimation} instead.",
-                "description": "",
-                "see": []
-              },
-              {
                 "name": "entryMs",
                 "type": "number | false",
                 "optional": true,
                 "defaultValue": "250",
                 "deprecated": null,
-                "description": "Per-bar entrance duration in milliseconds. Default: `250`.\n\n```\n// Override for one series:\n<BarSeries options={{ entryMs: 600 }} data={data} />\n\n// Or set the default for every series at once:\n<ChartContainer animations={{ points: { enterMs: 600 } }}>\n  <BarSeries data={data} />\n</ChartContainer>\n```\n\nNote: chart-level uses `enterMs`, per-series uses `entryMs` — same\nanimation, two names for historical reasons.\n\n`false` or `0` disables the entrance (equivalent to\n`entryAnimation: 'none'`). A chart-level `animations.points: false` is a\nhard disable that wins over this field.",
+                "description": "Per-bar entrance duration in milliseconds. Default: `250`.\n\n```\n// Override for one series:\n<BarSeries options={{ entryMs: 600 }} data={data} />\n\n// Or set the default for every bar series at once:\n<ChartContainer animations={{ series: { bar: { entry: 600 } } }}>\n  <BarSeries data={data} />\n</ChartContainer>\n```\n\n`false` or `0` disables the entrance (equivalent to\n`entryAnimation: 'none'`). A chart-level `animations.series.bar: false`\nis a hard disable that wins over this field.",
                 "see": [
                   "BarSeriesOptions.entryAnimation"
                 ]
-              },
-              {
-                "name": "enterMs",
-                "type": "number | false",
-                "optional": true,
-                "defaultValue": null,
-                "deprecated": "Use {@link entryMs} instead.",
-                "description": "",
-                "see": []
               },
               {
                 "name": "smoothMs",
@@ -274,7 +238,7 @@
                 "optional": true,
                 "defaultValue": "250",
                 "deprecated": null,
-                "description": "How long the displayed bar value takes to catch up to the actual one\non every `updateLastPoint`. Default: `250` ms.\n\n```\n// Per-series override:\n<BarSeries options={{ smoothMs: 100 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ points: { smoothMs: 100 } }}>\n  <BarSeries data={data} />\n</ChartContainer>\n```\n\n`0` or `false` snaps the displayed value to the target on every tick\n(no smoothing). A chart-level `animations.points: false` is a hard\ndisable that wins over this field.",
+                "description": "How long the displayed bar value takes to catch up to the actual one\non every `updateLastPoint`. Default: `250` ms.\n\n```\n// Per-series override:\n<BarSeries options={{ smoothMs: 100 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ series: { bar: { smooth: 100 } } }}>\n  <BarSeries data={data} />\n</ChartContainer>\n```\n\n`0` or `false` snaps the displayed value to the target on every tick\n(no smoothing). A chart-level `animations.series.bar: false` is a hard\ndisable that wins over this field.",
                 "see": []
               }
             ]
@@ -411,33 +375,15 @@
                 ]
               },
               {
-                "name": "enterAnimation",
-                "type": "CandlestickEntryAnimation",
-                "optional": true,
-                "defaultValue": null,
-                "deprecated": "Use {@link entryAnimation} instead.",
-                "description": "",
-                "see": []
-              },
-              {
                 "name": "entryMs",
                 "type": "number | false",
                 "optional": true,
                 "defaultValue": "250",
                 "deprecated": null,
-                "description": "Per-candle entrance duration in milliseconds. Default: `250`.\n\n```\n// Override for one series:\n<CandlestickSeries options={{ entryMs: 600 }} data={data} />\n\n// Or set the default for every series at once:\n<ChartContainer animations={{ points: { enterMs: 600 } }}>\n  <CandlestickSeries data={data} />\n</ChartContainer>\n```\n\nNote: chart-level uses `enterMs`, per-series uses `entryMs` — same\nanimation, two names for historical reasons.\n\n`false` or `0` disables the entrance (equivalent to\n`entryAnimation: 'none'`). A chart-level `animations.points: false` is a\nhard disable that wins over this field.",
+                "description": "Per-candle entrance duration in milliseconds. Default: `250`.\n\n```\n// Override for one series:\n<CandlestickSeries options={{ entryMs: 600 }} data={data} />\n\n// Or set the default for every candlestick series at once:\n<ChartContainer animations={{ series: { candlestick: { entry: 600 } } }}>\n  <CandlestickSeries data={data} />\n</ChartContainer>\n```\n\n`false` or `0` disables the entrance (equivalent to\n`entryAnimation: 'none'`). A chart-level\n`animations.series.candlestick: false` is a hard disable that wins over\nthis field.",
                 "see": [
                   "CandlestickSeriesOptions.entryAnimation"
                 ]
-              },
-              {
-                "name": "enterMs",
-                "type": "number | false",
-                "optional": true,
-                "defaultValue": null,
-                "deprecated": "Use {@link entryMs} instead.",
-                "description": "",
-                "see": []
               },
               {
                 "name": "smoothMs",
@@ -445,7 +391,7 @@
                 "optional": true,
                 "defaultValue": "250",
                 "deprecated": null,
-                "description": "How long the displayed OHLC takes to catch up to the actual last value\non every `updateLastPoint`. Default: `250` ms.\n\n```\n// Per-series override:\n<CandlestickSeries options={{ smoothMs: 100 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ points: { smoothMs: 100 } }}>\n  <CandlestickSeries data={data} />\n</ChartContainer>\n```\n\n`0` or `false` snaps the displayed value to the target on every tick\n(no smoothing). A chart-level `animations.points: false` is a hard\ndisable that wins over this field.",
+                "description": "How long the displayed OHLC takes to catch up to the actual last value\non every `updateLastPoint`. Default: `250` ms.\n\n```\n// Per-series override:\n<CandlestickSeries options={{ smoothMs: 100 }} data={data} />\n\n// Chart-level default:\n<ChartContainer animations={{ series: { candlestick: { smooth: 100 } } }}>\n  <CandlestickSeries data={data} />\n</ChartContainer>\n```\n\n`0` or `false` snaps the displayed value to the target on every tick\n(no smoothing). A chart-level `animations.series.candlestick: false` is\na hard disable that wins over this field.",
                 "see": []
               }
             ]
@@ -530,7 +476,7 @@
                 "optional": true,
                 "defaultValue": null,
                 "deprecated": null,
-                "description": "Per-slice label rendering on the pie itself. See {@link PieLabelsOptions}.",
+                "description": "Per-slice label rendering on the pie itself. See PieLabelsOptions.",
                 "see": [],
                 "nested": {
                   "name": "PieLabelsOptions",
@@ -595,7 +541,7 @@
                       "optional": true,
                       "defaultValue": "14",
                       "deprecated": null,
-                      "description": "Radial distance in CSS pixels from the pie's outer edge to the natural\nlabel anchor point. The label then extends horizontally outward by\n{@link railWidth} before the text starts. Clamped internally against\n{@link elbowLen}. Default: 14.",
+                      "description": "Radial distance in CSS pixels from the pie's outer edge to the natural\nlabel anchor point. The label then extends horizontally outward by\nrailWidth before the text starts. Clamped internally against\nelbowLen. Default: 14.",
                       "see": []
                     },
                     {
@@ -613,16 +559,7 @@
                       "optional": true,
                       "defaultValue": "1.8",
                       "deprecated": null,
-                      "description": "Minimum vertical gap between adjacent outside labels on the same side,\nexpressed as a multiplier of {@link fontSize}. Default: 1.8.",
-                      "see": []
-                    },
-                    {
-                      "name": "balanceSides",
-                      "type": "boolean",
-                      "optional": true,
-                      "defaultValue": null,
-                      "deprecated": "No effect in the radial per-slice layout. A label's X is\npinned to its slice midangle, so forcing the \"other\" side would flip\ntext direction without moving the label and push text across the pie.\nKept in the option surface for backwards compatibility.",
-                      "description": "",
+                      "description": "Minimum vertical gap between adjacent outside labels on the same side,\nexpressed as a multiplier of fontSize. Default: 1.8.",
                       "see": []
                     }
                   ]
@@ -644,7 +581,48 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Ambient *outer* drop-shadow behind each slice. Adds lift for flat\ndashboards. Omit / `false` to disable (default). `true` uses soft\ndefaults; pass an object to tune individually.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": true,
+                      "defaultValue": "rgba(0, 0, 0, 0.22)",
+                      "deprecated": null,
+                      "description": "Shadow color. Default: `rgba(0, 0, 0, 0.22)`.",
+                      "see": []
+                    },
+                    {
+                      "name": "blur",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "24",
+                      "deprecated": null,
+                      "description": "Blur radius in CSS pixels. Default: 24.",
+                      "see": []
+                    },
+                    {
+                      "name": "offsetX",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "0",
+                      "deprecated": null,
+                      "description": "Horizontal offset in CSS pixels. Default: 0.",
+                      "see": []
+                    },
+                    {
+                      "name": "offsetY",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "10",
+                      "deprecated": null,
+                      "description": "Vertical offset in CSS pixels. Default: 10.",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "innerShadow",
@@ -653,7 +631,30 @@
                 "defaultValue": null,
                 "deprecated": null,
                 "description": "Inner rim darkening — a dark band near each slice's outer edge that\ngives the pie an \"inset\" / pressed look. Implemented by extending the\nper-slice radial gradient with a dark edge stop, so it pairs naturally\nwith the existing depth gradient. Omit / `false` to disable (default).",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "color",
+                      "type": "string",
+                      "optional": true,
+                      "defaultValue": "rgba(0, 0, 0, 0.1)",
+                      "deprecated": null,
+                      "description": "Rim color. Default: `rgba(0, 0, 0, 0.1)` (blended over the slice\ncolor). Accepts any CSS color.",
+                      "see": []
+                    },
+                    {
+                      "name": "depth",
+                      "type": "number",
+                      "optional": true,
+                      "defaultValue": "0.3 — darkening starts at 70% of the radius",
+                      "deprecated": null,
+                      "description": "Fraction of the slice's radial span covered by the darkened band\n(0..1). Default: 0.3 — darkening starts at 70% of the radius.",
+                      "see": []
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -683,6 +684,29 @@
           "deprecated": null,
           "description": "Data points plotted by the sparkline. A flat `TimePoint[]` — the sparkline only ever shows one tiny line/bar.",
           "see": []
+        },
+        {
+          "name": "flow",
+          "type": "{ capacity: number }",
+          "optional": true,
+          "defaultValue": null,
+          "deprecated": null,
+          "description": "Streaming-window mode: viewport is fixed at `capacity` bars wide and\nstays anchored at the time of the first data point until the window\nfills. New ticks flow into the empty right side instead of expanding\nthe visible range. Pass at least one seed point in `data` so the\ninitial window has a time anchor.",
+          "see": [],
+          "nested": {
+            "name": "",
+            "props": [
+              {
+                "name": "capacity",
+                "type": "number",
+                "optional": false,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "",
+                "see": []
+              }
+            ]
+          }
         },
         {
           "name": "theme",
@@ -859,7 +883,7 @@
                 "name": "line",
                 "type": "{ color: string; width: number; areaTopColor: string; areaBottomColor: string; }",
                 "optional": false,
-                "defaultValue": null,
+                "defaultValue": "line series appearance including area gradient fill",
                 "deprecated": null,
                 "description": "Default line series appearance including area gradient fill.",
                 "see": [],
@@ -1002,7 +1026,7 @@
                       "name": "fontSize",
                       "type": "number",
                       "optional": false,
-                      "defaultValue": null,
+                      "defaultValue": "tick-label font size shared by both axes",
                       "deprecated": null,
                       "description": "Default tick-label font size shared by both axes.",
                       "see": []
@@ -1011,7 +1035,7 @@
                       "name": "textColor",
                       "type": "string",
                       "optional": false,
-                      "defaultValue": null,
+                      "defaultValue": "tick-label colour shared by both axes",
                       "deprecated": null,
                       "description": "Default tick-label colour shared by both axes.",
                       "see": []
@@ -1207,7 +1231,7 @@
                       "name": "height",
                       "type": "number",
                       "optional": false,
-                      "defaultValue": null,
+                      "defaultValue": "height of the navigator strip in CSS pixels",
                       "deprecated": null,
                       "description": "Default height of the navigator strip in CSS pixels.",
                       "see": []
@@ -1538,7 +1562,7 @@
                 "name": "visible",
                 "type": "boolean",
                 "optional": false,
-                "defaultValue": null,
+                "defaultValue": "to `true`",
                 "deprecated": null,
                 "description": "Whether the area fill is rendered under the sparkline. Defaults to `true`.",
                 "see": []
@@ -1551,7 +1575,7 @@
           "type": "boolean",
           "optional": true,
           "defaultValue": null,
-          "deprecated": "Use {@link area} instead.",
+          "deprecated": "Use area instead.",
           "description": "",
           "see": []
         },
@@ -1598,11 +1622,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Container style override",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         }
       ]
     },
@@ -1796,7 +1816,7 @@
                 "name": "line",
                 "type": "{ color: string; width: number; areaTopColor: string; areaBottomColor: string; }",
                 "optional": false,
-                "defaultValue": null,
+                "defaultValue": "line series appearance including area gradient fill",
                 "deprecated": null,
                 "description": "Default line series appearance including area gradient fill.",
                 "see": [],
@@ -1939,7 +1959,7 @@
                       "name": "fontSize",
                       "type": "number",
                       "optional": false,
-                      "defaultValue": null,
+                      "defaultValue": "tick-label font size shared by both axes",
                       "deprecated": null,
                       "description": "Default tick-label font size shared by both axes.",
                       "see": []
@@ -1948,7 +1968,7 @@
                       "name": "textColor",
                       "type": "string",
                       "optional": false,
-                      "defaultValue": null,
+                      "defaultValue": "tick-label colour shared by both axes",
                       "deprecated": null,
                       "description": "Default tick-label colour shared by both axes.",
                       "see": []
@@ -2144,7 +2164,7 @@
                       "name": "height",
                       "type": "number",
                       "optional": false,
-                      "defaultValue": null,
+                      "defaultValue": "height of the navigator strip in CSS pixels",
                       "deprecated": null,
                       "description": "Default height of the navigator strip in CSS pixels.",
                       "see": []
@@ -2508,7 +2528,7 @@
                 "name": "top",
                 "type": "number",
                 "optional": true,
-                "defaultValue": null,
+                "defaultValue": "20",
                 "deprecated": null,
                 "description": "Pixels of empty space above the plot area. Default `20`.",
                 "see": []
@@ -2517,7 +2537,7 @@
                 "name": "bottom",
                 "type": "number",
                 "optional": true,
-                "defaultValue": null,
+                "defaultValue": "20",
                 "deprecated": null,
                 "description": "Pixels of empty space below the plot area. Default `20`.",
                 "see": []
@@ -2526,18 +2546,78 @@
                 "name": "right",
                 "type": "number | { intervals: number }",
                 "optional": true,
-                "defaultValue": null,
+                "defaultValue": "{ intervals: 3 }",
                 "deprecated": null,
                 "description": "Empty space on the right edge. A `number` is pixels (e.g. `50`); an\nobject pads by data intervals on the time axis (e.g. `{ intervals: 3 }`\nleaves room for three more bars/candles past the latest point). Default\n`{ intervals: 3 }`.",
-                "see": []
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "intervals",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "",
+                      "see": []
+                    }
+                  ]
+                }
               },
               {
                 "name": "left",
                 "type": "number | { intervals: number }",
                 "optional": true,
-                "defaultValue": null,
+                "defaultValue": "{ intervals: 0 }",
                 "deprecated": null,
                 "description": "Empty space on the left edge. A `number` is pixels; an object pads by\ndata intervals on the time axis. Default `{ intervals: 0 }`.",
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "intervals",
+                      "type": "number",
+                      "optional": false,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "",
+                      "see": []
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "viewport",
+          "type": "{ maxVisibleBars?: number; initialRange?: VisibleRangeSpec; }",
+          "optional": true,
+          "defaultValue": null,
+          "deprecated": null,
+          "description": "Viewport-level streaming behavior. Captured at mount only — changing this\nprop after the chart is created is ignored.",
+          "see": [],
+          "nested": {
+            "name": "",
+            "props": [
+              {
+                "name": "maxVisibleBars",
+                "type": "number",
+                "optional": true,
+                "defaultValue": "200",
+                "deprecated": null,
+                "description": "Width of the visible window in data bars, set on the first data load\nto `maxVisibleBars * dataInterval`. While the dataset is smaller than\nthis width, streaming ticks render into the empty right-side gap and\nthe viewport stays put; once the data reaches the right edge, the\nviewport pans forward to keep the latest bar pinned (tail-scroll).\nDefault: 200.",
+                "see": []
+              },
+              {
+                "name": "initialRange",
+                "type": "VisibleRangeSpec",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Initial visible range applied before the first paint with data. Same\nshape as the imperative `chart.setVisibleRange` — pass a bar count\n(e.g. `35`), an explicit `{from, to}` window, or `{from, bars}` for\na warm-up pair. The standard alternative is calling\n`setVisibleRange` from a `useEffect`, but that runs post-paint and\nmakes the chart visibly re-zoom on the next RAF. Captured at mount.",
                 "see": []
               }
             ]
@@ -2547,7 +2627,7 @@
           "name": "gradient",
           "type": "boolean",
           "optional": true,
-          "defaultValue": null,
+          "defaultValue": "to true",
           "deprecated": null,
           "description": "Show the chart background gradient. Defaults to true.",
           "see": []
@@ -2556,7 +2636,7 @@
           "name": "interactive",
           "type": "boolean",
           "optional": true,
-          "defaultValue": null,
+          "defaultValue": "to true",
           "deprecated": null,
           "description": "Enable zoom, pan, and crosshair interactions. Defaults to true.",
           "see": []
@@ -2599,8 +2679,287 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "Chart-level animation configuration. See {@link AnimationsConfig} for the\nfull shape.\n\nTwo layers — remember which is which:\n\n- **Chart-level (this prop)** — `animations.points.{enterMs, smoothMs,\n  pulseMs}` and `animations.viewport.{reboundMs, yAxisMs,\n  inputResponseMs}`. Acts as the default for every series.\n- **Per-series** — `<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`\n  (and the analogous CandlestickSeries / BarSeries options). Overrides\n  the chart-level default for that one series. Note the spelling:\n  `entryMs` per-series, `enterMs` chart-level — historical artefact,\n  both refer to the same animation.\n\nResolution: per-series option wins over chart-level numeric value.\nChart-level wins only when its category is explicitly `false` — that's\na hard disable that overrides per-series too.\n\nShorthands:\n- `true` / omitted — built-in defaults (every settling animation 250 ms,\n  pulse cycle 600 ms, input ease 0 / off).\n- `false` — disables every animation category.\n- `{ points: false }` / `{ viewport: false }` — disables a category.\n\nRuntime updates: changing this prop after mount calls\n`chart.setAnimations(...)` so the new durations take effect on the next\nanimation / render.",
-          "see": []
+          "description": "Animation control. `true` / omitted uses built-in defaults; `false`\ndisables every category. Per-series options on `<LineSeries>` /\n`<CandlestickSeries>` / `<BarSeries>` override these chart-level\ndefaults unless the category here is explicitly `false`.\n\n**Init-only by reference identity.** A new `animations` object\nrecreates the underlying `ChartInstance` (and its canvas). Wrap the\nvalue in `useMemo(() => ({...}), [deps])` so an unstable parent\nrender doesn't tear down the chart every commit. In dev mode the\ncontainer emits a console warning when it detects >3 recreates / s.",
+          "see": [],
+          "nested": {
+            "name": "AnimationsConfig",
+            "props": [
+              {
+                "name": "axis",
+                "type": "false | { y?: | false | { curve?: TransitionFactory<YRange>; settle?: AnimationTime; sticky?: AnimationTime; gesture?: AnimationTime; }; x?: | false | { curve?: TransitionFactory<VisibleRange>; settle?: AnimationTime; gesture?: AnimationTime; }; ticks?: AnimationTime; }",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Axis-level animation. `false` collapses both axes and ticks to instant.",
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "y",
+                      "type": "false | { curve?: TransitionFactory<YRange>; settle?: AnimationTime; sticky?: AnimationTime; gesture?: AnimationTime; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Y bound chase. `false` snaps Y instantly.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "curve",
+                            "type": "TransitionFactory<YRange>",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "Y curve. See hermite, spring, snap.",
+                            "see": []
+                          },
+                          {
+                            "name": "settle",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Outward settle time — bound expanding to a new extreme.",
+                            "see": []
+                          },
+                          {
+                            "name": "sticky",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "2500ms",
+                            "deprecated": null,
+                            "description": "Inward settle time — bound contracting after an extreme\nleaves the window. Long by default so the chart doesn't\nreflow when outliers scroll off (\"sticky-Y\").",
+                            "see": []
+                          },
+                          {
+                            "name": "gesture",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "100ms",
+                            "deprecated": null,
+                            "description": "One-shot override during a user gesture (pan/zoom). Shorter\nthan `sticky` so contractions during interaction converge in\n~one frame per wheel tick.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "x",
+                      "type": "false | { curve?: TransitionFactory<VisibleRange>; settle?: AnimationTime; gesture?: AnimationTime; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "X viewport. `false` snaps X instantly. The default critically-\ndamped spring carries velocity across retargets so wheel-zoom\nsequences feel continuous and stream ticks blend smoothly into\ngesture motion.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "curve",
+                            "type": "TransitionFactory<VisibleRange>",
+                            "optional": true,
+                            "defaultValue": null,
+                            "deprecated": null,
+                            "description": "X curve. See spring, snap.",
+                            "see": []
+                          },
+                          {
+                            "name": "settle",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "200ms",
+                            "deprecated": null,
+                            "description": "Streaming settle time. Spring reaches ~99% of the target\nafter this many ms. Used for streaming retargets; the\nstreaming-cadence EMA tunes the effective value upward when\ndata arrives slower than the baseline.",
+                            "see": []
+                          },
+                          {
+                            "name": "gesture",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "150ms",
+                            "deprecated": null,
+                            "description": "One-shot override applied to user pan/zoom commits and to\nprogrammatic `fitContent`.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "ticks",
+                      "type": "AnimationTime",
+                      "optional": true,
+                      "defaultValue": "250ms",
+                      "deprecated": null,
+                      "description": "Axis tick label cross-fade. `false` makes tick relabel instant.",
+                      "see": []
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "toggle",
+                "type": "AnimationTime",
+                "optional": true,
+                "defaultValue": "250ms",
+                "deprecated": null,
+                "description": "Series-visibility toggle duration. Drives BOTH the renderer's alpha\ncross-fade and the engine's Y re-fit ease, so the two animations land\non the same frame. `false` makes `setSeriesVisible` instant.",
+                "see": []
+              },
+              {
+                "name": "series",
+                "type": "false | { line?: | false | { entry?: AnimationTime; smooth?: AnimationTime; pulse?: AnimationTime; }; candlestick?: | false | { entry?: AnimationTime; smooth?: AnimationTime; }; bar?: | false | { entry?: AnimationTime; smooth?: AnimationTime; }; pie?: | false | { entry?: AnimationTime; update?: AnimationTime; }; }",
+                "optional": true,
+                "defaultValue": null,
+                "deprecated": null,
+                "description": "Per-series-type data animations. `false` disables every per-point\nanimation across every series. Setting a single type to `false`\n(`series: { line: false }`) disables that type only.\n\nPer-series options (`<LineSeries options={{ entryMs, smoothMs, pulseMs }}>`)\nwin over chart-level numeric values. The chart-level field becomes the\ndefault for series that don't set their own.",
+                "see": [],
+                "nested": {
+                  "name": "",
+                  "props": [
+                    {
+                      "name": "line",
+                      "type": "false | { entry?: AnimationTime; smooth?: AnimationTime; pulse?: AnimationTime; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Line-series tweens. `false` disables all line animations\n(entrance, live-smoothing, pulse).",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "entry",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Per-point entrance duration. `false` disables the entrance\n(equivalent to `entryAnimation: 'none'`).",
+                            "see": []
+                          },
+                          {
+                            "name": "smooth",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Last-value chase duration on `updateLastPoint`. `false` /\n`0` snaps to the target instantly.",
+                            "see": []
+                          },
+                          {
+                            "name": "pulse",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "600ms",
+                            "deprecated": null,
+                            "description": "Halo cycle period at the line tail. Periodic loop, not a\none-shot. `false` / `0` turns the halo off entirely (drawing\nand animation loop).",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "candlestick",
+                      "type": "false | { entry?: AnimationTime; smooth?: AnimationTime; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Candlestick tweens. `false` disables candle entrance + OHLC chase.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "entry",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Per-candle entrance duration. `false` disables the entrance\n(equivalent to `entryAnimation: 'none'`).",
+                            "see": []
+                          },
+                          {
+                            "name": "smooth",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Live OHLC chase duration on `updateLastPoint`. `false` / `0`\nsnaps to the target instantly.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "bar",
+                      "type": "false | { entry?: AnimationTime; smooth?: AnimationTime; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Bar-series tweens. `false` disables bar entrance + value chase.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "entry",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Per-bar entrance duration. `false` disables the entrance\n(equivalent to `entryAnimation: 'none'`).",
+                            "see": []
+                          },
+                          {
+                            "name": "smooth",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Live value chase duration on `updateLastPoint`. `false` /\n`0` snaps to the target instantly.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "pie",
+                      "type": "false | { entry?: AnimationTime; update?: AnimationTime; }",
+                      "optional": true,
+                      "defaultValue": null,
+                      "deprecated": null,
+                      "description": "Pie segment entry/update tweens. Parsed at config-time; the actual\nwiring lands in a later phase — providing a value here today is a\nno-op but the shape is stable.",
+                      "see": [],
+                      "nested": {
+                        "name": "",
+                        "props": [
+                          {
+                            "name": "entry",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Slice grow-in duration on first paint.",
+                            "see": []
+                          },
+                          {
+                            "name": "update",
+                            "type": "AnimationTime",
+                            "optional": true,
+                            "defaultValue": "250ms",
+                            "deprecated": null,
+                            "description": "Slice resize duration when data changes.",
+                            "see": []
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         },
         {
           "name": "perf",
@@ -2612,17 +2971,22 @@
           "see": []
         },
         {
+          "name": "onEdgeReached",
+          "type": "(info: EdgeReachedInfo) => void",
+          "optional": true,
+          "defaultValue": null,
+          "deprecated": null,
+          "description": "Fired after the user releases a pan/zoom gesture that pulled the viewport\npast a data edge by more than ~10% of the visible range. Hosts typically\nrespond by prefetching more history.\n\nFor threshold-based prefetch (load *before* the user fully overshoots),\nuse `<EdgeLoader>` instead — that component subscribes to `viewportChange`\nand arms when the visible range nears the data edge.\n\nCaptured at mount only; changing the prop identity later is ignored.",
+          "see": []
+        },
+        {
           "name": "style",
           "type": "CSSProperties",
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
           "description": "Inline style for the chart's outer wrapper element.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         },
         {
           "name": "className",
@@ -2717,7 +3081,7 @@
           "optional": true,
           "defaultValue": "adaptive precision for ohlc/value",
           "deprecated": null,
-          "description": "Custom formatter for every displayed number in the default UI. Called per\nrow with the field hint (`'open' | 'high' | 'low' | 'close' | 'volume' | 'value'`).\nDefaults: adaptive precision for ohlc/value, compact (K/M/B/T) for volume.\nIgnored when {@link children} is a render-prop.",
+          "description": "Custom formatter for every displayed number in the default UI. Called per\nrow with the field hint (`'open' | 'high' | 'low' | 'close' | 'volume' | 'value'`).\nDefaults: adaptive precision for ohlc/value, compact (K/M/B/T) for volume.\nIgnored when children is a render-prop.",
           "see": []
         },
         {
@@ -2750,7 +3114,7 @@
           "optional": true,
           "defaultValue": null,
           "deprecated": null,
-          "description": "Static override for auto-detected items. Renders a non-interactive legend\nwith just swatch + label. Ignored when {@link children} is a render-prop.",
+          "description": "Static override for auto-detected items. Renders a non-interactive legend\nwith just swatch + label. Ignored when children is a render-prop.",
           "see": []
         },
         {
@@ -2768,7 +3132,7 @@
           "optional": true,
           "defaultValue": "'toggle'",
           "deprecated": null,
-          "description": "Click behavior for the built-in UI. Default: `'toggle'`. Ignored when {@link children} is provided.",
+          "description": "Click behavior for the built-in UI. Default: `'toggle'`. Ignored when children is provided.",
           "see": []
         },
         {
@@ -2801,7 +3165,7 @@
           "name": "height",
           "type": "number",
           "optional": true,
-          "defaultValue": null,
+          "defaultValue": "to `theme.navigator.height`",
           "deprecated": null,
           "description": "Strip height in CSS pixels. Defaults to `theme.navigator.height` (60).",
           "see": []
@@ -2813,11 +3177,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Style override for the outer wrapper div.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         },
         {
           "name": "className",
@@ -2834,7 +3194,7 @@
       "kind": "subcomponent",
       "file": "packages/react/src/ui/Title.tsx",
       "alias": null,
-      "description": "Chart title / subtitle bar rendered as a flex row above the chart canvas\n(above {@link InfoBar } when both are present). Hoisted out of the\noverlay layer by {@link ChartContainer }, so browser flex layout reserves\nits height and ResizeObserver drives a Y-range recompute.\n\nPlace it at the top of a chart's children — its slot in the DOM is\ndetermined by `ChartContainer`, not by source order:\n```tsx\n<ChartContainer>\n  <Title sub=\"Live Candlestick\">BTC/USD</Title>\n  <InfoBar />\n  <CandlestickSeries data={data} />\n  ...\n</ChartContainer>\n```",
+      "description": "",
       "props": [
         {
           "name": "children",
@@ -2861,11 +3221,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Extra styles merged onto the flex row.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         }
       ]
     },
@@ -2890,7 +3246,7 @@
           "optional": true,
           "defaultValue": "adaptive precision for ohlc/value",
           "deprecated": null,
-          "description": "Custom formatter for every displayed number in the default UI. Called per\ncell with the field hint (`'open' | 'high' | 'low' | 'close' | 'volume' | 'value'`).\nDefaults: adaptive precision for ohlc/value, compact (K/M/B/T) for volume.\nIgnored when {@link children} is a render-prop.",
+          "description": "Custom formatter for every displayed number in the default UI. Called per\ncell with the field hint (`'open' | 'high' | 'low' | 'close' | 'volume' | 'value'`).\nDefaults: adaptive precision for ohlc/value, compact (K/M/B/T) for volume.\nIgnored when children is a render-prop.",
           "see": []
         },
         {
@@ -2925,7 +3281,7 @@
           "optional": true,
           "defaultValue": "'both'",
           "deprecated": null,
-          "description": "Default: `'both'`. See {@link PieLegendMode}.",
+          "description": "Default: `'both'`. See PieLegendMode.",
           "see": []
         },
         {
@@ -2943,7 +3299,7 @@
           "optional": true,
           "defaultValue": "'bottom'",
           "deprecated": null,
-          "description": "Layout placement. Default: `'bottom'`. See {@link PieLegendPosition}.",
+          "description": "Layout placement. Default: `'bottom'`. See PieLegendPosition.",
           "see": []
         },
         {
@@ -3011,7 +3367,7 @@
           "name": "format",
           "type": "((value: number) => string) | Intl.NumberFormatOptions",
           "optional": true,
-          "defaultValue": null,
+          "defaultValue": "to the current locale's\n`Intl.NumberFormat` when omitted",
           "deprecated": null,
           "description": "Value-to-string formatter. Defaults to the current locale's\n`Intl.NumberFormat` when omitted. Pass the shared `formatCompact` /\n`formatPriceAdaptive` helpers or your own function to customize.\n\n`Intl.NumberFormatOptions` is also accepted (legacy) — it's routed\nthrough the built-in `Intl.NumberFormat` for back-compat with callers\nfrom before this prop was a function.",
           "see": []
@@ -3020,7 +3376,7 @@
           "name": "locale",
           "type": "string",
           "optional": true,
-          "defaultValue": null,
+          "defaultValue": "to `'en-US'`",
           "deprecated": null,
           "description": "BCP 47 locale tag used by the default formatter. Defaults to `'en-US'`.",
           "see": []
@@ -3029,7 +3385,7 @@
           "name": "spinDuration",
           "type": "number",
           "optional": true,
-          "defaultValue": null,
+          "defaultValue": "to `350`",
           "deprecated": null,
           "description": "Per-digit spin animation duration in milliseconds. Defaults to `350`.",
           "see": []
@@ -3050,11 +3406,7 @@
           "defaultValue": null,
           "deprecated": null,
           "description": "Inline style on the root `<span>`. Useful for `fontVariantNumeric: 'tabular-nums'`.",
-          "see": [],
-          "nested": {
-            "name": "CSSProperties",
-            "props": []
-          }
+          "see": []
         }
       ]
     },

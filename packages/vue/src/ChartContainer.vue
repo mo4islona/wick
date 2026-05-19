@@ -6,6 +6,7 @@ import {
   type ChartOptions,
   type ChartTheme,
   type EdgeReachedInfo,
+  type VisibleRangeSpec,
   catppuccin,
 } from '@wick-charts/core';
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue';
@@ -38,6 +39,28 @@ const props = withDefaults(
       right?: number | { intervals: number };
       left?: number | { intervals: number };
     };
+    /**
+     * Viewport-level streaming behavior. Captured at mount only — changing
+     * this prop after the chart is created is ignored.
+     */
+    viewport?: {
+      /**
+       * Width of the visible window in data bars, set on the first data load
+       * to `maxVisibleBars * dataInterval`. While the dataset is smaller than
+       * this width, streaming ticks render into the empty right-side gap and
+       * the viewport stays put; once the data reaches the right edge, the
+       * viewport pans forward to keep the latest bar pinned (tail-scroll).
+       * Default: 200.
+       */
+      maxVisibleBars?: number;
+      /**
+       * Initial visible range applied before the first paint with data. Same
+       * shape as the imperative `chart.setVisibleRange` — pass a bar count
+       * (e.g. `35`), an explicit `{from, to}` window, or `{from, bars}` for
+       * a warm-up pair. Captured at mount.
+       */
+      initialRange?: VisibleRangeSpec;
+    };
     /** Show the chart background gradient. Defaults to true. */
     gradient?: boolean;
     /** Enable zoom, pan, and crosshair interactions. Defaults to true. */
@@ -51,16 +74,15 @@ const props = withDefaults(
      */
     headerLayout?: 'overlay' | 'inline';
     /**
-     * Chart-level animation configuration. See `AnimationsConfig` for the full shape.
+     * Animation control. `true` / omitted uses built-in defaults; `false`
+     * disables every category. Per-series options on `<LineSeries>` /
+     * `<CandlestickSeries>` / `<BarSeries>` override these chart-level
+     * defaults unless the category here is explicitly `false`.
      *
-     * Two layers — chart-level (this prop) sets defaults for every series; per-series
-     * options on `<LineSeries>`/`<CandlestickSeries>`/`<BarSeries>` override that
-     * default for that one series.
-     *
-     * Shorthands: `true` / omitted — built-in defaults; `false` — disables every
-     * animation category; `{ points: false }` / `{ viewport: false }` disables a
-     * category. Updating this prop calls `chart.setAnimations(...)` so the new
-     * durations take effect on the next animation / render.
+     * **Init-only by reference identity.** A new `animations` reference
+     * recreates the underlying `ChartInstance`. Hoist the object outside
+     * the render scope — an inline literal tears the chart down on every
+     * re-render.
      */
     animations?: boolean | AnimationsConfig;
     /**
@@ -159,6 +181,7 @@ onMounted(async () => {
   if (props.axis) options.axis = props.axis;
   if (props.theme) options.theme = props.theme;
   if (props.padding) options.padding = props.padding;
+  if (props.viewport) options.viewport = props.viewport;
   if (props.interactive !== undefined) options.interactive = props.interactive;
   if (props.grid !== undefined) options.grid = props.grid;
   if (perfAtMount !== undefined) options.perf = perfAtMount;
@@ -213,14 +236,35 @@ watch(
   },
 );
 
-// Stringify the animations config so callers can pass a fresh object identity
-// without thrashing animator state when nothing has actually changed.
+// Init-only: post-mount `animations` reference change tears down the
+// instance and rebuilds with the new config. Reference equality matters
+// — passing an inline literal recreates on every render.
+//
+// Children get the chart via `useChartInstance()` which snapshots
+// `chartRef.value` once at setup time. To force them to re-setup against
+// the new instance, we flip `chart.value` to `null` first — the `v-if`
+// guard in the template unmounts the slot — then `await nextTick()` so
+// Vue commits the unmount before the new ChartInstance is constructed.
+// When `chart.value` becomes the new instance, the slot re-mounts and
+// every child's `setup()` runs again against the fresh chart.
 watch(
-  () => JSON.stringify(props.animations),
-  () => {
-    if (chart.value && props.animations !== undefined) {
-      chart.value.setAnimations(props.animations);
-    }
+  () => props.animations,
+  async (next) => {
+    if (!chart.value || !containerRef.value) return;
+    chart.value.destroy();
+    chart.value = null;
+    await nextTick();
+    const opts: ChartOptions = {};
+    if (props.axis) opts.axis = props.axis;
+    if (props.theme) opts.theme = props.theme;
+    if (props.padding) opts.padding = props.padding;
+    if (props.viewport) opts.viewport = props.viewport;
+    if (props.interactive !== undefined) opts.interactive = props.interactive;
+    if (props.grid !== undefined) opts.grid = props.grid;
+    if (perfAtMount !== undefined) opts.perf = perfAtMount;
+    if (onEdgeReachedAtMount) opts.onEdgeReached = onEdgeReachedAtMount;
+    if (next !== undefined) opts.animations = next;
+    chart.value = new ChartInstance(containerRef.value, opts);
   },
 );
 

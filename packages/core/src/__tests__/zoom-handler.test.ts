@@ -1,35 +1,34 @@
 // @vitest-environment happy-dom
 // Production `zoom.ts` reads `WheelEvent.DOM_DELTA_LINE` / `DOM_DELTA_PAGE`
 // constants, which are only defined in a DOM environment.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import type { PanZoomTarget } from '../interactions/pan-zoom-target';
 import { ZoomHandler } from '../interactions/zoom';
 import type { TimeScale } from '../scales/time-scale';
-import type { Viewport } from '../viewport';
 
 /**
  * Unit test for the wheel-driven zoom path. The handler is pure — no DOM —
- * so we mock `viewport` and `timeScale` with just the surface it reads.
+ * so we mock the PanZoomTarget + TimeScale with just the surface it reads.
  *
  * Key behaviors guarded:
  *  - deltaMode normalization (PIXEL / LINE / PAGE)
  *  - sensitivity formula: factor = exp(delta * 0.005)
  *  - offsetX clamp to chartWidth (excludes Y-axis band where wheel should zoom the last cursor-time, not past the axis)
  *  - preventDefault is always called (otherwise the page scrolls under the chart)
- *  - zero-delta wheel still fires viewport.zoomAt (factor === 1 is a no-op at the viewport layer)
+ *  - zero-delta wheel still fires target.zoomAt (factor === 1 is a no-op at the chart layer)
  */
 describe('ZoomHandler.handleWheel', () => {
   function setup() {
-    const viewport = { zoomAt: vi.fn(), startRebound: vi.fn() } as unknown as Viewport & {
+    const target = { pan: vi.fn(), zoomAt: vi.fn() } as unknown as PanZoomTarget & {
       zoomAt: ReturnType<typeof vi.fn>;
-      startRebound: ReturnType<typeof vi.fn>;
     };
     const timeScale = {
       getMediaWidth: vi.fn(() => 800),
       xToTime: vi.fn((x: number) => x * 100), // identity-ish — each pixel = 100ms
     } as unknown as TimeScale;
-    const handler = new ZoomHandler(viewport, timeScale);
-    return { viewport, timeScale, handler };
+    const handler = new ZoomHandler(target, timeScale);
+    return { target, timeScale, handler };
   }
 
   // Constants match the WheelEvent spec values and keep this test explicit
@@ -49,44 +48,44 @@ describe('ZoomHandler.handleWheel', () => {
   }
 
   it('zooms in on negative deltaY (DOM_DELTA_PIXEL)', () => {
-    const { viewport, handler } = setup();
+    const { target, handler } = setup();
     handler.handleWheel(makeWheel({ deltaY: -100, offsetX: 400 }));
 
     // factor = exp(-100 * 0.005) = exp(-0.5) ≈ 0.6065 → zoom in (range narrows)
-    const [cursorTime, factor] = viewport.zoomAt.mock.calls[0];
+    const [cursorTime, factor] = target.zoomAt.mock.calls[0];
     expect(cursorTime).toBe(40000); // xToTime(400) = 40000
     expect(factor).toBeCloseTo(Math.exp(-0.5), 5);
     expect(factor).toBeLessThan(1);
   });
 
   it('zooms out on positive deltaY', () => {
-    const { viewport, handler } = setup();
+    const { target, handler } = setup();
     handler.handleWheel(makeWheel({ deltaY: 100, offsetX: 400 }));
 
-    const [, factor] = viewport.zoomAt.mock.calls[0];
+    const [, factor] = target.zoomAt.mock.calls[0];
     expect(factor).toBeCloseTo(Math.exp(0.5), 5);
     expect(factor).toBeGreaterThan(1);
   });
 
   it('DOM_DELTA_LINE multiplies delta by 8 before sensitivity', () => {
-    const { viewport, handler } = setup();
+    const { target, handler } = setup();
     handler.handleWheel(makeWheel({ deltaY: -1, deltaMode: DOM_DELTA_LINE, offsetX: 0 }));
 
     // normalized delta = -1 * 8 = -8; factor = exp(-8 * 0.005) = exp(-0.04)
-    const [, factor] = viewport.zoomAt.mock.calls[0];
+    const [, factor] = target.zoomAt.mock.calls[0];
     expect(factor).toBeCloseTo(Math.exp(-0.04), 5);
   });
 
   it('DOM_DELTA_PAGE multiplies delta by 24 before sensitivity', () => {
-    const { viewport, handler } = setup();
+    const { target, handler } = setup();
     handler.handleWheel(makeWheel({ deltaY: 1, deltaMode: DOM_DELTA_PAGE, offsetX: 0 }));
 
-    const [, factor] = viewport.zoomAt.mock.calls[0];
+    const [, factor] = target.zoomAt.mock.calls[0];
     expect(factor).toBeCloseTo(Math.exp(24 * 0.005), 5);
   });
 
   it('clamps offsetX to chartWidth so wheel over the Y-axis still zooms at the rightmost chart X', () => {
-    const { viewport, timeScale, handler } = setup();
+    const { target, timeScale, handler } = setup();
     // offsetX well past chartWidth (800) — happens when the user scrolls while
     // hovering the Y-axis band on the right.
     handler.handleWheel(makeWheel({ deltaY: -50, offsetX: 950 }));
@@ -94,7 +93,7 @@ describe('ZoomHandler.handleWheel', () => {
     // xToTime is called with the clamped value (800), not the raw offsetX.
     expect(timeScale.xToTime).toHaveBeenCalledWith(800);
     // zoomAt receives the clamped cursor time.
-    const [cursorTime] = viewport.zoomAt.mock.calls[0];
+    const [cursorTime] = target.zoomAt.mock.calls[0];
     expect(cursorTime).toBe(80000);
   });
 
@@ -106,78 +105,53 @@ describe('ZoomHandler.handleWheel', () => {
   });
 
   it('zero deltaY still dispatches zoomAt (factor === 1 is a viewport-level no-op)', () => {
-    const { viewport, handler } = setup();
+    const { target, handler } = setup();
     handler.handleWheel(makeWheel({ deltaY: 0, offsetX: 100 }));
 
-    expect(viewport.zoomAt).toHaveBeenCalledTimes(1);
-    const [, factor] = viewport.zoomAt.mock.calls[0];
+    expect(target.zoomAt).toHaveBeenCalledTimes(1);
+    const [, factor] = target.zoomAt.mock.calls[0];
     expect(factor).toBe(1);
   });
 });
 
-describe('ZoomHandler rebound debouncing', () => {
-  beforeEach(() => {
+describe('ZoomHandler rebound removal', () => {
+  // The wheel-idle rebound timer was removed in Phase 2 step 2 alongside
+  // the rest of the rebound feature. The viewport stays where the user
+  // left it; the engine eases the visual via the chart-side gesture emit.
+  it('handleWheel does not schedule any side effect beyond target.zoomAt', () => {
     vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
+    try {
+      const target = { pan: vi.fn(), zoomAt: vi.fn() } as unknown as PanZoomTarget & {
+        zoomAt: ReturnType<typeof vi.fn>;
+      };
+      const timeScale = {
+        getMediaWidth: vi.fn(() => 800),
+        xToTime: vi.fn((x: number) => x * 100),
+      } as unknown as TimeScale;
+      const handler = new ZoomHandler(target, timeScale);
+      handler.handleWheel({
+        deltaY: -100,
+        deltaMode: 0,
+        offsetX: 100,
+        preventDefault: vi.fn(),
+      } as unknown as WheelEvent);
+
+      vi.advanceTimersByTime(1_000);
+      expect(target.zoomAt).toHaveBeenCalledTimes(1);
+      expect((target as unknown as Record<string, unknown>).startRebound).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  function setup() {
-    const viewport = { zoomAt: vi.fn(), startRebound: vi.fn() } as unknown as Viewport & {
-      zoomAt: ReturnType<typeof vi.fn>;
-      startRebound: ReturnType<typeof vi.fn>;
-    };
+  it('cancelPendingRebound is a no-op (kept for InteractionHandler.destroy API parity)', () => {
+    const target = { pan: vi.fn(), zoomAt: vi.fn() } as unknown as PanZoomTarget;
     const timeScale = {
       getMediaWidth: vi.fn(() => 800),
       xToTime: vi.fn((x: number) => x * 100),
     } as unknown as TimeScale;
-    const handler = new ZoomHandler(viewport, timeScale);
-    return { viewport, handler };
-  }
+    const handler = new ZoomHandler(target, timeScale);
 
-  function wheel(deltaY: number): WheelEvent {
-    return {
-      deltaY,
-      deltaMode: 0,
-      offsetX: 100,
-      preventDefault: vi.fn(),
-    } as unknown as WheelEvent;
-  }
-
-  it('schedules a rebound after the wheel goes idle for 150ms', () => {
-    const { viewport, handler } = setup();
-    handler.handleWheel(wheel(-100));
-    expect(viewport.startRebound).not.toHaveBeenCalled();
-
-    // Just under idle threshold — still nothing.
-    vi.advanceTimersByTime(149);
-    expect(viewport.startRebound).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(1);
-    expect(viewport.startRebound).toHaveBeenCalledTimes(1);
-    expect(viewport.startRebound).toHaveBeenCalledWith(800);
-  });
-
-  it('successive wheel events reset the debounce window', () => {
-    const { viewport, handler } = setup();
-    handler.handleWheel(wheel(-100));
-    vi.advanceTimersByTime(100);
-    handler.handleWheel(wheel(-100)); // reset window
-    vi.advanceTimersByTime(100);
-    handler.handleWheel(wheel(-100)); // reset again
-    vi.advanceTimersByTime(149);
-    expect(viewport.startRebound).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(1);
-    expect(viewport.startRebound).toHaveBeenCalledTimes(1);
-  });
-
-  it('cancelPendingRebound clears a scheduled rebound', () => {
-    const { viewport, handler } = setup();
-    handler.handleWheel(wheel(-100));
-    handler.cancelPendingRebound();
-    vi.advanceTimersByTime(500);
-    expect(viewport.startRebound).not.toHaveBeenCalled();
+    expect(() => handler.cancelPendingRebound()).not.toThrow();
   });
 });

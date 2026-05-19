@@ -3,13 +3,13 @@ import { useMemo } from 'react';
 import {
   type AxisConfig,
   BarSeries,
-  type BarStacking,
   ChartContainer,
   type ChartTheme,
   Crosshair,
   InfoBar,
   Legend,
   Navigator,
+  type StackingMode,
   Title,
   Tooltip,
   XAxis,
@@ -38,7 +38,7 @@ const BAR_WIDTH_MAP: Record<BarWidth, number> = { thin: 0.3, normal: 0.6, wide: 
 const LAYER_COUNT = 4;
 
 interface BarSettings {
-  stacking: BarStacking;
+  stacking: StackingMode;
   barWidth: BarWidth;
   infoBarVisible: boolean;
   tooltipVisible: boolean;
@@ -159,14 +159,14 @@ const SERIES_SECTION: SectionSpec = {
       key: 'stacking',
       label: 'Stack',
       render: (v, onChange) => (
-        <ToggleGroup<BarStacking>
-          value={v as BarStacking}
+        <ToggleGroup<StackingMode>
+          value={v as StackingMode}
           options={[
             { value: 'off', label: 'Off' },
             { value: 'normal', label: 'Normal' },
             { value: 'percent', label: '100%' },
           ]}
-          onChange={onChange as (v: BarStacking) => void}
+          onChange={onChange as (v: StackingMode) => void}
         />
       ),
     },

@@ -1,3 +1,4 @@
+import type { AnimationState } from '../animation/viewport-engine';
 import type { BitmapCoordinateSpace } from '../canvas-manager';
 import type { TimeScale } from '../scales/time-scale';
 import type { YScale } from '../scales/y-scale';
@@ -30,6 +31,18 @@ export interface SeriesRenderContext {
   dataInterval: number;
   /** Vertical padding in **CSS pixels** — see {@link RenderPadding}. */
   padding: RenderPadding;
+  /**
+   * Engine-owned animation state — pulse phase, live values, entry
+   * progress. Optional during the Phase 2 migration: renderers that
+   * haven't been ported yet keep reading their own state and ignore this.
+   */
+  state?: AnimationState;
+  /**
+   * The id under which the chart registered this series — used by
+   * stateful per-series lookups (`state.pulsePhase.get(seriesId)`,
+   * `state.seriesAlpha.get(seriesId)`).
+   */
+  seriesId?: string;
 }
 
 /** Overlay render state passed to {@link SeriesRenderer.drawOverlay}. */
@@ -43,6 +56,13 @@ export interface OverlayRenderContext {
   padding: RenderPadding;
   /** Current crosshair position, or null when none. */
   crosshair: { mediaX: number; mediaY: number; time: number; y: number } | null;
+  /**
+   * Engine-owned animation state. Pulse renderers read `state.pulsePhase`
+   * here so the halo cycles off the same clock the rest of the chart uses.
+   */
+  state?: AnimationState;
+  /** The chart-side id for this series. See {@link SeriesRenderContext.seriesId}. */
+  seriesId?: string;
 }
 
 /** Shape returned by {@link SeriesRenderer.getHoverInfo} / per-slice entries of {@link SeriesRenderer.getSliceInfo}. */
@@ -82,6 +102,13 @@ export interface SeriesRenderer {
 
   /** Replace the last point in place (live candle update). Optional. */
   updateLastPoint?(point: unknown, layerIndex?: number): void;
+
+  /**
+   * Keep only the last `count` points; drop the oldest. No-op when the series
+   * is already at or below the cap. Smooth Y-range update — does NOT trigger
+   * the snap that {@link setData} forces.
+   */
+  keepLast?(count: number, layerIndex?: number): void;
 
   // --- Layer model ---------------------------------------------------------
 
@@ -173,6 +200,31 @@ export interface SeriesRenderer {
    * that motion is subtle and shouldn't jump when the viewport moves.
    */
   cancelEntranceAnimations?(): void;
+
+  /**
+   * Start a series-level alpha cross-fade. Chart calls this on
+   * `setSeriesVisible` so the show/hide animation lives next to the geometry
+   * that owns it. `target` is the destination opacity in `[0, 1]` and
+   * `durationMs <= 0` snaps. Optional — renderers that don't need a fade
+   * (e.g. pie) leave it unimplemented; the chart falls back to a binary
+   * visibility flag.
+   */
+  setAlpha?(target: number, durationMs: number): void;
+
+  /** Current series-level opacity in `[0, 1]`. Chart applies it as `globalAlpha` during render. */
+  getAlpha?(): number;
+
+  /**
+   * Start a per-layer alpha cross-fade. Chart calls this on `setLayerVisible`
+   * so the toggled layer fades over the same `toggleMs` window the engine
+   * uses to ease the Y axis. Renderers that don't support per-layer alpha
+   * (single-store: candlestick, pie) leave it unimplemented; the chart
+   * skips the call and the layer toggles binary.
+   */
+  setLayerAlpha?(index: number, target: number, durationMs: number): void;
+
+  /** Current per-layer opacity in `[0, 1]`. Multiplied into `globalAlpha` by the renderer at draw time. */
+  getLayerAlpha?(index: number): number;
 
   /** True while the renderer has an active animation (Chart polls per frame). */
   readonly needsAnimation?: boolean;

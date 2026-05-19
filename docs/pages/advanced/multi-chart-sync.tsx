@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import type { ChartTheme, LineData, OHLCData } from '@wick-charts/react';
+import type { ChartTheme, OHLCData, TimePoint } from '@wick-charts/react';
 
 import { AdvancedLayout, type Step } from '../../components/AdvancedLayout';
 import { generateOHLCData } from '../../data';
@@ -10,7 +10,7 @@ import source from './multi-chart-sync.example.tsx?raw';
 const COUNT = 200;
 const INTERVAL = 60_000 * 60;
 
-function deriveVolume(candles: OHLCData[]): LineData[] {
+function deriveVolume(candles: OHLCData[]): TimePoint[] {
   // Synthetic volume: scale the candle's intra-bar range by a noisy multiplier
   // so spikes correlate with bigger candles, like real markets. Always positive.
   return candles.map((c) => {
@@ -26,10 +26,10 @@ function deriveVolume(candles: OHLCData[]): LineData[] {
 
 const RSI_PERIOD = 14;
 
-function deriveRSI(candles: OHLCData[]): LineData[] {
+function deriveRSI(candles: OHLCData[]): TimePoint[] {
   // Wilder's RSI: exponential smoothing of gains/losses across `RSI_PERIOD`
   // bars. Output is 0..100, oscillating around 50.
-  const out: LineData[] = [];
+  const out: TimePoint[] = [];
   let avgGain = 0;
   let avgLoss = 0;
 

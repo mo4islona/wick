@@ -7,9 +7,9 @@ import {
   type ChartInstance,
   type ChartTheme,
   Crosshair,
-  type LineData,
   LineSeries,
   type OHLCData,
+  type TimePoint,
   Title,
   Tooltip,
   XAxis,
@@ -130,8 +130,8 @@ export function MultiChartSyncDemo({
 }: {
   theme: ChartTheme;
   candles: OHLCData[];
-  volume: LineData[];
-  rsi: LineData[];
+  volume: TimePoint[];
+  rsi: TimePoint[];
 }) {
   const [priceChart, setPriceChart] = useState<ChartInstance | null>(null);
   const [volumeChart, setVolumeChart] = useState<ChartInstance | null>(null);

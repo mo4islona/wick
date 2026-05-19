@@ -18,7 +18,7 @@ export const handwritten: ThemePreset = {
     },
     grid: {
       color: 'rgba(180,170,150,0.3)',
-      style: 'dashed',
+      style: 'solid',
     },
     candlestick: {
       up: { body: autoGradient('#7a9a5e'), wick: '#7a9a5e' },
@@ -66,7 +66,7 @@ export const handwritten: ThemePreset = {
       fontSize: 14,
       background: 'rgba(253,245,230,0.95)',
       textColor: '#5c5040',
-      borderColor: 'rgba(180,170,150,0.4)',
+      borderColor: 'rgba(180,170,150,0.3)',
     },
     navigator: {
       height: 48,

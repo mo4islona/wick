@@ -1,13 +1,13 @@
 import {
-  type BarStacking,
   ChartContainer,
   type ChartTheme,
   Crosshair,
   InfoBar,
   Legend,
-  type LineData,
   LineSeries,
   Navigator,
+  type StackingMode,
+  type TimePoint,
   Title,
   Tooltip,
   type TooltipSort,
@@ -39,7 +39,7 @@ interface LineSettings {
   dataMode: DataMode;
   areaVisible: boolean;
   strokeWidth: number;
-  stacking: BarStacking;
+  stacking: StackingMode;
   tooltipSort: TooltipSort;
   tooltipCustom: boolean;
   legendPos: LegendPos;
@@ -51,7 +51,7 @@ interface LineSettings {
 
 const MULTI_COUNT = 6;
 
-function makeData(mode: DataMode, count: number, index: number): LineData[] {
+function makeData(mode: DataMode, count: number, index: number): TimePoint[] {
   if (mode === 'wave') {
     return generateWaveData(count, {
       base: 5,
@@ -68,7 +68,7 @@ function makeData(mode: DataMode, count: number, index: number): LineData[] {
 
 /** Build a streaming strategy that matches `makeData`'s generator for the given mode. */
 function strategyFor(mode: DataMode) {
-  return (series: LineData[], index: number): LineStrategy =>
+  return (series: TimePoint[], index: number): LineStrategy =>
     mode === 'wave'
       ? waveStrategy({
           base: 5,
@@ -81,7 +81,7 @@ function strategyFor(mode: DataMode) {
       : lineDriftStrategy(series[series.length - 1]?.value ?? 100);
 }
 
-function SingleChart(props: PlaygroundChartProps & LineSettings & { allData: LineData[][] }) {
+function SingleChart(props: PlaygroundChartProps & LineSettings & { allData: TimePoint[][] }) {
   const { datasets } = useLineStreams(props.allData, {
     startDelay: 300,
     interval: DEMO_INTERVAL,
@@ -144,7 +144,7 @@ function renderTooltip({ tooltipCustom, tooltipSort }: LineSettings) {
   );
 }
 
-function MultiChart(props: PlaygroundChartProps & LineSettings & { allData: LineData[][]; title: string }) {
+function MultiChart(props: PlaygroundChartProps & LineSettings & { allData: TimePoint[][]; title: string }) {
   const { datasets } = useLineStreams(props.allData, {
     startDelay: 500,
     interval: DEMO_INTERVAL,
@@ -250,14 +250,14 @@ const SERIES_SECTION: SectionSpec = {
       key: 'stacking',
       label: 'Stack',
       render: (v, onChange) => (
-        <ToggleGroup<BarStacking>
-          value={v as BarStacking}
+        <ToggleGroup<StackingMode>
+          value={v as StackingMode}
           options={[
             { value: 'off', label: 'Off' },
             { value: 'normal', label: 'Normal' },
             { value: 'percent', label: '100%' },
           ]}
-          onChange={onChange as (v: BarStacking) => void}
+          onChange={onChange as (v: StackingMode) => void}
         />
       ),
     },

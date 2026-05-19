@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
+import { GroupHeader } from './GroupHeader';
 import { RESET_ICON } from './icons';
 import { Row } from './Row';
 import { SearchRow } from './SearchRow';
@@ -68,6 +69,8 @@ export function Panel<T extends object>({
       const keys = section.rows.map((r) => r.key) as (keyof T)[];
       const sectionActive = activeCount(keys);
 
+      let lastGroup: string | undefined;
+
       return (
         <Section
           key={section.id}
@@ -77,11 +80,19 @@ export function Panel<T extends object>({
           active={sectionActive}
           onReset={() => reset(keys)}
         >
-          {visibleRows.map((row) => (
-            <Row key={row.key} label={row.label} hint={row.hint} span={row.span}>
-              {row.render(stateRecord[row.key], (v) => setMany({ [row.key]: v } as Partial<T>))}
-            </Row>
-          ))}
+          {visibleRows.map((row) => {
+            const showGroup = row.group !== undefined && row.group !== lastGroup;
+            lastGroup = row.group;
+
+            return (
+              <Fragment key={row.key}>
+                {showGroup && row.group && <GroupHeader label={row.group} />}
+                <Row label={row.label} hint={row.hint} span={row.span}>
+                  {row.render(stateRecord[row.key], (v) => setMany({ [row.key]: v } as Partial<T>))}
+                </Row>
+              </Fragment>
+            );
+          })}
         </Section>
       );
     });

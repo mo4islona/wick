@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  computeWindowGeometry,
   type NavigatorRenderContext,
+  computeWindowGeometry,
   renderBackground,
   renderMiniBar,
   renderMiniCandlestick,
