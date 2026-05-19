@@ -7,31 +7,160 @@ export type CartesianSeriesKind = 'line' | 'bar' | 'candle';
 
 const AXIS_Y_WIDTH_DEFAULT = 55;
 const AXIS_X_HEIGHT_DEFAULT = 30;
-// Coordinated default for every settling animation. Must match the public
-// defaults in packages/core/src/animation-constants.ts.
-const SHARED_ANIMATION_MS_DEFAULT = 250;
-const ENTRY_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
-const SMOOTH_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
-const PULSE_MS_DEFAULT = 600;
-const REBOUND_MS_DEFAULT = SHARED_ANIMATION_MS_DEFAULT;
-const INPUT_RESPONSE_MS_DEFAULT = 0;
-const Y_ENGINE_DEFAULT = 'hermite';
 
-// Module-level memoization so `buildAnimationsProp` returns the SAME factory
-// reference on every call for the same engine label. ChartContainer's
-// setAnimations effect compares by reference; without this cache each render
-// would hand a fresh factory and either thrash the animator (if it ran) or be
-// silently ignored (if dep stayed the same).
-const Y_ENGINE_FACTORIES = {
-  hermite: hermite(),
-  spring: spring(),
-  snap: snap(),
+// Defaults — keep in sync with `packages/core/src/animation/config.ts`.
+// Sliders compare against these and only emit non-default fields so the
+// rendered code snippet stays minimal.
+const DEFAULTS = {
+  // Per-series-type durations
+  candleEntryMs: 250,
+  candleSmoothMs: 250,
+  barEntryMs: 250,
+  barSmoothMs: 250,
+  lineEntryMs: 250,
+  lineSmoothMs: 250,
+  linePulseMs: 600,
+  pieEntryMs: 250,
+  pieUpdateMs: 250,
+  // X axis
+  xCurve: 'spring' as const,
+  xSettleMs: 200,
+  xGestureMs: 150,
+  // Y axis
+  yCurve: 'hermite' as const,
+  ySettleMs: 250,
+  yStickyMs: 2500,
+  yGestureMs: 100,
+  // Cross-cutting
+  ticksMs: 250,
+  toggleMs: 250,
 } as const;
+
 const ENTRY_ANIM_DEFAULT: Record<CartesianSeriesKind, string> = {
   line: 'grow',
   bar: 'fade-grow',
   candle: 'unfold',
 };
+
+// Module-level memoization so factory references stay stable across renders.
+// Runtime consumers (ChartContainer's animations effect) compare by reference;
+// a fresh factory each render would either thrash the animator or be ignored.
+const Y_CURVE_FACTORIES = {
+  hermite: hermite(),
+  spring: spring(),
+  snap: snap(),
+} as const;
+const X_CURVE_FACTORIES = {
+  spring: spring(),
+  snap: snap(),
+} as const;
+
+// ── Shared series-block emitters ─────────────────────────────────────
+
+function nonEmpty<T extends Record<string, unknown>>(obj: T): T | undefined {
+  return Object.keys(obj).length > 0 ? obj : undefined;
+}
+
+function pickLineBlock(s: PlaygroundChartProps): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  if (s.lineEntryMs !== DEFAULTS.lineEntryMs) out.entry = s.lineEntryMs;
+  if (s.lineSmoothMs !== DEFAULTS.lineSmoothMs) out.smooth = s.lineSmoothMs;
+  if (s.linePulseMs !== DEFAULTS.linePulseMs) out.pulse = s.linePulseMs;
+
+  return nonEmpty(out);
+}
+
+function pickCandleBlock(s: PlaygroundChartProps): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  if (s.candleEntryMs !== DEFAULTS.candleEntryMs) out.entry = s.candleEntryMs;
+  if (s.candleSmoothMs !== DEFAULTS.candleSmoothMs) out.smooth = s.candleSmoothMs;
+
+  return nonEmpty(out);
+}
+
+function pickBarBlock(s: PlaygroundChartProps): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  if (s.barEntryMs !== DEFAULTS.barEntryMs) out.entry = s.barEntryMs;
+  if (s.barSmoothMs !== DEFAULTS.barSmoothMs) out.smooth = s.barSmoothMs;
+
+  return nonEmpty(out);
+}
+
+function pickPieBlock(s: PlaygroundChartProps): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  if (s.pieEntryMs !== DEFAULTS.pieEntryMs) out.entry = s.pieEntryMs;
+  if (s.pieUpdateMs !== DEFAULTS.pieUpdateMs) out.update = s.pieUpdateMs;
+
+  return nonEmpty(out);
+}
+
+function pickSeries(s: PlaygroundChartProps): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  const line = pickLineBlock(s);
+  const candle = pickCandleBlock(s);
+  const bar = pickBarBlock(s);
+  const pie = pickPieBlock(s);
+  if (line) out.line = line;
+  if (candle) out.candlestick = candle;
+  if (bar) out.bar = bar;
+  if (pie) out.pie = pie;
+
+  return nonEmpty(out);
+}
+
+// ── Axis-block emitters ──────────────────────────────────────────────
+
+/**
+ * Build an axis block. `curveAs` controls how the curve factory is encoded:
+ * - `'string'` — bare identifier string like `'spring()'`, used by the static
+ *   code-preview path (rendered as a function call via VAR_REF_NAMES).
+ * - `'factory'` — the actual memoized factory instance, used by the runtime
+ *   `animations` prop.
+ */
+function pickXAxis(s: PlaygroundChartProps, curveAs: 'string' | 'factory'): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  if (s.xCurve !== DEFAULTS.xCurve) {
+    out.curve = curveAs === 'factory' ? X_CURVE_FACTORIES[s.xCurve] : `${s.xCurve}()`;
+  }
+  if (s.xSettleMs !== DEFAULTS.xSettleMs) out.settle = s.xSettleMs;
+  if (s.xGestureMs !== DEFAULTS.xGestureMs) out.gesture = s.xGestureMs;
+
+  return nonEmpty(out);
+}
+
+function pickYAxis(s: PlaygroundChartProps, curveAs: 'string' | 'factory'): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  if (s.yCurve !== DEFAULTS.yCurve) {
+    out.curve = curveAs === 'factory' ? Y_CURVE_FACTORIES[s.yCurve] : `${s.yCurve}()`;
+  }
+  if (s.ySettleMs !== DEFAULTS.ySettleMs) out.settle = s.ySettleMs;
+  if (s.yStickyMs !== DEFAULTS.yStickyMs) out.sticky = s.yStickyMs;
+  if (s.yGestureMs !== DEFAULTS.yGestureMs) out.gesture = s.yGestureMs;
+
+  return nonEmpty(out);
+}
+
+function pickAxis(s: PlaygroundChartProps, curveAs: 'string' | 'factory'): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  const y = pickYAxis(s, curveAs);
+  const x = pickXAxis(s, curveAs);
+  if (y) out.y = y;
+  if (x) out.x = x;
+  if (s.ticksMs !== DEFAULTS.ticksMs) out.ticks = s.ticksMs;
+
+  return nonEmpty(out);
+}
+
+function pickAnimations(s: PlaygroundChartProps, curveAs: 'string' | 'factory'): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  const series = pickSeries(s);
+  const axis = pickAxis(s, curveAs);
+  if (axis) out.axis = axis;
+  if (series) out.series = series;
+  if (s.toggleMs !== DEFAULTS.toggleMs) out.toggle = s.toggleMs;
+
+  return nonEmpty(out);
+}
 
 /**
  * Build ChartContainer props shared across cartesian playground pages.
@@ -62,44 +191,8 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
   if (Object.keys(x).length > 0) axis.x = x;
   if (Object.keys(axis).length > 0) out.axis = axis;
 
-  // Chart-level animation overrides — emitted only when they differ from
-  // library defaults so the snippet stays minimal. Per-series knobs
-  // (entryAnimation/entryMs/smoothMs/pulse) flow through the series options
-  // builder instead. Phase 1 dropped `viewport.reboundMs` /
-  // `viewport.inputResponseMs` from the public surface, so those slider
-  // values render only when non-default; rebound has no config field, and
-  // inputResponse is now `x.gesture`.
-  const lineSeries: Record<string, PropValue> = {};
-  if (s.entryMs !== ENTRY_MS_DEFAULT) lineSeries.entry = s.entryMs;
-  if (s.smoothMs !== SMOOTH_MS_DEFAULT) lineSeries.smooth = s.smoothMs;
-  if (s.pulseMs !== PULSE_MS_DEFAULT) lineSeries.pulse = s.pulseMs;
-
-  const series: Record<string, PropValue> = {};
-  if (Object.keys(lineSeries).length > 0) series.line = lineSeries;
-
-  const yBlock: Record<string, PropValue> = {};
-  if (s.yEngine !== Y_ENGINE_DEFAULT) {
-    // Emitted as a bare identifier (`spring()` / `snap()`) via the
-    // CodePreview VAR_REF_NAMES allow-list, so the snippet shows the
-    // function call instead of a quoted string.
-    yBlock.curve = `${s.yEngine}()`;
-  }
-
-  const xBlock: Record<string, PropValue> = {};
-  if (s.inputResponseMs !== INPUT_RESPONSE_MS_DEFAULT) xBlock.gesture = s.inputResponseMs;
-  // `s.reboundMs` no longer has a public config field — Phase 2 removes
-  // rebound entirely. Slider state is kept for backwards-compat in the UI
-  // panel; we just don't emit a config field for it.
-  void s.reboundMs;
-
-  const animationsAxis: Record<string, PropValue> = {};
-  if (Object.keys(yBlock).length > 0) animationsAxis.y = yBlock;
-  if (Object.keys(xBlock).length > 0) animationsAxis.x = xBlock;
-
-  const animations: Record<string, PropValue> = {};
-  if (Object.keys(animationsAxis).length > 0) animations.axis = animationsAxis;
-  if (Object.keys(series).length > 0) animations.series = series;
-  if (Object.keys(animations).length > 0) out.animations = animations;
+  const animations = pickAnimations(s, 'string');
+  if (animations) out.animations = animations as PropValue;
 
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -110,40 +203,12 @@ export function buildCartesianContainerProps(s: PlaygroundChartProps): Record<st
  * can omit the prop entirely (and the rendered code snippet stays clean).
  */
 export function buildAnimationsProp(s: PlaygroundChartProps): AnimationsConfig | undefined {
-  const linePoints =
-    s.entryMs === ENTRY_MS_DEFAULT && s.smoothMs === SMOOTH_MS_DEFAULT && s.pulseMs === PULSE_MS_DEFAULT
-      ? undefined
-      : {
-          ...(s.entryMs !== ENTRY_MS_DEFAULT ? { entry: s.entryMs } : {}),
-          ...(s.smoothMs !== SMOOTH_MS_DEFAULT ? { smooth: s.smoothMs } : {}),
-          ...(s.pulseMs !== PULSE_MS_DEFAULT ? { pulse: s.pulseMs } : {}),
-        };
-
-  const yEngineFactory = Y_ENGINE_FACTORIES[s.yEngine];
-  const yBlock = s.yEngine === Y_ENGINE_DEFAULT ? undefined : { curve: yEngineFactory };
-  const xBlock = s.inputResponseMs === INPUT_RESPONSE_MS_DEFAULT ? undefined : { gesture: s.inputResponseMs };
-
-  // Slider for the (now-removed) public rebound field stays in the panel
-  // for UI continuity; we just don't surface it in the runtime config.
-  void s.reboundMs;
-
-  if (linePoints === undefined && yBlock === undefined && xBlock === undefined) return undefined;
-
-  const out: AnimationsConfig = {};
-  if (linePoints !== undefined) out.series = { line: linePoints };
-  if (yBlock !== undefined || xBlock !== undefined) {
-    const axis: { y?: typeof yBlock; x?: typeof xBlock } = {};
-    if (yBlock !== undefined) axis.y = yBlock;
-    if (xBlock !== undefined) axis.x = xBlock;
-    out.axis = axis;
-  }
-
-  return out;
+  return pickAnimations(s, 'factory') as AnimationsConfig | undefined;
 }
 
 /**
  * Build series `options` fragment for fields shared across cartesian series
- * (entry animation, entryMs, smoothMs, and `pulse` for line).
+ * (entry animation, and `pulse` toggle for line during streaming).
  * Callers merge this with series-specific options.
  */
 export function buildCommonSeriesOptions(
@@ -156,9 +221,9 @@ export function buildCommonSeriesOptions(
   if (anim !== ENTRY_ANIM_DEFAULT[kind]) out.entryAnimation = anim;
 
   // Per-series duration overrides aren't emitted here — they fold into the
-  // chart-level `animations.series.line.*` block via
-  // `buildCartesianContainerProps`, which keeps the rendered snippet
-  // single-source-of-truth and matches the way the public API is documented.
+  // chart-level `animations.series.{kind}.*` block via `buildAnimationsProp`,
+  // which keeps the rendered snippet single-source-of-truth and matches the
+  // way the public API is documented.
   if (kind === 'line' && s.streaming) out.pulse = true;
 
   return out;
