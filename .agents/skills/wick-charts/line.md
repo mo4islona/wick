@@ -24,8 +24,6 @@ data={[myData]}
 data={[layer1, layer2, layer3]}
 ```
 
-> `LineData` is a deprecated alias for `TimePoint`. Use `TimePoint`.
-
 ## Series options
 
 ```ts
@@ -38,12 +36,14 @@ interface LineSeriesOptions {
   pulseMs?: number | false;                // pulse period; false disables — default: 600
   stacking: 'off' | 'normal' | 'percent';  // layer stacking — default: 'off'
   entryAnimation?: 'none' | 'grow' | 'fade'; // entrance style for new points — default: 'grow'
-  entryMs?: number | false;                // entrance duration; false disables — default: 400
-  smoothMs?: number | false;               // live-tracking smoothing for updateLastPoint — default: 70
+  entryMs?: number | false;                // entrance duration; false disables — default: 250
+  smoothMs?: number | false;               // live-tracking smoothing for updateLastPoint — default: 250
 }
 ```
 
 All options are optional — pass `Partial<LineSeriesOptions>`.
+
+> Prefer the chart-level animations API (`<ChartContainer animations={{ series: { line: { entry, smooth, pulse } } }}>`) for new code — it's the canonical surface and groups durations alongside axis / toggle timings. The per-series `entryMs` / `smoothMs` / `pulseMs` options still work and are the only place to set them per-series-instance. See [SKILL.md → Animations](SKILL.md).
 
 ## Options explained
 
