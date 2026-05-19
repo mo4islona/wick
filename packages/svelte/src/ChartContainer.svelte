@@ -206,10 +206,21 @@ $: if (instance && grid !== undefined) {
 // Init-only: post-mount `animations` identity changes tear down the
 // instance and rebuild with the new config. Reference equality matters
 // — callers that pass an inline literal will recreate on every render.
+//
+// Children inside the `{#if $chartStore}` block grab the chart store
+// snapshot in their own setup. To force them to re-mount against the
+// new ChartInstance, push `null` through the store first — the
+// `{#if}` guard tears down the slot — then `await tick()` so Svelte
+// commits the unmount before the new instance is constructed. Setting
+// the store to the new instance re-mounts children, who re-read the
+// current chart in their fresh setup.
 let lastAnimations = animations;
-$: if (instance && animations !== lastAnimations) {
-  lastAnimations = animations;
+async function rebuildChartFromAnimations() {
+  if (!instance || !containerEl) return;
   instance.destroy();
+  instance = null;
+  chartStore.set(null);
+  await tick();
   const opts: ChartOptions = {};
   if (axis) opts.axis = axis;
   if (theme) opts.theme = theme;
@@ -222,6 +233,10 @@ $: if (instance && animations !== lastAnimations) {
   if (animations !== undefined) opts.animations = animations;
   instance = new ChartInstance(containerEl, opts);
   chartStore.set(instance);
+}
+$: if (instance && animations !== lastAnimations) {
+  lastAnimations = animations;
+  rebuildChartFromAnimations();
 }
 
 // Re-apply padding on any input that affects it — including `headerExtra`,

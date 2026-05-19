@@ -239,11 +239,21 @@ watch(
 // Init-only: post-mount `animations` reference change tears down the
 // instance and rebuilds with the new config. Reference equality matters
 // — passing an inline literal recreates on every render.
+//
+// Children get the chart via `useChartInstance()` which snapshots
+// `chartRef.value` once at setup time. To force them to re-setup against
+// the new instance, we flip `chart.value` to `null` first — the `v-if`
+// guard in the template unmounts the slot — then `await nextTick()` so
+// Vue commits the unmount before the new ChartInstance is constructed.
+// When `chart.value` becomes the new instance, the slot re-mounts and
+// every child's `setup()` runs again against the fresh chart.
 watch(
   () => props.animations,
-  (next) => {
+  async (next) => {
     if (!chart.value || !containerRef.value) return;
     chart.value.destroy();
+    chart.value = null;
+    await nextTick();
     const opts: ChartOptions = {};
     if (props.axis) opts.axis = props.axis;
     if (props.theme) opts.theme = props.theme;
