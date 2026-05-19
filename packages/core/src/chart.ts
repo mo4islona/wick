@@ -185,12 +185,15 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    *  doesn't pulse. */
   readonly #cadence: StreamingCadence;
   /**
-   * Set by `onDataChanged` before the engine signal so the
-   * `computeXTarget` closure can decide between fit-to-data (batch /
-   * uninit) and streaming-target paths. The closure also reads
+   * Mirrors `#dataReplaceSnapPending` for the engine signal that follows
+   * inside the same `onDataChanged` call. `#dataReplaceSnapPending` is
+   * consumed at the top of `onDataChanged` (so a stray streaming append
+   * couldn't re-trigger the snap), but the `computeXTarget` closure runs
+   * later and still needs to know whether to refit the X window. This
+   * field carries the decision across that gap. The closure also reads
    * `#dataStart` / `#dataEnd` directly for the timestamps.
    */
-  #isBatchLoad = false;
+  #pendingFitToData = false;
 
   /** Earliest data timestamp registered across all series, `null` before any data has arrived. */
   #dataStart: number | null = null;
@@ -1340,9 +1343,6 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     return { first, last };
   }
 
-  /** Total data points across all series at last onDataChanged — used to detect batch vs tick. */
-  #prevDataLength = 0;
-
   /** Set by `setSeriesData`/bulk-replace paths so the next `onDataChanged`
    * snaps the Y range (instead of easing) and `yScale.getRange()` reflects
    * the new domain synchronously. Cleared by `onDataChanged` after each run. */
@@ -1363,26 +1363,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#dataEnd = last;
     }
 
-    // Detect how much data changed — batch load vs single tick
-    let totalLength = 0;
-    for (const entry of this.#series) {
-      // Multi-layer renderers expose getTotalLength(); single-layer uses entry.store.
-      if (entry.renderer.getTotalLength) {
-        totalLength += entry.renderer.getTotalLength();
-      } else if (entry.store) {
-        totalLength += entry.store.length;
-      }
-    }
-    const added = totalLength - this.#prevDataLength;
-    const isBatchLoad = added > 5;
-    this.#prevDataLength = totalLength;
-
     // Snap Y/X only on a true bulk replace (`chart.setSeriesData` flipped
-    // `#dataReplaceSnapPending`) or on the first paint with data. React-
-    // batched bursts and `isBatchLoad`-style fits still flow through the
-    // streaming retarget so the engine's X slot rides its linear curve into
-    // the new tail — snapping here would produce a jump-per-commit pattern
-    // visible as "X teleports between batches".
+    // `#dataReplaceSnapPending`) or on the first paint with data. Streaming
+    // appends and React-batched bursts all flow through the streaming retarget
+    // so the engine's X spring rides its baseline settle into the new tail —
+    // snapping here would produce a jump-per-commit pattern visible as
+    // "X teleports between batches".
     const replaceSnap = this.#dataReplaceSnapPending;
     this.#dataReplaceSnapPending = false;
 
@@ -1394,13 +1380,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // setting `#yInited`.
     const isFirstDataPaint = !this.#yInited && first !== undefined;
 
-    // Bulk replaces (full dataset swap) and batch loads land on entirely
-    // new tick values. If the tick trackers stay armed with the previous
-    // dataset they'd fade the old labels out and the new ones in over
-    // the next 250 ms, briefly showing "ghost" grid lines from the prior
-    // range. Reset so the dataset swap snaps the same way the Y emit below
-    // is about to snap the Y bound.
-    if (replaceSnap || isBatchLoad) {
+    // A bulk replace swaps in an entirely new tick set. If the tick trackers
+    // stay armed with the previous dataset they'd fade the old labels out and
+    // the new ones in over the next 250 ms, briefly showing "ghost" grid
+    // lines from the prior range. Reset so the dataset swap snaps the same
+    // way the Y emit below is about to snap the Y bound.
+    if (replaceSnap) {
       this.yScale.tickTracker.reset();
       this.timeScale.tickTracker.reset();
     }
@@ -1408,13 +1393,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
     // Engine pulls the X target by calling `#computeXTarget`
     // through the `computeXTarget` closure — the closure runs viewport
     // fit / streaming-target math on demand and reads `#dataStart` /
-    // `#dataEnd` (for the timestamps) plus `#isBatchLoad` (set just below)
-    // to pick the right path. Y is pulled separately via the
+    // `#dataEnd` (for the timestamps) plus `#pendingFitToData` (mirrors
+    // `replaceSnap`) to pick the right path. Y is pulled separately via the
     // `computeYTarget` closure against the new X window.
     // `#yInited` flips optimistically — `#computeYTarget` self-clears
     // it when no series has data in the window, so the next paint with
     // values lands as a first-paint snap.
-    this.#isBatchLoad = isBatchLoad;
+    this.#pendingFitToData = replaceSnap;
     const now = performance.now();
     if (replaceSnap || isFirstDataPaint) {
       this.#engine.onDataReplaced(now);
@@ -1422,8 +1407,12 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
       this.#engine.onPointAppended(now);
     }
 
-    if (this.#engine.lastXTarget !== null) this.#xInited = true;
-    if (first !== undefined) this.#yInited = true;
+    if (this.#engine.lastXTarget !== null) {
+      this.#xInited = true;
+    }
+    if (first !== undefined) {
+      this.#yInited = true;
+    }
 
     this.#applyEngineState(now);
     // Re-sync scales so React components read correct yScale values.
@@ -1518,13 +1507,13 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
    * Engine pull-on-demand X target. Called by the engine's `computeXTarget`
    * closure during `engine.onPointAppended` / `engine.onDataReplaced`.
    * Reads `#dataStart` / `#dataEnd` (refreshed by `onDataChanged` just
-   * before the engine signal) plus `#isBatchLoad` flag, then dispatches:
+   * before the engine signal) plus `#pendingFitToData` flag, then dispatches:
    *
    * - **uninit (viewport never committed)** → fit to data, apply any
    *   one-shot `initialVisibleRange`, return the new logical range.
    *   First-paint fit.
-   * - **batch load + autoscroll** → fit to data, return logical. React-
-   *   batched bursts / large `setSeriesData` payloads come here.
+   * - **bulk replace + autoscroll** (`#pendingFitToData`) → fit to data,
+   *   return logical. `chart.setSeriesData(...)` lands here.
    * - **streaming append + autoscroll** → `computeStreamingTarget` (preserves
    *   any pan offset across ticks via `#prevDataEnd`). The engine's X spring
    *   absorbs the new target — velocity carries across retargets so a burst
@@ -1555,7 +1544,7 @@ export class ChartInstance extends EventEmitter<ChartEvents> implements PanZoomT
 
     if (!this.#autoScroll) return null;
 
-    if (this.#isBatchLoad) {
+    if (this.#pendingFitToData) {
       this.#fitVisibleToData(this.#dataStart, this.#dataEnd, chartWidth);
 
       return this.#logical;

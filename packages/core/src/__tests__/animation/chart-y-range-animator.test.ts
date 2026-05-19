@@ -209,8 +209,9 @@ describe('chart Y-range animator', () => {
     const id = seedLine(chart, [50, 50, 50, 50, 50]);
     raf.flush(20);
 
-    // Replace with 12 points — `added = 12 - 5 = 7 > 5` triggers the batch
-    // path. (`isBatchLoad` is `added > 5` in chart.ts:onDataChanged.)
+    // Replace with 12 points via setSeriesData — flips `#dataReplaceSnapPending`,
+    // so onDataChanged takes the `replaceSnap` branch (engine.onDataReplaced
+    // + Y snap, plus a fit-to-data X refit through `#pendingFitToData`).
     const newData = [10, 20, 30, 80, 70, 60, 90, 100, 40, 50, 25, 45].map((value, i) => ({
       time: 1_000_000 + i * INTERVAL,
       value,
